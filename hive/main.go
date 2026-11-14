@@ -127,6 +127,69 @@ func applyRestore(dbPath string) {
 	log.Printf("Datenbank aus restore.db wiederhergestellt")
 }
 
+// routes baut die beiden Router: Web-UI mit ihrer API und die Sensor-API.
+// sensorOnUI legt die Sensor-Routen zusätzlich auf den UI-Router (nur Entwicklung).
+func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) (ui, sensor *http.ServeMux) {
+	a := h.auth
+	// Sensor-API: eigener Listener, nur im internen Docker-Netz erreichbar.
+	sensorRoutes := func(m *http.ServeMux) {
+		m.HandleFunc("POST /api/ingest", a.RequireSensor(h.ingest))
+		m.HandleFunc("POST /api/sensor/heartbeat", a.RequireSensor(h.heartbeat))
+		m.HandleFunc("GET /api/sensor/config", a.RequireSensor(h.sensorConfig))
+	}
+	sensor = http.NewServeMux()
+	sensorRoutes(sensor)
+
+	// Web-UI und ihre API
+	ui = http.NewServeMux()
+	ui.HandleFunc("POST /api/login", a.Login)
+	ui.HandleFunc("POST /api/logout", a.Logout)
+	ui.HandleFunc("GET /api/me", h.me)
+	ui.HandleFunc("GET /api/stats/summary", a.Require(h.summary))
+	ui.HandleFunc("GET /api/stats/timeline", a.Require(h.timeline))
+	ui.HandleFunc("GET /api/stats/top", a.Require(h.top))
+	ui.HandleFunc("GET /api/stats/map", a.Require(h.mapPoints))
+	ui.HandleFunc("GET /api/events", a.Require(h.events))
+	ui.HandleFunc("GET /api/export/events", a.Require(h.exportEvents))
+	ui.HandleFunc("GET /api/export/blocklist", a.Require(h.blocklist))
+	ui.HandleFunc("GET /api/stream", a.Require(h.broker.ServeHTTP))
+	ui.HandleFunc("GET /api/attackers/{ip}", a.Require(h.attacker))
+	ui.HandleFunc("GET /api/sessions", a.Require(h.sessionsList))
+	ui.HandleFunc("GET /api/sessions/{id}", a.Require(h.sessionDetail))
+	ui.HandleFunc("GET /api/sessions/{id}/tty", a.Require(h.sessionTTY))
+	ui.HandleFunc("GET /api/report", a.Require(h.report))
+	ui.HandleFunc("POST /api/report/ai", a.Require(h.reportAI))
+	ui.HandleFunc("GET /api/attackers/{ip}/intel", a.Require(h.intel))
+	ui.HandleFunc("GET /api/extras", a.Require(h.getExtras))
+	ui.HandleFunc("PUT /api/extras", a.Require(h.putExtras))
+	ui.HandleFunc("POST /api/extras/test-notify", a.Require(h.testNotify))
+	ui.HandleFunc("GET /api/tarpit", a.Require(h.tarpit))
+	ui.HandleFunc("GET /api/settings", a.Require(h.getSettings))
+	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
+	ui.HandleFunc("POST /api/password", a.Require(h.changePassword))
+	ui.HandleFunc("GET /api/system", a.Require(h.system))
+	ui.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
+		if err := h.st.db.PingContext(r.Context()); err != nil {
+			http.Error(w, "db", http.StatusServiceUnavailable)
+			return
+		}
+		w.Write([]byte("ok"))
+	})
+	if metricsToken != "" {
+		ui.HandleFunc("GET /metrics", (&Auth{sensorToken: metricsToken}).RequireSensor(h.metrics))
+	}
+	if sensorOnUI {
+		// Ohne eigenen Sensor-Port (lokale Tests) liegen die Sensor-Routen mit auf dem UI-Port.
+		// Einzeln mit Methode registriert: ein Präfix wie "/api/sensor/" kollidiert mit "GET /".
+		sensorRoutes(ui)
+	}
+	ui.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		files.ServeHTTP(w, r)
+	}))
+	return ui, sensor
+}
+
 func main() {
 	dbPath := env("HIVE_DB", "/data/hive.db")
 	if len(os.Args) > 1 {
@@ -227,67 +290,13 @@ func main() {
 		allowedHosts = strings.Split(v, ",")
 	}
 
-	a := h.auth
-	// Sensor-API: eigener Listener, nur im internen Docker-Netz erreichbar.
-	sensorMux := http.NewServeMux()
-	sensorMux.HandleFunc("POST /api/ingest", a.RequireSensor(h.ingest))
-	sensorMux.HandleFunc("POST /api/sensor/heartbeat", a.RequireSensor(h.heartbeat))
-	sensorMux.HandleFunc("GET /api/sensor/config", a.RequireSensor(h.sensorConfig))
-
-	// Web-UI und ihre API
-	ui := http.NewServeMux()
-	ui.HandleFunc("POST /api/login", a.Login)
-	ui.HandleFunc("POST /api/logout", a.Logout)
-	ui.HandleFunc("GET /api/me", h.me)
-	ui.HandleFunc("GET /api/stats/summary", a.Require(h.summary))
-	ui.HandleFunc("GET /api/stats/timeline", a.Require(h.timeline))
-	ui.HandleFunc("GET /api/stats/top", a.Require(h.top))
-	ui.HandleFunc("GET /api/stats/map", a.Require(h.mapPoints))
-	ui.HandleFunc("GET /api/events", a.Require(h.events))
-	ui.HandleFunc("GET /api/export/events", a.Require(h.exportEvents))
-	ui.HandleFunc("GET /api/export/blocklist", a.Require(h.blocklist))
-	ui.HandleFunc("GET /api/stream", a.Require(h.broker.ServeHTTP))
-	ui.HandleFunc("GET /api/attackers/{ip}", a.Require(h.attacker))
-	ui.HandleFunc("GET /api/sessions", a.Require(h.sessionsList))
-	ui.HandleFunc("GET /api/sessions/{id}", a.Require(h.sessionDetail))
-	ui.HandleFunc("GET /api/sessions/{id}/tty", a.Require(h.sessionTTY))
-	ui.HandleFunc("GET /api/report", a.Require(h.report))
-	ui.HandleFunc("POST /api/report/ai", a.Require(h.reportAI))
-	ui.HandleFunc("GET /api/attackers/{ip}/intel", a.Require(h.intel))
-	ui.HandleFunc("GET /api/extras", a.Require(h.getExtras))
-	ui.HandleFunc("PUT /api/extras", a.Require(h.putExtras))
-	ui.HandleFunc("POST /api/extras/test-notify", a.Require(h.testNotify))
-	ui.HandleFunc("GET /api/tarpit", a.Require(h.tarpit))
-	ui.HandleFunc("GET /api/settings", a.Require(h.getSettings))
-	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
-	ui.HandleFunc("POST /api/password", a.Require(h.changePassword))
-	ui.HandleFunc("GET /api/system", a.Require(h.system))
-	ui.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
-		if err := st.db.PingContext(r.Context()); err != nil {
-			http.Error(w, "db", http.StatusServiceUnavailable)
-			return
-		}
-		w.Write([]byte("ok"))
-	})
-	if tok := os.Getenv("HIVE_METRICS_TOKEN"); tok != "" {
-		ui.HandleFunc("GET /metrics", (&Auth{sensorToken: tok}).RequireSensor(h.metrics))
-	}
-	// Die Sensor-API ist zusätzlich auf dem UI-Port erreichbar, wenn kein eigener Port gesetzt ist (lokale Tests).
 	sensorAddr := os.Getenv("HIVE_SENSOR_LISTEN")
-	if sensorAddr == "" {
-		ui.Handle("/api/ingest", sensorMux)
-		ui.Handle("/api/sensor/", sensorMux)
-	}
-
 	sub, _ := fs.Sub(webFS, "web")
 	files := http.FileServer(http.FS(sub))
 	if dir := os.Getenv("HIVE_WEB_DIR"); dir != "" { // nur für Entwicklung: UI direkt vom Datenträger
 		files = http.FileServer(http.Dir(dir))
 	}
-	ui.Handle("GET /", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-cache")
-		files.ServeHTTP(w, r)
-	}))
+	ui, sensorMux := h.routes(sensorAddr == "", os.Getenv("HIVE_METRICS_TOKEN"), files)
 
 	baseCtx, cancelBase := context.WithCancel(context.Background())
 	mkServer := func(addr string, hd http.Handler) *http.Server {

@@ -139,11 +139,12 @@ var toolWords = map[string]bool{
 }
 
 var (
-	cmdSplit    = regexp.MustCompile(`[;\n|&]+`)
-	installRe   = regexp.MustCompile(`(?i)\b(?:apt(?:-get)?|yum|dnf|apk|pip3?|npm|opkg)\s+(?:-\S+\s+)*(?:install|add)\s+((?:[\w.+-]+\s*){1,6})`)
-	pullRe      = regexp.MustCompile(`(?i)\b(?:docker\s+)?pull\s+([\w./:-]+)|\bcreate image=([\w./:-]+)`)
-	urlRe       = regexp.MustCompile(`(?i)\b(?:https?|ftp|tftp)://[^\s'"<>|;)\\]+`)
-	outFileRe   = regexp.MustCompile(`(?:-O|-o|>)\s*([\w./-]{1,80})`)
+	cmdSplit  = regexp.MustCompile(`[;\n|&]+`)
+	installRe = regexp.MustCompile(`(?i)\b(?:apt(?:-get)?|yum|dnf|apk|pip3?|npm|opkg)\s+(?:-\S+\s+)*(?:install|add)\s+((?:[\w.+-]+\s*){1,6})`)
+	pullRe    = regexp.MustCompile(`(?i)\b(?:docker\s+)?pull\s+([\w./:-]+)|\bcreate image=([\w./:-]+)`)
+	urlRe     = regexp.MustCompile(`(?i)\b(?:https?|ftp|tftp)://[^\s'"<>|;)\\]+`)
+	// Zieldatei: "-O datei", "-o datei" oder Umleitung "> datei" (nicht "</tag>" oder "2>&1")
+	outFileRe   = regexp.MustCompile(`(?:\s-[Oo]|(?:^|\s)>{1,2})\s*([\w./-]{1,80})`)
 	uaToolRe    = regexp.MustCompile(`(?i)\b(zgrab|masscan|nmap|censys|shodan|nuclei|sqlmap|nikto|gobuster|dirbuster|wpscan|hydra|python-requests|python-urllib|aiohttp|go-http-client|curl|wget|libwww-perl|okhttp|java|httpx|l9explore|l9tcpid|expanse|internetmeasurement|netcraft|bingbot|googlebot)\b`)
 	sshClientRe = regexp.MustCompile(`(?i)^SSH-[\d.]+-([A-Za-z_]+)`)
 )
@@ -287,16 +288,20 @@ func (c *counter) top(max int) []Count {
 	return out
 }
 
+// keys liefert nie nil: Die UI erwartet im JSON Listen, kein null.
 func (c *counter) keys(max int) []string {
 	if len(c.order) > max {
 		return c.order[:max]
+	}
+	if c.order == nil {
+		return []string{}
 	}
 	return c.order
 }
 
 // BuildReport wertet Ereignisse aus (aufsteigend nach Zeit). subject ist die Überschrift.
 func BuildReport(subject string, evs []*Event, truncated bool) *Report {
-	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig"}
+	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}}
 	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions counter
 	tags := map[string]*TagHit{}
 	maxSev := 0
@@ -436,6 +441,9 @@ func (r *Report) summarize() []string {
 	}
 	if r.Logins > 0 {
 		t := fmt.Sprintf("%d Login-Versuche mit %d verschiedenen Kombinationen", r.Logins, len(r.Creds))
+		if r.Logins == 1 {
+			t = "1 Login-Versuch"
+		}
 		if r.LoginsOK > 0 {
 			t += fmt.Sprintf("; %d davon hat der Honeypot als erfolgreich gewertet", r.LoginsOK)
 		}

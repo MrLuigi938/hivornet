@@ -53,8 +53,7 @@ func ttyClean(b []byte) string {
 		switch {
 		case r == '\n' || r == '\t':
 			return r
-		case r == '\r':
-			return '\n'
+		// auch ein einzelnes \r (Eingabetaste des Angreifers; den Umbruch liefert die Ausgabe)
 		case r < 32 || r == 127 || r == utf8.RuneError:
 			return -1
 		}
