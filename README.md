@@ -4,9 +4,9 @@ Ein leichtgewichtiges Honeypot-System als Alternative zu T-Pot: viele Protokolle
 
 | Container | Aufgabe | RAM (gemessen / Limit) |
 |---|---|---|
-| `honeypot` | eigener Go-Honeypot: FTP, HTTP, HTTPS, Docker-API, MySQL, Redis, SSH-Tarpit, generische Ports. Jeder Port kann aufzeichnen, ausbremsen oder beides | ca. 15 MB / 192 MB |
+| `honeypot` | eigener Go-Honeypot: FTP, HTTP, HTTPS, Docker-API, MySQL, Redis, SMTP, Telnet, RDP, VNC, SSH-Tarpit, generische Ports. Jeder Port kann aufzeichnen, ausbremsen oder beides | ca. 15 MB / 192 MB |
 | `cowrie` | SSH- und Telnet-Honeypot mit gefälschter Shell (Cowrie 3.1.6) | ca. 80–120 MB / 256 MB |
-| `hive` | sammelt alles, ergänzt Land/Stadt/Netzbetreiber, speichert in SQLite und liefert die Web-UI | ca. 20–60 MB / 384 MB |
+| `hive` | sammelt alles, ergänzt Land/Stadt/Netzbetreiber, speichert in SQLite, erkennt Angriffsmuster, benachrichtigt und liefert die Web-UI | ca. 20–60 MB / 384 MB |
 | `janitor` | räumt alte Cowrie-Logs und Downloads auf (BusyBox, ohne Netzwerk) | < 2 MB / 16 MB |
 
 ```
@@ -94,7 +94,10 @@ Die Honeypot-Ports liegen auf der NAS absichtlich auf hohen Nummern, damit sie n
 | 2222 | 12222 | SSH-Tarpit |
 | 3306 | 13306 | MySQL |
 | 6379 | 16379 | Redis |
-| 5900 | 15900 | Generisch (VNC-Port) |
+| 5900 | 15900 | VNC |
+| 25 | 10025 | SMTP |
+| 2323 | 12323 | Telnet (Go-Honeypot) |
+| 3389 | 13389 | RDP |
 
 Du musst nicht alle weiterleiten. Fang ruhig mit 22, 23, 80 und 2222 an.
 
@@ -107,15 +110,45 @@ Du musst nicht alle weiterleiten. Fang ruhig mit 22, 23, 80 und 2222 an.
 | Ansicht | Inhalt |
 |---|---|
 | Dashboard | Warnungen, Kennzahlen, Weltkarte mit Live-Angriffen, Verlauf nach Dienst, Top-Länder/Ports/IPs/Netzbetreiber/Zugangsdaten/Befehle |
+| Live-Karte | große Karte: Jede neue Verbindung zeichnet eine Linie vom Ursprung zum Honeypot; Laufliste, Angriffe pro Minute |
 | Live-Feed | alle Ereignisse in Echtzeit, filterbar; Export als CSV/JSON und Blockliste der Angreifer-IPs |
-| Sitzungen | Verbindungen mit Logins oder Befehlen; Cowrie-Sitzungen als Befehlsverlauf |
-| Angreifer | alles zu einer IP: Herkunft, Ports, Passwörter, Ereignisse |
+| Sitzungen | Verbindungen mit Logins oder Befehlen; Ablauf, Angriffsbericht und bei Cowrie der Terminal-Mitschnitt zum Abspielen |
+| Analyse | erkannte Angriffsmuster, benutzte und installierte Programme, Scanner, Nachlade-Adressen |
+| Angreifer | alles zu einer IP: Herkunft, Angriffsbericht, Reputation (AbuseIPDB), Ports, Passwörter, Ereignisse |
 | Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen |
 | Tarpit | verschwendete Angreiferzeit, gerade festgehaltene Verbindungen, Spitzenreiter |
-| Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort; bei mehreren Sensoren je Sensor |
+| Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort; bei mehreren Sensoren je Sensor. Dazu Standort für die Karte, Benachrichtigungen, KI-Auswertung, AbuseIPDB |
 | System | Warnungen, Netzsperre, RAM, Datenbank, GeoIP, Cowrie, Status je Sensor und Port |
 
 Änderungen in den Einstellungen übernimmt der Honeypot **innerhalb von 15 Sekunden ohne Neustart**.
+
+### Angriffsbericht und Analyse
+
+Auf der Seite eines Angreifers und einer Sitzung steht ein **Angriffsbericht**: Einstufung (niedrig, mittel, hoch), eine Kurzfassung in Sätzen, die erkannten Muster mit Beispiel, benutzte Werkzeuge, Zugangsdaten, Nachlade-Adressen, Dateien und die Befehle in Reihenfolge. „Als Text speichern“ liefert ihn als Datei.
+
+Die Muster erkennt der Hive nach festen Regeln, ohne fremde Dienste. Beispiele: Nachladen und Ausführen, Krypto-Miner, IoT-Botnetz, SSH-Schlüssel hinterlegen, Cron-Persistenz, Docker-Ausbruch, Log4Shell, Geheimnis-Suche (`.env`, `.git`). Die Ansicht **Analyse** zeigt, wie oft welches Muster und welches Programm vorkam. Gezählt wird ab dem Update auf diese Version.
+
+**KI-Auswertung (optional):** Unter Einstellungen lässt sich ein Sprachmodell eintragen, das einen Bericht auf Knopfdruck in Worte fasst. Es funktioniert jede OpenAI-kompatible Schnittstelle:
+
+| Variante | Adresse | Hinweis |
+|---|---|---|
+| Ollama auf einem Rechner im Heimnetz | `http://<Rechner>:11434/v1` | Daten bleiben im Haus. Ollama muss im Netz lauschen (`OLLAMA_HOST=0.0.0.0`). |
+| LM Studio | `http://<Rechner>:1234/v1` | wie oben |
+| OpenRouter | `https://openrouter.ai/api/v1` | braucht einen API-Schlüssel und kostet je Anfrage; IP-Adressen, Zugangsdaten und Befehle der Angreifer verlassen dabei dein Netz |
+
+Die Auswertung stammt von einem Sprachmodell und kann Fehler enthalten. Der Bericht darüber ist die Grundlage.
+
+### Benachrichtigungen
+
+Unter Einstellungen → Benachrichtigungen trägst du ein Ziel ein und wählst die Anlässe:
+
+- **ntfy:** App installieren, ein langes, zufälliges Thema abonnieren und dessen Adresse eintragen, z. B. `https://ntfy.sh/<dein-thema>`. Bei ntfy.sh kann jeder mitlesen, der den Themennamen kennt.
+- **Telegram:** Bot beim BotFather anlegen, Token und Chat-ID eintragen.
+- **Webhook:** bekommt JSON mit `title`, `text`, `kind`, `ip`, `time`.
+
+„Speichern und Testnachricht senden“ prüft die Einrichtung. Je Angreifer und Anlass kommt höchstens eine Meldung in 10 Minuten, insgesamt höchstens so viele pro Stunde wie eingestellt (Standard 20).
+
+Token und Schlüssel speichert der Hive in seiner Datenbank und zeigt sie nie wieder an. Sie stehen damit auch in den Backups.
 
 ### Modi je Port
 
@@ -136,7 +169,7 @@ Angreifer sollen den Honeypot nicht lahmlegen und die Platte nicht füllen könn
 - **Datenbank:**
   - Aufbewahrung nach Tagen.
   - Höchstgröße `HIVE_MAX_DB_MB` und Mindest-Freiplatz `HIVE_MIN_FREE_MB`; bei Bedarf werden die ältesten Ereignisse vorzeitig gelöscht.
-- **Cowrie-Dateien:** werden nach `COWRIE_KEEP_DAYS` gelöscht; Downloads höchstens 10 MB je Datei.
+- **Cowrie-Dateien:** werden nach `COWRIE_KEEP_DAYS` gelöscht; Downloads höchstens 10 MB je Datei. Danach sind auch die Terminal-Mitschnitte in der UI nicht mehr abrufbar.
 
 ## Testen
 
@@ -146,7 +179,7 @@ Von einem anderen Rechner im Heimnetz (Python 3, keine Zusatzpakete):
 python3 tools/attack_sim.py --host <IP-der-NAS>
 ```
 
-Das schickt typische Angriffe auf alle Honeypot-Ports: Login-Seiten, Docker-Missbrauch, Redis-Cron-Masche, MySQL-Login, SSH-Tarpit. Danach sieht man sie im Live-Feed (Quelle: deine LAN-IP, Land „LAN“).
+Das schickt typische Angriffe auf alle Honeypot-Ports: Login-Seiten, Docker-Missbrauch, Redis-Cron-Masche, MySQL-Login, SSH-Tarpit, Telnet-Bot, SMTP-Anmeldung, VNC und RDP. Danach sieht man sie im Live-Feed (Quelle: deine LAN-IP, Land „LAN“).
 
 Für eine gefüllte Weltkarte ohne echte Angriffe gibt es Demo-Daten. Die Sensor-API ist nur im Docker-Netz erreichbar, deshalb auf der NAS selbst ausführen:
 
@@ -171,6 +204,7 @@ Was eingebaut ist:
 - **Was Angreifer erreichen können:**
   - Die Shell in Cowrie ist gefälscht, Angreifer führen nichts wirklich aus.
   - Der Go-Honeypot baut selbst keine Verbindungen nach außen auf; die einzige Ausnahme ist die Prüfung der Netzsperre.
+  - Der Hive verbindet nur zu Adressen, die du selbst einträgst (Benachrichtigungen, KI, AbuseIPDB), und zum GeoIP-Download. Angreifer können diese Adressen nicht beeinflussen.
   - Angreiferdaten werden in der UI nie als HTML ausgeführt. Steuerzeichen werden sichtbar ersetzt, CSV-Exporte gegen Formel-Injection geschützt.
 - **Web-UI:**
   - Nur an die LAN-IP gebunden.
@@ -190,7 +224,7 @@ Kein Ersatz für Rechtsberatung, aber das solltest du wissen:
 - **Personenbezogene Daten:** IP-Adressen, Benutzernamen und Passwörter der Angreifer sind nach DSGVO personenbezogen.
   - Rechtsgrundlage ist in der Regel das berechtigte Interesse am Schutz der eigenen Systeme (Art. 6 Abs. 1 lit. f DSGVO).
   - Speichere nur so lange wie nötig. Standard: 30 Tage für Ereignisse **und** Angreifer-IPs (`HIVE_RETENTION_DAYS`); die Stundenstatistik enthält keine IPs.
-  - Gib Daten nicht ungeprüft weiter.
+  - Gib Daten nicht ungeprüft weiter. Das betrifft auch die KI-Auswertung über einen Dienst im Internet und die Abfrage bei AbuseIPDB: Beide schicken Angreiferdaten an Dritte und sind deshalb abgeschaltet, bis du sie einrichtest.
   - Exporte und Blocklisten sind ebenfalls personenbezogen.
 - **Internetanschluss:** Prüfe die Bedingungen deines Anbieters. Manche untersagen Server-Dienste am Privatanschluss.
 - **Haftung:** Wird ein Honeypot übernommen und greift von deinem Anschluss aus andere an, kannst du verantwortlich gemacht werden. Deshalb ist die Netzsperre Pflicht.
@@ -233,6 +267,17 @@ Auf eine andere Version zurückrollen: `git checkout <Version>`, dann `sh update
   - Cowrie still.
 - **Prometheus:** In `.env` `HIVE_METRICS_TOKEN` setzen, dann `GET http://<NAS>:8088/metrics` mit Header `Authorization: Bearer <Token>`.
 
+### Raspberry Pi
+
+Die Images werden für arm64 und armv7 gebaut und sollten damit auf einem Raspberry Pi 3 oder neuer laufen. Auf echter Pi-Hardware ist das noch nicht geprüft. Empfehlungen:
+
+- **Fertige Images statt Build:** Der Build von SQLite dauert auf dem Pi lange. Ein Git-Tag `v*` legt Images in der GitHub Container Registry ab.
+- **SD-Karte schonen:** in `.env` `HIVE_FLUSH_MS=5000` setzen. Der Hive schreibt dann alle 5 Sekunden gebündelt; der Live-Feed kommt entsprechend später.
+- **Speicher begrenzen:** `HIVE_MAX_DB_MB` passend zur Karte wählen, z. B. 1024.
+- **Bei 1 GB RAM:** Cowrie braucht am meisten. Ohne Cowrie (`COMPOSE_PROFILES=` leer) bleiben Honeypot und Hive mit zusammen deutlich unter 100 MB; SSH lässt sich dann über den SSH-Tarpit und Telnet über den Go-Honeypot abdecken.
+
+Ein fertiges Pi-Image gibt es noch nicht.
+
 ### UI mit HTTPS (optional)
 
 Die UI spricht nur HTTP und ist für das Heimnetz gedacht. Für HTTPS einen Reverse-Proxy davorsetzen, z. B. den der Synology:
@@ -266,10 +311,11 @@ cd hive && go test ./... && go build -o hive . && cd ../honeypot && go test ./..
 - **Sensor-API ohne eigenen Port:** Ohne `HIVE_SENSOR_LISTEN` ist sie auch über den UI-Port erreichbar, praktisch für lokale Tests.
 - **UI ohne Neubau:** Mit `HIVE_WEB_DIR` liefert der Hive die UI direkt aus dem Ordner aus.
 - **Go-Version:** 1.26 oder neuer.
+- **Alle Prüfungen in einem Aufruf:** `sh tools/check.sh` (gofmt, vet, Tests, Cross-Build für amd64, arm64 und armv7).
 
-Das Ereignisformat zwischen Sensor und Hive steht in [docs/events.md](docs/events.md).
+Wie das System aufgebaut ist und wie man ein Protokoll, ein Angriffsmuster oder eine Ansicht ergänzt, steht in [docs/ARCHITEKTUR.md](docs/ARCHITEKTUR.md); das Ereignisformat zwischen Sensor und Hive in [docs/events.md](docs/events.md).
 
-**Tests:** Unit-, Fuzz- und Vertragstests in `honeypot/honeypot_test.go` und `hive/hive_test.go`. Fuzzing z. B. mit `go test -run=^$ -fuzz=FuzzReadRESP -fuzztime=60s` im Ordner `honeypot`.
+**Tests:** Unit-, Fuzz- und Vertragstests in `honeypot/*_test.go` und `hive/*_test.go`. Fuzzing z. B. mit `go test -run=^$ -fuzz=FuzzReadRESP -fuzztime=60s` im Ordner `honeypot`.
 
 Die CI (`.github/workflows/ci.yml`) prüft bei jedem Push:
 - `go vet`, `gofmt`, `staticcheck`, `govulncheck`;
@@ -283,17 +329,16 @@ Ein Git-Tag `v*` baut die Images und legt sie in der GitHub Container Registry a
 
 HoneyLite ist ein Sensor für Massenscans und Login-Versuche mit guter Übersicht, kein Werkzeug für Malware-Analyse oder Forschung. Gegenüber T-Pot fehlt bewusst:
 
-- **Weniger und einfachere Honeypots:** über 20 spezialisierte bei T-Pot, hier 8 einfache Emulationen plus Cowrie. Kein Dateisystem, keine Nutzlast-Ausführung, kein Malware-Fang über SMB.
+- **Weniger und einfachere Honeypots:** über 20 spezialisierte bei T-Pot, hier 12 einfache Emulationen plus Cowrie. Kein Dateisystem, keine Nutzlast-Ausführung, kein SMB. RDP ohne NLA: erfasst wird nur der Benutzername aus dem Verbindungs-Cookie.
 - **Keine Netzwerk-Erkennung:** kein Suricata, p0f oder Fatt.
-- **Feste Auswertungen:** keine frei definierbaren Abfragen wie in Kibana.
+- **Feste Auswertungen:** keine frei definierbaren Abfragen wie in Kibana. Die Angriffsmuster sind einfache Regeln und können danebenliegen.
 - **Kein UDP, kein IPv6:** Die Docker-Netze sind nur IPv4; Angriffe über IPv6 sieht HoneyLite nicht.
 - **Erkennbar:** Server-Kennungen und Antworten sind fest bzw. einfach gehalten. Geübte Scanner können den Honeypot erkennen.
 - **Mehrere Sensoren:** Sie können eigene Konfigurationen haben, teilen sich aber ein Token. Die Sensor-API hat kein TLS und ist nur für das interne Docker-Netz gedacht.
-- **Cowrie nur teilweise ausgewertet:** TTY-Mitschnitte und Sitzungsparameter werden gespeichert, aber nicht in der UI angezeigt.
 
 Mögliche nächste Schritte:
-- **Benachrichtigungen** (ntfy, Telegram, E-Mail) bei erfolgreichem Login oder Download.
-- **Datenabgleich:** AbuseIPDB und GreyNoise, STIX/MISP-Export, weitere Protokolle (SMB, RDP, SMTP, UDP).
+- **Weitere Protokolle:** SMB, RDP mit NLA, UDP-Dienste.
+- **Datenabgleich:** GreyNoise per API, STIX/MISP-Export, Benachrichtigung per E-Mail.
 - **Konten und Betrieb:** Mehrbenutzer mit Leserolle und zweitem Faktor, eigenes Raspberry-Pi-Image.
 
 ## Lizenzen und Quellen

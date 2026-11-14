@@ -17,7 +17,7 @@ Content-Type: application/json
 | `eid` | Text, ≤ 64 | empfohlen | Zufällige ID. Der Hive verwirft Ereignisse mit bereits gesehener ID (die letzten 200.000), damit wiederholtes Senden keine Duplikate erzeugt. |
 | `ts` | RFC 3339 | ja | Zeitpunkt; Werte mehr als 1 h in der Zukunft werden durch „jetzt“ ersetzt |
 | `sensor` | Text, ≤ 64 | nein | sonst der Wert aus dem Block |
-| `service` | Text, ≤ 32 | ja | z. B. `http`, `redis`, `ssh` |
+| `service` | Text, ≤ 32 | ja | Dienste des Honeypots: `http`, `https`, `dockerapi`, `ftp`, `redis`, `mysql`, `ssh-tarpit`, `raw`, `telnet`, `smtp`, `vnc`, `rdp`; von Cowrie: `ssh`, `telnet` |
 | `type` | siehe unten | ja | |
 | `src_ip` | IPv4/IPv6 | ja | |
 | `src_port`, `dst_port` | Zahl | nein | `dst_port` ist der echte Dienst-Port (80, nicht 10080) |
@@ -35,14 +35,21 @@ Geo-Felder (`country`, `city`, `lat`, `lon`, `asn`, `as_org`) ergänzt der Hive 
 |---|---|
 | `connect` | `mode` |
 | `disconnect` | `bytes_out` |
-| `login` | `success` (Cowrie), `path` (HTTP), `password_hashed`, `auth_hex`, `database`, `plugin` (MySQL) |
+| `login` | `success` (Cowrie), `path` (HTTP), `password_hashed`, `auth_hex`, `database`, `plugin` (MySQL); `accepted` (Telnet des Honeypots: Login wurde zum Schein angenommen); `password_hashed`, `challenge`, `response` (VNC, Hex); `cookie`, `protocols` (RDP: nur Benutzername aus dem Cookie) |
 | `command` | `input`, optional `truncated` |
 | `request` | `method`, `path`, `host`, `user_agent`, `version`, `headers`, `body`, `body_truncated`; bei Cowrie `forward_to` |
 | `download` | `url`, `sha256`, `failed`, bzw. `filename`, `upload` |
-| `client_version` | `version` |
+| `client_version` | `version`; bei RDP zusätzlich `client_name`, `keyboard_layout` |
 | `fingerprint` | `hassh`, `hassh_algorithms` (Cowrie) |
-| `payload` | `text` (nicht druckbare Bytes als `\xNN`), `bytes` |
+| `payload` | `text` (nicht druckbare Bytes als `\xNN`), `bytes`; bei SMTP `mail: true` (Anfang einer Mail, `bytes` = gelesene Größe) |
 | `tls` | `sni` |
+| `tty` | `shasum`, `size`, `duration_s`: Cowrie hat einen Terminal-Mitschnitt geschrieben. Entsteht nur im Hive (Cowrie-Leser), nie über die Sensor-API |
+
+## Kompatibilität
+
+Das Format hat keine Versionsnummer; es wird nur ergänzt. Neue Dienste und neue Felder in `data` versteht jeder Hive (Dienst ist freier Text, `data` ein beliebiges Objekt). Einen unbekannten **Typ** verwirft der Hive einzeln, der Rest des Blocks wird angenommen. Ein Sensor mit neueren Diensten läuft also an einem älteren Hive; dieser kann die neuen Dienste aber nicht in den Einstellungen anbieten.
+
+Was der Hive aus Ereignissen ableitet (Angriffsmuster, Werkzeuge, Nachlade-Adressen), steht nicht im Ereignis, sondern in der Zähltabelle `top_hourly` und im Angriffsbericht (siehe [ARCHITEKTUR.md](ARCHITEKTUR.md)).
 
 ## Größenbudget
 
@@ -50,7 +57,7 @@ Der Honeypot hält jedes Ereignis unter 12 KB JSON:
 - Kopfzeilen und Body je höchstens 1.536 Zeichen, Pfad 1.024, Payload und Befehle 2.048.
 - `printable` begrenzt die **Ausgabe**, nicht die Eingabe. JSON-Maskierung kann sie höchstens verdoppeln.
 
-Blöcke umfassen höchstens 200 Ereignisse bzw. 1 MB. Der Vertragstest `TestEventSizeContract` in `honeypot/honeypot_test.go` prüft das gegen das Hive-Limit.
+Blöcke umfassen höchstens 200 Ereignisse bzw. 1 MB. Die Vertragstests `TestEventSizeContract` (`honeypot/honeypot_test.go`) und `TestNewProtocolsSizeBudget` (`honeypot/proto_new_test.go`) prüfen das gegen das Hive-Limit.
 
 ## Antworten
 
