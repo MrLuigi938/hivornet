@@ -32,21 +32,23 @@ Dazu kam während der Arbeit der Wunsch des Nutzers nach einer moderneren Live-K
 | P10 | Filter im Live-Feed (Land, Port), Tastaturbedienung der Tabellen | mittel | niedrig | **umgesetzt** |
 | P11 | Schonung von SD-Karten (`HIVE_FLUSH_MS`), Abschnitt Raspberry Pi | mittel | niedrig | **umgesetzt** |
 | P12 | Fehler aus 0.2.0: Absturz ohne `HIVE_SENSOR_LISTEN` | – | niedrig | **behoben** (beim Testen gefunden) |
-| P13 | SMB (Negotiate, NTLM-Benutzername) | mittel | hoch | offen |
-| P14 | RDP mit NLA/CredSSP | mittel | hoch | offen |
-| P15 | GreyNoise per API | niedrig | mittel | offen (Links vorhanden) |
-| P16 | UDP-Dienste (SIP, SNMP, DNS) | mittel | hoch | offen |
-| P17 | Mehrbenutzer, Leserolle, zweiter Faktor | niedrig | hoch | offen |
-| P18 | Fertiges Raspberry-Pi-Image | mittel | hoch | offen |
-| P19 | STIX/MISP-Export | niedrig | mittel | offen |
-| P20 | Muster rückwirkend für alte Ereignisse zählen | niedrig | niedrig | offen |
-| P21 | Ländergrenzen auf der Karte (Einfärbung nach Land) | niedrig | mittel | offen |
+| P13 | Telnet glaubwürdiger (ein Passwort je Gerät, BusyBox-Shell) | mittel | niedrig | **umgesetzt** (Wunsch 2. Runde) |
+| P14 | Version 0.3.0, Fußzeile, automatische Port-Anpassung | – | niedrig | **umgesetzt** (Wunsch 2. Runde) |
+| P15 | Ersteinrichtung über die Web-UI (Passwort, Standort) | hoch | mittel | **umgesetzt** (Wunsch 2. Runde) |
+| P16 | Update-Prüfung gegen GitHub, Hinweis und Knopf in der UI | hoch | mittel | **umgesetzt** (Wunsch 2. Runde) |
+| P17 | Fertiges Raspberry-Pi-Image, Setup und Update über die UI | hoch | hoch | **umgesetzt**, auf echter Hardware ungeprüft (Wunsch 2. Runde) |
+| P18 | Muster rückwirkend für alte Ereignisse zählen | niedrig | niedrig | **umgesetzt** |
+| P19 | SMB (Negotiate, NTLM-Benutzername) | mittel | hoch | offen |
+| P20 | RDP mit NLA/CredSSP | mittel | hoch | offen |
+| P21 | GreyNoise per API, UDP-Dienste, Mehrbenutzer, STIX/MISP, Ländergrenzen | – | – | offen |
 | P22 | `proto_other.go` in eine Datei je Protokoll teilen | niedrig | niedrig | verworfen |
 
-Begründungen:
+P13–P18 kamen in einer zweiten Runde auf Wunsch des Nutzers dazu (Telnet unauffälliger, fertiges Pi-Image mit Einrichtung und Updates über die UI, Versionierung mit Update-Prüfung gegen GitHub, Fußzeile wie im Projekt Heimdeck, die offenen Punkte soweit möglich erledigen).
 
-- **P13, P14 offen:** Beide brauchen einen NTLM-Dialog (SPNEGO bzw. CredSSP in ASN.1). Das sind einige hundert Zeilen Binärprotokoll, die sich ohne echten Client auf dem Entwicklungsrechner nicht verlässlich prüfen lassen.
-- **P15 offen:** Die Community-API von GreyNoise habe ich nicht aus sicherer Kenntnis parat und nicht nachgeschlagen; statt zu raten, gibt es nur den Link zur GreyNoise-Seite der IP.
+Begründungen für die weiter offenen Punkte:
+
+- **P19, P20 (SMB, RDP mit NLA) offen:** Beide brauchen einen NTLM-Dialog (SPNEGO bzw. CredSSP in ASN.1). Ein erster Ansatz, die NTLM-Anmeldedaten aus dem Dialog zu lesen, wurde vom Sicherheitsfilter der Entwicklungsumgebung abgebrochen; der Code wurde verworfen und nicht wieder aufgenommen. Das sind einige hundert Zeilen Binärprotokoll, die sich ohne echten Client ohnehin schwer verlässlich prüfen lassen. RDP erfasst weiterhin den Benutzernamen aus dem Cookie, SMB fehlt ganz.
+- **P21 (GreyNoise-API u. a.) offen:** Die Community-API von GreyNoise ist nicht aus sicherer Kenntnis greifbar; statt zu raten, gibt es nur den Link zur GreyNoise-Seite der IP. UDP, Mehrbenutzer, STIX/MISP und Ländergrenzen auf der Karte sind bewusst zurückgestellt.
 - **P22 verworfen:** Reines Verschieben von Code macht den Diff groß und erschwert den Vergleich mit `main`. Neue Protokolle haben eigene Dateien.
 
 ## 3. Umsetzung je Punkt
@@ -165,6 +167,49 @@ Ein JSON-Objekt unter `kv.extras`, im Speicher gehalten (`extrasCache`). **Gehei
 
 In 0.2.0 registrierte `main` die Sensor-API im Entwicklungsmodus als Präfix `/api/sensor/` neben `GET /`. Go 1.22+ lehnt das als Konflikt ab; der Hive stürzte beim Start ab. Betroffen war nur der in der README beschriebene Start ohne eigenen Sensor-Port, nicht der Docker-Betrieb. Die Routen stehen jetzt in `Hive.routes` und werden einzeln mit Methode registriert. Test: `TestRoutesBothModes`.
 
+### P13 – Telnet glaubwürdiger (`honeypot/proto_telnet.go`)
+
+Vorher nahm Telnet jeden Login an – ein deutliches Honeypot-Signal. Jetzt hat jedes Konto genau **ein** gültiges Passwort (`telnetAccounts`), ausgewählt per FNV-1a aus Hostname und Kontoname. So ist es je Gerät verschieden, aber über Neustarts stabil (wie ein echtes Werkspasswort). Falsche Anmeldungen bekommen nach 1,5–2,7 s Pause `Login incorrect`, nach drei Versuchen endet die Verbindung. Bots, die bekannte Werkspasswörter durchgehen (Mirai u. a.), treffen trotzdem; wer zufällige Zugangsdaten probiert, kommt nicht hinein. Die Schein-Shell beantwortet jetzt `echo -e` (mit `\xNN`), `cat /proc/cpuinfo`, `/proc/mounts`, `ps`, `ls`, `uname -a` glaubwürdig; `wget`/`curl`/`tftp` melden „Network is unreachable“ (als säße das Gerät hinter einer Firewall). Das Feld `accepted` im Login-Ereignis sagt, ob der Login angenommen wurde. Tests: `TestTelnetLoginAndShell` (falsch, dann richtig), `TestTelnetRejectsLikeRealDevice`.
+
+Grenze: Ein Angreifer, der für denselben Benutzer zwei Passwörter als gültig erwartet oder das Zeitverhalten genau vermisst, kann es weiterhin erkennen. Das volle Verhalten eines Geräts bildet nur Cowrie nach.
+
+### P14 – Version 0.3.0, Fußzeile, Port-Anpassung
+
+- `HONEYLITE_VERSION` steht überall auf 0.3.0 (`docker-compose.yml`, `.env.example`, Release-Workflow).
+- **Fußzeile** (`credit()` in `app.js`) mit Name, Version und „Erdacht mit ♥ von Luis Blum · gebaut mit KI" – übernommen aus dem Projekt Heimdeck (`/c/hd/heimdeck/web/src/lib/Credit.svelte`). In der Anwendung zeigt sie zusätzlich einen Update-Hinweis (P16).
+- **Automatische Port-Anpassung** (`upgradeSensorConfigs` in `setup.go`): Läuft einmal (Merker `config_level` in `kv`) über jede gespeicherte Sensor-Konfiguration. Port 5900 mit Dienst `raw` wird zu `vnc`; SMTP (25), Telnet (2323) und RDP (3389) kommen dazu, sofern ihre Ports frei sind. Was der Nutzer selbst eingestellt hat, bleibt. Damit erscheinen die neuen Dienste nach dem Update von selbst, ohne dass man sie von Hand hinzufügt (auf Wunsch des Nutzers, der die erste Frage so beantwortet hat). Test: `TestUpgradeSensorConfigs`.
+
+### P15 – Ersteinrichtung in der Web-UI (`hive/setup.go`)
+
+Ist kein Admin-Konto vorhanden und keines per `HIVE_ADMIN_PASSWORD` vorgegeben, legt `EnsureAdmin` keins mehr an (vorher: zufälliges Passwort ins Log). Stattdessen zeigt die UI (`showSetup` in `app.js`) einen Assistenten: Passwort (zweimal) und Standort für die Karte. `POST /api/setup` legt das Konto an und meldet sofort an.
+
+- **Wer zuerst kommt, mahlt:** Bei Heimnetz-Geräten üblich und der Grund, warum die UI nie ins Internet gehört (steht so in der README). `GET /api/setup` verrät nur, ob die Einrichtung nötig ist; sobald ein Konto existiert, ist der Weg mit 409 dauerhaft zu (`setupMu` schützt gegen Wettlauf, `attempt` drosselt).
+- Test: `TestSetupOnlyOnce` (ohne Header 403, zu kurzes Passwort 400, Erfolg setzt Cookie, zweiter Versuch 409).
+
+### P16 – Update-Prüfung gegen GitHub (`hive/setup.go`)
+
+`checkUpdates` fragt zweimal täglich die Releases-Liste des Repositorys ab (`newestRelease`, semantischer Vergleich in `parseSemver`/`newer`). Die Fußzeile zeigt dann „Version X ist da" mit Link auf die Veröffentlichung. Abschalten mit `HIVE_UPDATE_CHECK=off`; Entwicklungs-Builds („dev") prüfen nie. Solange das Repository privat ist, antwortet GitHub mit 404 und es erscheint kein Hinweis – das ist in Ordnung.
+
+Nur wo ein Updater eingerichtet ist (`HIVE_UPDATE_REQUEST`, also das Pi-Image), erscheint zusätzlich der Knopf „Jetzt aktualisieren". Er ruft `POST /api/update`; der Hive hat selbst keine Rechte, sich zu ersetzen, und legt nur die geprüfte Versionsnummer in eine Datei (`updateRun`). Tests: `TestNewestRelease`, `TestUpdateRequestFile`. Gegen die echte GitHub-API nicht geprüft; nur eigene `MrLuigi938/honeylite`-Adressen werden verlinkt.
+
+### P17 – Raspberry-Pi-Image (`pi/`)
+
+Das Image ist ein Raspberry Pi OS Lite, in das `pi/build-image.sh` HoneyLite hineinlegt – ohne ARM-Emulation (es wird nichts im Image ausgeführt). Enthalten:
+
+- **systemd-Dienste** (`pi/rootfs/etc/systemd/system/`): `honeylite-hive` und `honeylite-honeypot`, beide gehärtet (eigene Benutzer `honeylite-hive`/`honeylite-pot`, `ProtectSystem=strict`, Capabilities leer bzw. nur `CAP_NET_BIND_SERVICE`, Speichergrenzen). Der Honeypot lauscht direkt auf den echten Ports, deshalb kein Port-Versatz und `HIVE_DIRECT_PORTS=1` für die UI-Anzeige.
+- **Erster Start** (`honeylite-firstboot`): erzeugt nur das gemeinsame Token. Das Admin-Passwort vergibt der Nutzer im Browser (P15). Kein Docker, keine Konsole – der Wunsch war „aufspielen, einstecken, im Browser einrichten".
+- **Netzsperre** (`honeylite-firewall`): sperrt neue ausgehende Verbindungen des Honeypot-Benutzers per nftables oder iptables (owner-Match), erlaubt nur Antworten und den Weg zum Hive auf 127.0.0.1:8089.
+- **Update über die UI** (`honeylite-update.path` + `honeylite-update`): Der Pfad-Unit bemerkt die vom Hive abgelegte Anforderung, der Updater lädt das Programmpaket der Version von GitHub, prüft `SHA256SUMS`, sichert die Datenbank, tauscht die Programme und startet neu – mit Rückfall auf die alte Version, wenn der Hive danach nicht läuft. Nur die beiden Programme werden ersetzt; Änderungen an systemd-Dateien brauchen ein neues Image.
+- **Cowrie ist nicht dabei** (Python, zu viel RAM). SSH/Telnet decken SSH-Tarpit und der Telnet-Honeypot ab; also keine echte Fake-Shell und keine TTY-Mitschnitte auf dem Pi.
+
+Die Release-Pipeline (`release.yml`) baut je Tag: Docker-Images (wie bisher), Programmpakete `honeylite-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` (für den Selbst-Update-Weg) und die Pi-Images, und legt alles in eine GitHub-Veröffentlichung. Das Pi-Image lässt sich über „Run workflow" auch ohne Tag zum Testen bauen.
+
+**Nicht geprüft:** Das Image wurde nicht gebaut (Bau braucht Linux mit Root, `losetup`/`mount`; der Entwicklungsrechner ist Windows) und nie auf echte Pi-Hardware gespielt. Die Skripte sind syntaktisch geprüft (`sh -n`) und in die CI-`shellcheck`-Liste aufgenommen. Die systemd-Units und der Updater-Ablauf sind nach bestem Wissen geschrieben, aber nicht auf einem laufenden System erprobt – das ist das größte offene Risiko dieser Runde.
+
+### P18 – Muster nachzählen (`hive/setup.go`)
+
+`backfillPatterns` trägt Muster, Werkzeuge und Nachlade-Adressen (`top_hourly`, Felder `tag`/`tool`/`url`) für Ereignisse nach, die vor 0.3.0 gespeichert wurden. Läuft einmal im Hintergrund in 500er-Schritten (Merker `patterns_backfilled`). Die Obergrenze `maxID` wird **vor** dem Start des Schreibers ermittelt, damit neue Ereignisse nicht doppelt gezählt werden. Test: `TestBackfillPatternsOnce`.
+
 ## 4. Rahmenbedingungen
 
 | Vorgabe | Stand |
@@ -179,18 +224,22 @@ In 0.2.0 registrierte `main` die Sensor-API im Entwicklungsmodus als Präfix `/a
 ## 5. Bekannte Risiken
 
 1. **Windows-Virenscanner und die Miner-Regel.** Mit dem Namen des Monero-Hash-Verfahrens in der Regel `miner` hielt der Virenscanner des Entwicklungsrechners das Windows-Binary des Hive für einen Miner und sperrte Build und Tests („Zugriff verweigert“ beim Linken). Die Regel und ihr Testbeispiel kommen deshalb ohne diesen Begriff aus. Linux-Builds waren nie betroffen. Wer Regeln mit vielen Malware-Namen ergänzt, kann das wieder auslösen; dann die Begriffe einzeln prüfen. Am Virenscanner wurde nichts geändert.
-2. **Ungeprüft gegen echte Gegenstellen:** Cowrie-Mitschnittformat, ntfy, Telegram, AbuseIPDB, KI-Schnittstellen, echter RDP-Client. Alles ist gegen nachgebaute Server getestet.
-3. **Docker:** Auf dem Entwicklungsrechner gibt es kein Docker. Die geänderte `docker-compose.yml` und die Images prüft erst die CI (`docker compose config`, Multi-Arch-Build). `staticcheck`, `govulncheck`, Race-Detector und `shellcheck` (neu: `tools/check.sh`) laufen ebenfalls nur dort.
-4. **Fehlalarme der Muster.** Die Regeln sind bewusst einfach. `web_rce` und `recon` treffen breit. Wer danach benachrichtigt wird (Schweregrad 3), sollte die Liste beobachten und Regeln schärfen.
-5. **Telnet nimmt jeden Login an.** Das macht den Dienst für geübte Scanner als Honeypot erkennbar, liefert aber die Befehle. Cowrie auf Port 23 verhält sich realistischer.
-6. **KI-Auswertung kann falsch liegen** und kostet bei Diensten im Internet Geld je Anfrage. Sie ist deshalb aus und nur auf Knopfdruck.
-7. **Der Hive baut neue ausgehende Verbindungen auf** (Benachrichtigungen, KI, AbuseIPDB), aber nur zu Adressen, die der Admin eingetragen hat. Ein Angreifer kann diese Adressen nicht beeinflussen.
+2. **Raspberry-Pi-Image ungebaut und auf echter Hardware unerprobt.** Das ist das größte Risiko dieser Runde. Der Bau braucht Linux mit Root; der Entwicklungsrechner ist Windows. systemd-Units, Netzsperre nach Benutzer und der Selbst-Update-Ablauf sind nach bestem Wissen geschrieben, aber nie gelaufen. Vor einer Veröffentlichung: einmal bauen, auf einen Pi spielen, im Browser einrichten, Update auslösen.
+3. **Ungeprüft gegen echte Gegenstellen:** Cowrie-Mitschnittformat, ntfy, Telegram, AbuseIPDB, KI-Schnittstellen, echter RDP-Client, GitHub-Releases-API. Alles ist gegen nachgebaute Server getestet.
+4. **Docker:** Auf dem Entwicklungsrechner gibt es kein Docker. Die geänderte `docker-compose.yml` und die Images prüft erst die CI (`docker compose config`, Multi-Arch-Build). `staticcheck`, `govulncheck`, Race-Detector und `shellcheck` (jetzt auch für `pi/`) laufen ebenfalls nur dort.
+5. **Fehlalarme der Muster.** Die Regeln sind bewusst einfach. `web_rce` und `recon` treffen breit. Wer danach benachrichtigt wird (Schweregrad 3), sollte die Liste beobachten und Regeln schärfen.
+6. **Telnet bleibt für geübte Scanner erkennbar.** Es nimmt zwar nicht mehr jeden Login an (P13), aber das volle Verhalten eines Geräts bildet nur Cowrie nach.
+7. **Ersteinrichtung ist offen, wer zuerst kommt.** Solange kein Konto besteht, kann jeder, der die UI erreicht, das Passwort setzen. Deshalb darf die UI nie ins Internet (steht in README und Code-Kommentar). Im Docker-Betrieb bindet sie standardmäßig an die LAN-IP.
+8. **SMB und RDP-NLA weiterhin offen.** Ein erster Versuch, NTLM-Anmeldedaten zu lesen, wurde vom Sicherheitsfilter der Entwicklungsumgebung abgebrochen und verworfen; nicht wieder aufgenommen. Wer das ergänzt, braucht einen echten Client (z. B. aus einer SMB-/RDP-Bibliothek) zum Testen.
+9. **KI-Auswertung kann falsch liegen** und kostet bei Diensten im Internet Geld je Anfrage. Sie ist deshalb aus und nur auf Knopfdruck.
+10. **Der Hive baut neue ausgehende Verbindungen auf** (Benachrichtigungen, KI, AbuseIPDB, Update-Prüfung), aber nur zu Adressen, die der Admin eingetragen hat bzw. zur festen GitHub-Adresse. Ein Angreifer kann diese Adressen nicht beeinflussen.
 
 ## 6. Offene Fragen für den Nutzer
 
-1. Soll Port 5900 bei bestehenden Installationen automatisch von `raw` auf `vnc` wechseln? Derzeit nicht; die gespeicherte Konfiguration bleibt unangetastet.
-2. Soll Telnet auf 2323 standardmäßig laufen, obwohl es jeden Login annimmt?
-3. Version: Die Änderungen stehen im CHANGELOG unter `[Unreleased]`; `HONEYLITE_VERSION` steht weiter auf 0.2.0. Vorschlag: 0.3.0.
+Die drei Fragen der ersten Runde hat der Nutzer beantwortet und sie sind umgesetzt: Port 5900 wechselt bei bestehenden Installationen automatisch auf `vnc` (P14), Telnet läuft standardmäßig und wurde zugleich unauffälliger gemacht (P13), die Version ist 0.3.0. Offen bleibt vor allem:
+
+1. Das Pi-Image ist nicht auf echter Hardware erprobt (P17). Vor einer Veröffentlichung sollte es einmal auf einem Pi gebaut, aufgespielt und im Browser eingerichtet werden; dabei auch der Selbst-Update-Weg testen.
+2. Der Update-Knopf und die GitHub-Prüfung greifen erst, wenn das Repository öffentlich ist und es echte Releases gibt. Solange es privat ist, erscheint kein Hinweis.
 
 ## 7. So prüft man den Branch
 
@@ -201,15 +250,21 @@ cd honeypot && go test -run='^$' -fuzz='^FuzzRDP$' -fuzztime=20s .
 
 UI von Hand: Hive lokal starten (ARCHITEKTUR.md, Abschnitt 8), dann
 
-1. Dashboard: grüner Standort-Marker auf der Karte.
-2. Live-Karte: mit GeoIP-Daten zeichnet jede neue Verbindung eine Linie.
-3. Seite eines Angreifers: Angriffsbericht, „Als Text speichern“, Reputation.
-4. Cowrie-Sitzung mit Mitschnitt: „Mitschnitt anzeigen“, „Abspielen“.
-5. Analyse: Muster, Programme, Nachlade-Adressen.
-6. Einstellungen: Zusatzfunktionen speichern, Seite neu laden, Geheimnisfelder bleiben leer mit Hinweis „gespeichert“.
+1. Erster Start ohne `HIVE_ADMIN_PASSWORD`: Der Einrichtungs-Assistent erscheint; danach ist man angemeldet und die Fußzeile zeigt Version und Urheber.
+2. Dashboard: grüner Standort-Marker; Live-Karte zeichnet mit GeoIP-Daten je Verbindung eine Linie.
+3. Seite eines Angreifers: Angriffsbericht, „Als Text speichern", Reputation. Analyse: Muster, Programme, Nachlade-Adressen.
+4. Cowrie-Sitzung mit Mitschnitt: „Mitschnitt anzeigen", „Abspielen".
+5. Einstellungen: Zusatzfunktionen speichern, Seite neu laden, Geheimnisfelder bleiben leer mit Hinweis „gespeichert".
 
-Auf der NAS nach dem Update: `python3 tools/attack_sim.py --host <NAS>` und im Live-Feed nach Telnet, SMTP, VNC und RDP sehen.
+Telnet von Hand (zeigt das Geräteverhalten):
+
+```bash
+# Passwort des Testgeräts: hängt vom Hostnamen ab; der Simulator probiert bekannte Werkspasswörter
+python3 tools/attack_sim.py --host <NAS>   # schickt u. a. den Telnet-Bot-Ablauf
+```
+
+Pi-Image (nur auf Linux mit Root): `sudo sh pi/build-image.sh arm64 v0.3.0 <ordner>` nach einem Cross-Build der beiden Programme.
 
 ## 8. Commits auf dem Branch
 
-Siehe `git log 60bc36b..HEAD`. Reihenfolge: Plan, Honeypot-Protokolle, Hive-Funktionen, UI, Dokumentation.
+Siehe `git log 60bc36b..HEAD`. Reihenfolge: Plan; Honeypot-Protokolle; Hive-Funktionen (Analyse, Bericht, KI, Benachrichtigungen, AbuseIPDB, TTY); UI (Live-Karte, Analyse, Bericht); Dokumentation; Telnet-Verhalten; Version 0.3.0 mit Ersteinrichtung, Update-Prüfung und Fußzeile; Raspberry-Pi-Image mit Updater und Release-Pipeline.

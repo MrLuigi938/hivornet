@@ -76,6 +76,7 @@ Regeln, die jeder Handler einhalten muss:
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `watchWarnings`, Testnachricht |
 | `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB), Geheimnis-Behandlung, Tabelle `lookups` |
 | `tty.go` | `parseTTYLog`, `ttyClean`, `/api/sessions/{id}/tty` |
+| `setup.go` | Ersteinrichtung (`setupStatus`, `setupRun`), einmalige Port-Anpassung (`upgradeSensorConfigs`), Update-Prüfung gegen GitHub (`checkUpdates`, `newestRelease`, `parseSemver`), Update-Auslösung (`updateRun`), Muster-Nachzählen (`backfillPatterns`) |
 | `disk_linux.go`, `disk_other.go` | freier Speicher |
 | `hive_test.go`, `extra_test.go` | Tests |
 
@@ -169,10 +170,16 @@ Regeln für die UI:
 | `HIVE_COWRIE_LOG`, `HIVE_COWRIE_LIB` | leer | Pfad zu `cowrie.json`; Ordner mit `tty/` und `downloads/` |
 | `SENSOR_NAME`, `COWRIE_SENSOR_NAME` | `sensor-1` | Sensorname für Cowrie-Ereignisse |
 | `HIVE_METRICS_TOKEN` | leer | schaltet `/metrics` frei |
+| `HIVE_UPDATE_CHECK` | `on` | `off` schaltet die Prüfung auf neue Versionen bei GitHub ab |
+| `HIVE_UPDATE_REQUEST` | leer | Datei, in die der Hive eine Update-Anforderung legt; nur gesetzt, wo ein Updater läuft (Pi-Image). Fehlt sie, gibt es keinen Update-Knopf |
+| `HIVE_UPDATE_STATUS` | leer | Datei, aus der das Ergebnis des letzten Updates gelesen wird (vom Updater geschrieben) |
+| `HIVE_DIRECT_PORTS` | leer | `1`: Honeypot lauscht ohne Docker direkt auf den echten Ports; die Einstellungen zeigen „direkt am Gerät" statt der NAS-Portzuordnung |
 | `HIVE_WEB_DIR` | leer | UI vom Datenträger statt aus dem Binary (Entwicklung) |
 | `PORT_*` | | nur zur Anzeige „Öffentlich“ in den Einstellungen (`publishedPorts` in `api.go`) |
 
-In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, **Zusatzfunktionen** (`extras`: Standort, Benachrichtigungen, KI, AbuseIPDB-Schlüssel). Geheimnisse darin liefert die API nie zurück.
+In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, **Zusatzfunktionen** (`extras`: Standort, Benachrichtigungen, KI, AbuseIPDB-Schlüssel), sowie die Merker `config_level` (Port-Anpassung lief) und `patterns_backfilled` (Muster nachgezählt). Geheimnisse darin liefert die API nie zurück.
+
+**Ersteinrichtung:** Ist kein Admin-Konto vorhanden und keines per `HIVE_ADMIN_PASSWORD` vorgegeben, legt `EnsureAdmin` keins an; die UI zeigt den Assistenten (`GET/POST /api/setup`, `setup.go`). Wer ihn zuerst ausfüllt, setzt das Passwort – darum gehört die UI nie ins Internet.
 
 ### Honeypot
 
@@ -223,6 +230,22 @@ In `Notifier.Send` (`hive/notify.go`) einen weiteren Block nach dem Muster von n
 ### Schemaänderung
 
 SQL an `migrations` anhängen, Tabelle in Abschnitt 4 ergänzen, Test nach dem Muster `TestMigrationFromV01` bzw. `TestMigrationCreatesLookups`.
+
+## 7a. Raspberry-Pi-Image (`pi/`)
+
+Betrieb ohne Docker: zwei systemd-Dienste statt Container, sonst dieselben Programme.
+
+| Datei | Zweck |
+|---|---|
+| `pi/build-image.sh` | legt den Inhalt von `pi/rootfs/` samt den Programmen in ein Raspberry Pi OS Lite (Loop-Mount, ohne Emulation); erzeugt `honeylite-pi-<arch>-<tag>.img.xz` |
+| `pi/rootfs/etc/systemd/system/honeylite-hive.service` | Hive als Benutzer `honeylite-hive`, gehärtet, `HIVE_DIRECT_PORTS=1`, SD-schonend |
+| `pi/rootfs/etc/systemd/system/honeylite-honeypot.service` | Honeypot als Benutzer `honeylite-pot`, nur `CAP_NET_BIND_SERVICE`, lauscht direkt auf den echten Ports |
+| `pi/rootfs/.../honeylite-firstboot` | erzeugt beim ersten Start das Token (Passwort kommt aus der UI-Ersteinrichtung) |
+| `pi/rootfs/.../honeylite-firewall` | Netzsperre nach Benutzer (nftables oder iptables, owner-Match) |
+| `pi/rootfs/.../honeylite-update{.path,.service,script}` | beobachtet die Update-Anforderung des Hive, lädt die Version von GitHub, prüft `SHA256SUMS`, tauscht die Programme, Rückfall auf die alte Version |
+| `pi/rootfs/etc/honeylite/honeypot.yml` | Startkonfiguration mit echten Ports, ohne Cowrie |
+
+Updates landen über `release.yml` als `honeylite-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie ist auf dem Pi nicht dabei (Python, RAM) – daher keine echte Fake-Shell und keine TTY-Mitschnitte.
 
 ## 8. Entwickeln und Prüfen
 
