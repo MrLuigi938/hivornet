@@ -1,0 +1,32 @@
+# Startkonfiguration des Go-Honeypots.
+# Gilt bei jedem Start, bis der Hive eine Konfiguration liefert. Sobald einmal
+# etwas unter "Einstellungen" in der Web-UI gespeichert ist, gilt das (der Hive
+# speichert es, der Honeypot holt es alle 15 s ab). Diese Datei ist dann nur
+# noch der Ausgangspunkt für einen frischen Hive.
+#
+# Modi:  emulate = nachspielen und aufzeichnen
+#        tarpit  = Verbindung sofort festhalten (endlos langsame Daten)
+#        hybrid  = erst Login/Anfrage aufzeichnen, dann festhalten
+#
+# "port" ist der echte Dienst-Port. Damit er von außen erreichbar ist, muss er in
+# docker-compose.yml / .env auf einen NAS-Port gelegt werden (siehe README).
+# Ports unter 1024 lauschen im Container auf Port+10000; 80 und 10080 gleichzeitig geht daher nicht.
+
+hostname: nas-backup01
+
+listeners:
+  - { service: ftp,        port: 21,   mode: emulate }
+  - { service: http,       port: 80,   mode: emulate }
+  - { service: https,      port: 443,  mode: emulate }
+  - { service: dockerapi,  port: 2375, mode: emulate }
+  - { service: ssh-tarpit, port: 2222, mode: tarpit }
+  - { service: mysql,      port: 3306, mode: emulate }
+  - { service: raw,        port: 5900, mode: hybrid }
+  - { service: redis,      port: 6379, mode: emulate }
+  - { service: http,       port: 8080, mode: hybrid }
+
+tarpit:
+  interval_ms: 10000     # alle 10 s ein winziges Datenstück
+  max_conns: 4096        # gleichzeitig festgehaltene Verbindungen insgesamt (höchstens 8000)
+  max_per_ip: 32         # pro Angreifer-IP
+  max_duration_min: 1440 # nach 24 h wird losgelassen; 0 = unbegrenzt
