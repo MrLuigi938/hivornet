@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -475,5 +476,119 @@ func TestRoutesBothModes(t *testing.T) {
 		if rec.Code != 401 {
 			t.Fatalf("geschützte Route ohne Anmeldung: %d", rec.Code)
 		}
+	}
+}
+
+// ---------- Ersteinrichtung ----------
+
+func TestSetupOnlyOnce(t *testing.T) {
+	h := testHive(t)
+	h.auth = NewAuth(h.st, "tok", false)
+	h.auth.EnsureAdmin("admin", "") // ohne Passwort: kein Konto, Assistent nötig
+	if !h.auth.NeedsSetup() {
+		t.Fatal("ohne Konto muss die Ersteinrichtung nötig sein")
+	}
+	post := func(body string, header bool) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("POST", "/api/setup", strings.NewReader(body))
+		if header {
+			req.Header.Set("X-Requested-With", "honeylite")
+		}
+		rec := httptest.NewRecorder()
+		h.setupRun(rec, req)
+		return rec
+	}
+	if rec := post(`{"password":"langgenug123"}`, false); rec.Code != 403 {
+		t.Fatalf("ohne Header: %d", rec.Code)
+	}
+	if rec := post(`{"password":"kurz"}`, true); rec.Code != 400 || !h.auth.NeedsSetup() {
+		t.Fatalf("zu kurzes Passwort: %d", rec.Code)
+	}
+	rec := post(`{"password":"langgenug123","home":{"lat":52.5,"lon":13.4,"label":"Berlin"}}`, true)
+	if rec.Code != 200 || len(rec.Result().Cookies()) != 1 {
+		t.Fatalf("Einrichtung: %d %s", rec.Code, rec.Body)
+	}
+	if h.auth.NeedsSetup() || !h.auth.Check("admin", "langgenug123") || h.Extras().Home.Label != "Berlin" {
+		t.Fatal("Konto oder Standort nicht gespeichert")
+	}
+	// zweiter Versuch darf das Passwort nicht überschreiben
+	if rec := post(`{"password":"anderespasswort"}`, true); rec.Code != 409 || h.auth.Check("admin", "anderespasswort") {
+		t.Fatalf("zweite Einrichtung: %d", rec.Code)
+	}
+}
+
+// ---------- Port-Konfiguration anpassen ----------
+
+func TestUpgradeSensorConfigs(t *testing.T) {
+	st := testStore(t)
+	old := `{"hostname":"nas","listeners":[{"service":"raw","port":5900,"mode":"hybrid","enabled":true},{"service":"http","port":25,"mode":"emulate","enabled":true}],"tarpit":{"interval_ms":10000,"max_conns":4096,"max_per_ip":32,"max_duration_min":1440}}`
+	st.SetKV("sensor_config", old)
+	upgradeSensorConfigs(st)
+	v, _ := st.GetKV("sensor_config")
+	var c SensorConfig
+	json.Unmarshal([]byte(v), &c)
+	got := map[int]string{}
+	for _, l := range c.Listeners {
+		got[l.Port] = l.Service
+	}
+	// 5900 wird VNC, Telnet und RDP kommen dazu, der belegte Port 25 bleibt, wie er ist
+	if got[5900] != "vnc" || got[2323] != "telnet" || got[3389] != "rdp" || got[25] != "http" {
+		t.Fatalf("Ergebnis: %v", got)
+	}
+	// zweiter Lauf ändert nichts mehr (z. B. wenn der Nutzer Telnet wieder entfernt hat)
+	st.SetKV("sensor_config", old)
+	upgradeSensorConfigs(st)
+	if v, _ := st.GetKV("sensor_config"); v != old {
+		t.Fatal("Anpassung darf nur einmal laufen")
+	}
+}
+
+// ---------- Update-Prüfung ----------
+
+func TestNewestRelease(t *testing.T) {
+	const base = "https://github.com/MrLuigi938/honeylite/releases/tag/"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `[{"tag_name":"v0.3.1","html_url":"%sv0.3.1"},{"tag_name":"v0.4.0-beta.1","html_url":"%sv0.4.0-beta.1","prerelease":true},
+			{"tag_name":"v0.9.0","html_url":"%sv0.9.0","draft":true},{"tag_name":"v9.9.9","html_url":"https://example.com/fremd"},{"tag_name":"unsinn","html_url":"%sx"}]`, base, base, base, base)
+	}))
+	defer srv.Close()
+	old := releasesURL
+	releasesURL = srv.URL
+	defer func() { releasesURL = old }()
+	r, err := newestRelease(context.Background(), "0.3.0")
+	if err != nil || r == nil || r.Version != "0.3.1" {
+		t.Fatalf("stabil: %+v %v", r, err)
+	}
+	if r, _ := newestRelease(context.Background(), "0.3.1"); r != nil {
+		t.Fatalf("aktuell, aber Hinweis: %+v", r)
+	}
+	if r, _ := newestRelease(context.Background(), "v0.3.1-beta.2"); r == nil || r.Version != "0.4.0-beta.1" {
+		t.Fatalf("Vorabversion sieht neuere Vorabversionen: %+v", r)
+	}
+	if !parseSemver("1.2.3").newer(parseSemver("1.2.3-rc.1")) || parseSemver("dev").ok {
+		t.Fatal("Versionsvergleich falsch")
+	}
+}
+
+func TestUpdateRequestFile(t *testing.T) {
+	h := testHive(t)
+	p := filepath.Join(t.TempDir(), "update-request")
+	run := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.updateRun(rec, httptest.NewRequest("POST", "/api/update", nil))
+		return rec
+	}
+	if rec := run(); rec.Code != 400 { // kein Updater eingerichtet
+		t.Fatalf("ohne Updater: %d", rec.Code)
+	}
+	t.Setenv("HIVE_UPDATE_REQUEST", p)
+	if rec := run(); rec.Code != 400 { // keine neuere Version bekannt
+		t.Fatalf("ohne neue Version: %d", rec.Code)
+	}
+	h.upd.newest = &releaseInfo{Version: "0.3.1", URL: "x"}
+	if rec := run(); rec.Code != 200 {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if b, _ := os.ReadFile(p); string(b) != "v0.3.1\n" {
+		t.Fatalf("Anforderung: %q", b)
 	}
 }

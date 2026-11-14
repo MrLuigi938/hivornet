@@ -35,7 +35,12 @@ applyTheme(store("theme"));
 
 async function boot() {
   try { state.user = await api("me", { noAuthRedirect: true }); } catch { state.user = null; }
-  if (!state.user) return showLogin();
+  if (!state.user) {
+    // Frische Installation ohne Admin-Konto: Assistent statt Anmeldung
+    const st = await api("setup", { noAuthRedirect: true }).catch(() => null);
+    if (st && st.needed) return showSetup(st);
+    return showLogin();
+  }
   renderShell();
   startStream();
   route();
@@ -60,8 +65,79 @@ function showLogin(msg) {
   h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "HoneyLite"),
   err, h("label", null, "Benutzername", user), h("label", null, "Passwort", pass),
   h("button", { class: "btn primary", type: "submit" }, "Anmelden"));
-  mount(app, h("div", { class: "login" }, form));
+  mount(app, h("div", { class: "login" }, form, credit(false)));
   pass.focus();
+}
+
+// Fußzeile wie in den anderen Projekten: Name, Version, Urheber. In der Anwendung
+// zeigt sie außerdem, wenn eine neuere Version veröffentlicht wurde.
+function credit(inApp) {
+  const u = state.user || {};
+  const ver = inApp && u.version && u.version !== "dev" ? h("span", { class: "version" }, u.version) : null;
+  const msg = h("span", { class: "muted" });
+  let update = null;
+  if (inApp && u.update) {
+    const link = h("a", { class: "update", href: u.update.url, target: "_blank", rel: "noopener noreferrer", title: "Was ist neu?" }, `⬆ Version ${u.update.version} ist da`);
+    const btn = u.can_install ? h("button", {
+      class: "btn small",
+      onclick: async () => {
+        if (!confirm(`HoneyLite jetzt auf Version ${u.update.version} aktualisieren? Die Dienste starten dabei neu.`)) return;
+        btn.disabled = true;
+        try {
+          await api("update", { method: "POST" });
+          msg.textContent = "Update läuft. Die Seite lädt in etwa zwei Minuten neu.";
+          setTimeout(() => location.reload(), 120000);
+        } catch (e) { msg.textContent = e.message; btn.disabled = false; }
+      },
+    }, "Jetzt aktualisieren") : null;
+    update = [link, btn, msg];
+  }
+  return h("footer", { class: "credit" },
+    h("span", null, inApp ? [h("b", null, "HoneyLite"), ver, " · "] : null,
+      "Erdacht mit ", h("span", { class: "heart", "aria-label": "Liebe" }, "♥"), " von ",
+      h("a", { href: "https://github.com/MrLuigi938", target: "_blank", rel: "noopener noreferrer" }, "Luis Blum"),
+      " · gebaut mit KI ✨"),
+    update);
+}
+
+// Ersteinrichtung: Passwort und Standort festlegen, danach ist man angemeldet.
+function showSetup(st) {
+  stopStream();
+  const err = h("div", { class: "msg err", hidden: true });
+  const p1 = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 10, maxlength: 72 });
+  const p2 = h("input", { type: "password", autocomplete: "new-password", required: true, minlength: 10, maxlength: 72 });
+  const home = st.home || { lat: 51.1, lon: 10.4, label: "Honeypot" };
+  const lat = h("input", { type: "number", step: 0.1, min: -90, max: 90, value: home.lat });
+  const lon = h("input", { type: "number", step: 0.1, min: -180, max: 180, value: home.lon });
+  const label = h("input", { maxlength: 40, value: home.label || "" });
+  const btn = h("button", { class: "btn primary", type: "submit" }, "Einrichten und starten");
+  const form = h("form", {
+    onsubmit: async (e) => {
+      e.preventDefault();
+      err.hidden = true;
+      if (p1.value !== p2.value) { err.textContent = "Die beiden Passwörter stimmen nicht überein."; err.hidden = false; return; }
+      btn.disabled = true;
+      try {
+        await api("setup", {
+          method: "POST", noAuthRedirect: true,
+          body: { password: p1.value, home: { lat: Number(lat.value), lon: Number(lon.value), label: label.value.trim() } },
+        });
+        boot();
+      } catch (ex) { err.textContent = ex.message; err.hidden = false; btn.disabled = false; }
+    },
+  },
+  h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "HoneyLite einrichten"),
+  h("p", { class: "sub" }, "Willkommen. Lege ein Passwort für die Verwaltung fest; der Benutzername ist „admin“. Alles Weitere stellst du danach in Ruhe unter Einstellungen ein."),
+  err,
+  h("label", null, "Passwort (10 bis 72 Zeichen)", p1),
+  h("label", null, "Passwort wiederholen", p2),
+  h("h3", null, "Standort für die Karte (ungefähr genügt)"),
+  h("div", { class: "pair" }, h("label", null, "Breite", lat), h("label", null, "Länge", lon)),
+  h("label", null, "Bezeichnung", label),
+  h("p", { class: "muted" }, "Dorthin zeigen die Angriffslinien auf der Karte. Beispiel Berlin: Breite 52.5, Länge 13.4. Der Ort wird nirgends veröffentlicht."),
+  btn);
+  mount(app, h("div", { class: "login setup" }, form, credit(false)));
+  p1.focus();
 }
 
 async function logout() {
@@ -123,7 +199,7 @@ function renderShell() {
         theme,
         h("button", { class: "btn small", onclick: logout }, "Abmelden"),
         h("span", null, "Version ", state.user.version))),
-    h("main", { class: "main" }, topEl, mainEl)));
+    h("main", { class: "main" }, topEl, mainEl, credit(true))));
   window.onhashchange = route;
 }
 
@@ -524,6 +600,7 @@ async function viewSettings(el) {
 
   const listBody = h("tbody");
   const pubInfo = (port) => {
+    if (s.direct_ports) return h("span", { class: "num" }, port, h("span", { class: "muted" }, " (direkt am Gerät)"));
     const p = s.published[String(port)];
     if (p && p.host) return h("span", { class: "num" }, p.host, h("span", { class: "muted" }, ` (${p.env})`));
     if (p) return h("span", { class: "warn-text" }, `${p.env} fehlt in .env`);

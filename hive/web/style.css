@@ -213,8 +213,20 @@ textarea { font: inherit; color: var(--text); background: var(--surface); border
 .modes dt { font-weight: 600; margin-top: 8px; }
 .modes dd { margin: 2px 0 0; color: var(--text-2); }
 
+/* Fußzeile */
+.credit { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; padding: 28px 16px 8px; font-size: 13px; color: var(--muted); text-align: center; }
+.credit b { font-weight: 600; color: var(--text); }
+.credit .version { margin-left: 6px; font-variant-numeric: tabular-nums; }
+.credit .heart { color: #e5484d; }
+.credit a { color: inherit; font-weight: 600; text-decoration: none; border-bottom: 1px dotted currentColor; }
+.credit a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+.credit a.update { border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); border-radius: 999px; padding: 3px 12px; color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, transparent); }
+
 /* Anmeldung */
-.login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.login { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px; }
+.login.setup form { max-width: 440px; }
+.login .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.login h3 { margin: 6px 0 0; }
 .login form { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 28px; width: 100%; max-width: 340px; display: flex; flex-direction: column; gap: 12px; }
 .login label { display: flex; flex-direction: column; gap: 4px; color: var(--text-2); font-size: 13px; }
 

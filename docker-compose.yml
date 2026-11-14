@@ -19,8 +19,8 @@ services:
     <<: *hardening
     build:
       context: ./hive
-      args: { VERSION: "${HONEYLITE_VERSION:-0.2.0}" }
-    image: honeylite/hive:${HONEYLITE_VERSION:-0.2.0}
+      args: { VERSION: "${HONEYLITE_VERSION:-0.3.0}" }
+    image: honeylite/hive:${HONEYLITE_VERSION:-0.3.0}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -32,6 +32,7 @@ services:
       HIVE_MAX_DB_MB: ${HIVE_MAX_DB_MB:-2048}
       HIVE_MIN_FREE_MB: ${HIVE_MIN_FREE_MB:-1024}
       HIVE_FLUSH_MS: ${HIVE_FLUSH_MS:-300}
+      HIVE_UPDATE_CHECK: ${HIVE_UPDATE_CHECK:-on}
       HIVE_ALLOWED_HOSTS: ${HIVE_ALLOWED_HOSTS:-}
       HIVE_COOKIE_SECURE: ${HIVE_COOKIE_SECURE:-0}
       HIVE_METRICS_TOKEN: ${HIVE_METRICS_TOKEN:-}
@@ -74,8 +75,8 @@ services:
     <<: *hardening
     build:
       context: ./honeypot
-      args: { VERSION: "${HONEYLITE_VERSION:-0.2.0}" }
-    image: honeylite/honeypot:${HONEYLITE_VERSION:-0.2.0}
+      args: { VERSION: "${HONEYLITE_VERSION:-0.3.0}" }
+    image: honeylite/honeypot:${HONEYLITE_VERSION:-0.3.0}
     read_only: true
     tmpfs: [/tmp]
     environment:

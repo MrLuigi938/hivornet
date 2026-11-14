@@ -98,10 +98,10 @@ func (a *Auth) EnsureAdmin(user, pass string) {
 	if n > 0 && !reset {
 		return
 	}
-	generated := false
 	if pass == "" {
-		pass = randToken(8)
-		generated = true
+		// Kein Passwort vorgegeben: Das Konto entsteht bei der Ersteinrichtung in der Web-UI (setup.go).
+		log.Printf("Noch kein Admin-Konto: Ersteinrichtung in der Web-UI abschließen")
+		return
 	}
 	if err := validPassword(pass); err != nil {
 		log.Fatalf("HIVE_ADMIN_PASSWORD ungültig: %v", err)
@@ -116,8 +116,6 @@ func (a *Auth) EnsureAdmin(user, pass string) {
 	switch {
 	case reset:
 		log.Printf("Admin-Konto %q auf HIVE_ADMIN_PASSWORD zurückgesetzt. HIVE_RESET_ADMIN jetzt wieder entfernen!", user)
-	case generated:
-		log.Printf("Admin-Konto %q angelegt. Erzeugtes Passwort: %s (bitte in der UI ändern)", user, pass)
 	default:
 		log.Printf("Admin-Konto %q angelegt", user)
 	}
@@ -201,15 +199,23 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.success(ip)
-	tok := randToken(32)
-	exp := time.Now().Add(7 * 24 * time.Hour)
-	if _, err := a.st.db.Exec(`INSERT INTO auth_sessions(token,username,expires) VALUES(?,?,?)`, tokenHash(tok), req.Username, exp.Unix()); err != nil {
+	if err := a.startSession(w, req.Username); err != nil {
 		httpErr(w, 500, "Sitzung konnte nicht angelegt werden")
 		return
 	}
+	writeJSON(w, map[string]string{"username": req.Username})
+}
+
+// startSession legt eine Sitzung an und setzt das Cookie (Anmeldung, Ersteinrichtung).
+func (a *Auth) startSession(w http.ResponseWriter, user string) error {
+	tok := randToken(32)
+	exp := time.Now().Add(7 * 24 * time.Hour)
+	if _, err := a.st.db.Exec(`INSERT INTO auth_sessions(token,username,expires) VALUES(?,?,?)`, tokenHash(tok), user, exp.Unix()); err != nil {
+		return err
+	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
 		Secure: a.secureCookie, SameSite: http.SameSiteStrictMode})
-	writeJSON(w, map[string]string{"username": req.Username})
+	return nil
 }
 
 func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
