@@ -42,24 +42,76 @@ func find(evs []Event, typ string) *Event {
 }
 
 func TestTelnetLoginAndShell(t *testing.T) {
+	telnetDelay = func() time.Duration { return 0 }
 	m := testManager()
+	good, _ := telnetPassword(m.Hostname(), "root")
 	c, done := run(t, m, "telnet", "emulate")
 	readUntil(t, c, "login: ")
 	c.Write([]byte{255, 253, 1}) // IAC DO ECHO muss ignoriert werden
 	c.Write([]byte("root\r\n"))
 	readUntil(t, c, "Password: ")
-	c.Write([]byte("xc3511\r\n"))
+	c.Write([]byte("zufall-" + good + "\r\n")) // falsches Passwort: abgelehnt
+	readUntil(t, c, "Login incorrect")
+	readUntil(t, c, "login: ")
+	c.Write([]byte("root\r\n"))
+	readUntil(t, c, "Password: ")
+	c.Write([]byte(good + "\r\n"))
 	readUntil(t, c, "# ")
 	c.Write([]byte("/bin/busybox MIRAI\r\n"))
-	readUntil(t, c, "MIRAI: applet not found")
+	if got := readUntil(t, c, "MIRAI: applet not found"); !strings.HasSuffix(got, "# ") {
+		readUntil(t, c, "# ") // Prompt abwarten, sonst blockiert die Pipe
+	}
+	c.Write([]byte(`echo -e "\x6b\x61\x6d\x69"` + "\r\n"))
+	readUntil(t, c, "kami")
 	c.Close()
 	waitDone(t, done, 5*time.Second)
 	evs := events(m)
-	if l := find(evs, "login"); l == nil || l.Username != "root" || l.Password != "xc3511" {
-		t.Fatalf("Login falsch: %+v", l)
+	var logins []Event
+	for _, e := range evs {
+		if e.Type == "login" {
+			logins = append(logins, e)
+		}
+	}
+	if len(logins) != 2 || logins[0].Data["accepted"] != false || logins[1].Data["accepted"] != true || logins[1].Password != good {
+		t.Fatalf("Logins falsch: %+v", logins)
 	}
 	if cmd := find(evs, "command"); cmd == nil || cmd.Data["input"] != "/bin/busybox MIRAI" {
 		t.Fatalf("Befehl falsch: %+v", cmd)
+	}
+}
+
+// Wie ein echtes Gerät: ein Passwort je Konto, unbekannte Konten nie, nach drei Versuchen Schluss.
+func TestTelnetRejectsLikeRealDevice(t *testing.T) {
+	telnetDelay = func() time.Duration { return 0 }
+	a, _ := telnetPassword("nas-backup01", "root")
+	b, _ := telnetPassword("nas-backup01", "root")
+	if a != b || a == "" {
+		t.Fatal("Passwort muss je Hostname stabil sein")
+	}
+	if _, ok := telnetPassword("nas-backup01", "zufallsname"); ok {
+		t.Fatal("unbekanntes Konto darf kein Passwort haben")
+	}
+	n := 0
+	for _, pw := range telnetAccounts["root"] {
+		if want, _ := telnetPassword("nas-backup01", "root"); pw == want {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d gültige Passwörter für root, erwartet genau 1", n)
+	}
+	m := testManager()
+	c, done := run(t, m, "telnet", "emulate")
+	for i := 0; i < telnetMaxLogins; i++ {
+		readUntil(t, c, "login: ")
+		c.Write([]byte("x9f3k\r\n"))
+		readUntil(t, c, "Password: ")
+		c.Write([]byte("q7w1z\r\n"))
+	}
+	go io.Copy(io.Discard, c)
+	waitDone(t, done, 5*time.Second)
+	if find(events(m), "command") != nil {
+		t.Fatal("ohne gültigen Login darf es keine Shell geben")
 	}
 }
 
@@ -227,6 +279,7 @@ func TestNewProtocolsSizeBudget(t *testing.T) {
 	for i := range bin {
 		bin[i] = byte(i*7 + 3)
 	}
+	telnetDelay = func() time.Duration { return 0 }
 	for _, svc := range []string{"telnet", "smtp", "vnc", "rdp"} {
 		m := testManager()
 		c, done := run(t, m, svc, "emulate")
@@ -277,7 +330,7 @@ func FuzzTelnetReadLine(f *testing.F) {
 			if len(l) > 64 {
 				t.Fatalf("Zeile länger als erlaubt: %d", len(l))
 			}
-			telnetReply(l)
+			telnetReply("h", l)
 		}
 	})
 }
