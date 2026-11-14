@@ -24,7 +24,10 @@ fail() { status "Update fehlgeschlagen: $*"; rm -f "$REQ"; exit 1; }
 
 # Die Anforderung liegt in einem Ordner, in den der Hive schreiben darf: nichts
 # daraus ausführen, nur die erste Zeile lesen und streng prüfen.
-[ -f "$REQ" ] && [ ! -L "$REQ" ] || { rm -f "$REQ"; exit 0; }
+if [ ! -f "$REQ" ] || [ -L "$REQ" ]; then
+  rm -f "$REQ"
+  exit 0
+fi
 ver=$(head -c 40 "$REQ" | head -n 1 | tr -d '\r')
 rm -f "$REQ"
 printf '%s' "$ver" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$' || fail "ungültige Versionsangabe"
@@ -54,7 +57,7 @@ get "$REPO/$ver/SHA256SUMS" "$tmp/SHA256SUMS" || fail "Prüfsummen nicht abrufba
 mkdir "$tmp/x"
 tar -xzf "$tmp/$pkg" -C "$tmp/x" --no-same-owner || fail "Paket nicht entpackbar"
 for b in hive honeypot; do
-  [ -f "$tmp/x/$b" ] && [ ! -L "$tmp/x/$b" ] || fail "$b fehlt im Paket"
+  if [ ! -f "$tmp/x/$b" ] || [ -L "$tmp/x/$b" ]; then fail "$b fehlt im Paket"; fi
   chmod 755 "$tmp/x/$b"
 done
 "$tmp/x/hive" version >/dev/null 2>&1 || fail "neues Programm startet nicht"
