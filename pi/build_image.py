@@ -186,13 +186,19 @@ def patch_boot(img, boot_off, boot_size, files):
 
 
 def password_hash(pw):
+    """SHA-512-crypt-Hash für userconf.txt. Ohne Passwort: Hash eines Zufallswerts, den
+    niemand kennt. Raspberry Pi OS übernimmt den Benutzer nur mit gültigem Hash; sonst
+    wartet sein Einrichtungsdialog am Bildschirm auf Eingaben."""
     if not pw:
-        return "*"  # gesperrt: Anmeldung an der Konsole nicht möglich
+        pw = os.urandom(24).hex()
     try:
-        return subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=pw.encode(), check=True,
-                              capture_output=True).stdout.decode().strip()
+        out = subprocess.run(["openssl", "passwd", "-6", "-stdin"], input=pw.encode(), check=True,
+                             capture_output=True).stdout.decode().strip()
     except (OSError, subprocess.CalledProcessError):
-        sys.exit("--password braucht openssl im PATH")
+        sys.exit("openssl fehlt im PATH (wird für den Passwort-Hash gebraucht)")
+    if not out.startswith("$6$"):
+        sys.exit("openssl lieferte keinen SHA-512-Hash")
+    return out
 
 
 def main():
