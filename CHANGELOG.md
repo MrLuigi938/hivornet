@@ -2,9 +2,9 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unreleased]
+## [0.3.0] – 2026-11-14
 
-Überarbeitung nach 0.2.0; Einzelheiten in `docs/UEBERARBEITUNG.md`, Aufbau in `docs/ARCHITEKTUR.md`. Die Datenbank wird beim ersten Start auf Schema-Version 3 gebracht. Bestehende Installationen behalten ihre Port-Konfiguration; die neuen Dienste fügt man unter Einstellungen hinzu.
+Überarbeitung nach 0.2.0; Einzelheiten in `docs/UEBERARBEITUNG.md`, Aufbau in `docs/ARCHITEKTUR.md`. Die Datenbank wird beim ersten Start auf Schema-Version 3 gebracht. Bestehende Installationen bekommen die neuen Dienste automatisch in ihre Port-Konfiguration ergänzt (Port 5900 wird von `raw` zu `vnc`; SMTP, Telnet und RDP kommen auf freie Ports dazu).
 
 ### Neu
 - **Vier weitere Protokolle im Honeypot:**
@@ -20,11 +20,17 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Benachrichtigungen** über ntfy, Telegram oder Webhook bei erfolgreichem Login, Download, schwerem Angriffsmuster, erstem Befehl einer Sitzung und kritischen Warnungen; mit Abklingzeit und Stundenlimit.
 - **Reputation:** Abfrage bei AbuseIPDB auf Knopfdruck (24 Stunden zwischengespeichert), Links zu GreyNoise, Shodan und VirusTotal.
 - **Live-Feed:** Filter nach Land und Port; Ereigniszeilen lassen sich mit der Tastatur aufklappen.
-- **Betrieb:** `HIVE_FLUSH_MS` bündelt Schreibvorgänge (schont SD-Karten); `tools/check.sh` führt alle Prüfungen in einem Aufruf aus.
+- **Fertiges Raspberry-Pi-Image (ohne Docker):** SD-Karte schreiben, einstecken, im Browser unter `http://hivornet.local:8088` einrichten. Gehärtete systemd-Dienste, Netzsperre, Token beim ersten Start. Build über `pi/build-image.sh` und die Release-Pipeline.
+- **Ersteinrichtung in der Web-UI:** Ist kein Admin-Passwort vorgegeben, fragt die UI beim ersten Aufruf nach Passwort und Standort. Kein erzeugtes Startpasswort mehr.
+- **Update-Prüfung:** Der Hive sieht zweimal täglich bei GitHub nach einer neueren Version; die Fußzeile weist darauf hin. Wo ein Updater läuft (Pi-Image), gibt es den Knopf „Jetzt aktualisieren" mit Prüfsumme und Rückfall auf die alte Version (`HIVE_UPDATE_CHECK`, `HIVE_UPDATE_REQUEST`).
+- **Fußzeile** mit Name, Version und Urheber.
+- **Betrieb:** `HIVE_FLUSH_MS` bündelt Schreibvorgänge (schont SD-Karten); `HIVE_DIRECT_PORTS` für den Betrieb ohne Docker; `tools/check.sh` führt alle Prüfungen in einem Aufruf aus.
 - **Dokumentation:** `docs/ARCHITEKTUR.md`, `docs/UEBERARBEITUNG.md`.
 
 ### Geändert
-- Port 5900 ist in der Startkonfiguration jetzt `vnc` statt `raw` (nur bei frischen Installationen).
+- Telnet verhält sich wie ein echtes Gerät: je Konto genau ein (geräteabhängiges) Werkspasswort, sonst „Login incorrect" nach kurzer Pause, höchstens drei Versuche. Dazu eine glaubwürdigere BusyBox-Shell (`echo -e`, `/proc/cpuinfo`, `ps`, `uname -a`).
+- Angriffsmuster werden für ältere Ereignisse einmalig nachgezählt, damit die Ansicht „Analyse" auch die Vergangenheit abdeckt.
+- Port 5900 ist in der Startkonfiguration jetzt `vnc` statt `raw`.
 - Neue öffentliche Ports in `docker-compose.yml` und `.env.example`: `PORT_SMTP` (10025), `PORT_TELNET_ALT` (12323), `PORT_RDP` (13389).
 - Die Liste der Dienste steht im Honeypot nur noch an einer Stelle; ein Test gleicht Hive und UI dagegen ab.
 - Ereignisformat ergänzt (abwärtskompatibel): Typ `tty`, neue Felder in `data` (siehe `docs/events.md`).

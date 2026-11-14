@@ -49,12 +49,12 @@ Internet ──> Router-Portweiterleitung ──> NAS
 ### Variante B: Synology Container Manager ohne SSH
 
 1. Ordner `hivornet` per File Station nach `/docker/hivornet` hochladen.
-2. `.env.example` als `.env` kopieren und darin mindestens drei Werte setzen:
+2. `.env.example` als `.env` kopieren und darin mindestens zwei Werte setzen:
    - `HIVORNET_TOKEN`: lange Zufallszeichenkette
-   - `HIVE_ADMIN_PASSWORD`: 10 bis 72 Zeichen
    - `HIVE_BIND`: LAN-IP der NAS
 3. Container Manager → **Projekt** → **Erstellen** → Pfad `/docker/hivornet` wählen, die vorhandene `docker-compose.yml` verwenden → Erstellen.
-4. Netzsperre einrichten (siehe unten). Ohne SSH geht das über den Aufgabenplaner.
+4. Web-UI unter `http://<LAN-IP>:8088` öffnen und beim ersten Aufruf das Admin-Passwort festlegen (statt es vorab in `.env` einzutragen).
+5. Netzsperre einrichten (siehe unten). Ohne SSH geht das über den Aufgabenplaner.
 
 ## Netzsperre (Pflicht vor dem Betrieb am Internet)
 
@@ -105,7 +105,7 @@ Du musst nicht alle weiterleiten. Fang ruhig mit 22, 23, 80 und 2222 an.
 
 ## Web-UI
 
-`http://<IP-der-NAS>:8088` im Heimnetz öffnen und mit `admin` und dem Passwort aus der Installation anmelden.
+`http://<IP-der-NAS>:8088` im Heimnetz öffnen. Beim allerersten Aufruf – solange noch kein Konto besteht – fragt die UI nach einem Passwort für den Benutzer `admin` und dem Standort für die Karte; danach bist du angemeldet. Deshalb die UI nie ins Internet weiterleiten: Wer sie zuerst erreicht, legt das Passwort fest.
 
 | Ansicht | Inhalt |
 |---|---|
@@ -267,16 +267,23 @@ Auf eine andere Version zurückrollen: `git checkout <Version>`, dann `sh update
   - Cowrie still.
 - **Prometheus:** In `.env` `HIVE_METRICS_TOKEN` setzen, dann `GET http://<NAS>:8088/metrics` mit Header `Authorization: Bearer <Token>`.
 
-### Raspberry Pi
+### Raspberry Pi (fertiges Image)
 
-Die Images werden für arm64 und armv7 gebaut und sollten damit auf einem Raspberry Pi 3 oder neuer laufen. Auf echter Pi-Hardware ist das noch nicht geprüft. Empfehlungen:
+Für den Raspberry Pi gibt es ein fertiges Image – kein Docker, keine Konsole. Aufspielen, einstecken, im Browser einrichten:
 
-- **Fertige Images statt Build:** Der Build von SQLite dauert auf dem Pi lange. Ein Git-Tag `v*` legt Images in der GitHub Container Registry ab.
-- **SD-Karte schonen:** in `.env` `HIVE_FLUSH_MS=5000` setzen. Der Hive schreibt dann alle 5 Sekunden gebündelt; der Live-Feed kommt entsprechend später.
-- **Speicher begrenzen:** `HIVE_MAX_DB_MB` passend zur Karte wählen, z. B. 1024.
-- **Bei 1 GB RAM:** Cowrie braucht am meisten. Ohne Cowrie (`COMPOSE_PROFILES=` leer) bleiben Honeypot und Hive mit zusammen deutlich unter 100 MB; SSH lässt sich dann über den SSH-Tarpit und Telnet über den Go-Honeypot abdecken.
+1. Auf der [Releases-Seite](https://github.com/MrLuigi938/hivornet/releases) die passende Datei laden: `hivornet-pi-arm64-*.img.xz` für Pi 3, 4, 5 und Zero 2 W, `hivornet-pi-armv7-*.img.xz` für ältere Modelle.
+2. Mit dem [Raspberry Pi Imager](https://www.raspberrypi.com/software/) oder Balena Etcher auf eine SD-Karte schreiben (im Imager „Eigenes Image“ wählen). Nichts weiter einstellen.
+3. Karte in den Pi, LAN-Kabel anstecken, Strom dran. Beim ersten Start richtet sich das Gerät selbst ein (ein bis zwei Minuten).
+4. Am Rechner im selben Netz **`http://hivornet.local:8088`** öffnen. Beim ersten Aufruf vergibst du dein Passwort und den Standort für die Karte – danach bist du sofort drin.
+5. Im Router die Honeypot-Ports **1:1** an den Pi weiterleiten (extern 22 → Pi 22 usw.). Die Ports 8088 und 8089 nie weiterleiten, den Pi nie als „Exposed Host“ eintragen.
 
-Ein fertiges Pi-Image gibt es noch nicht.
+Findet dein Rechner `hivornet.local` nicht (kein mDNS), sieh die IP-Adresse des Pi im Router nach und öffne `http://<IP>:8088`.
+
+**Updates:** Erscheint eine neue Version, zeigt die Fußzeile einen Hinweis mit Knopf **„Jetzt aktualisieren"**. Der Pi lädt die neue Version selbst, prüft die Signatur und startet neu; schlägt etwas fehl, kehrt er zur alten Version zurück. Eine neue SD-Karte ist nur für größere Sprünge nötig (wenn sich die Systemdienste ändern; steht dann in den Release-Hinweisen).
+
+**Eigenes Image bauen** (z. B. zum Testen aus diesem Branch): `pi/build-image.sh` legt Hivornet in ein Raspberry Pi OS Lite, ohne Emulation. Es läuft in der CI (`.github/workflows/release.yml`, auch von Hand über „Run workflow") und auf jedem Linux-Rechner mit Root (`sudo sh pi/build-image.sh arm64 v0.3.0 <ordner-mit-hive-und-honeypot>`).
+
+Hinweise zum Betrieb: Das Pi-Image hat **kein Cowrie** (das braucht Python und viel RAM). SSH und Telnet übernehmen der SSH-Tarpit und der Telnet-Honeypot des Go-Dienstes; es gibt dort also keine echte Fake-Shell und keine TTY-Mitschnitte. Das Image schont die SD-Karte von sich aus (`HIVE_FLUSH_MS=5000`) und begrenzt die Datenbank auf 1 GB. Auf echter Pi-Hardware ist das Image noch nicht erprobt.
 
 ### UI mit HTTPS (optional)
 
