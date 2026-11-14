@@ -98,6 +98,9 @@ Die Honeypot-Ports liegen auf der NAS absichtlich auf hohen Nummern, damit sie n
 | 25 | 10025 | SMTP |
 | 2323 | 12323 | Telnet (Go-Honeypot) |
 | 3389 | 13389 | RDP |
+| 5060/udp | 15060/udp | SIP (nur aufzeichnen) |
+| 161/udp | 10161/udp | SNMP (nur aufzeichnen) |
+| 53/udp | 10053/udp | DNS (nur aufzeichnen, standardmäßig aus) |
 
 Du musst nicht alle weiterleiten. Fang ruhig mit 22, 23, 80 und 2222 an.
 
@@ -111,10 +114,10 @@ Du musst nicht alle weiterleiten. Fang ruhig mit 22, 23, 80 und 2222 an.
 |---|---|
 | Dashboard | Warnungen, Kennzahlen, Weltkarte mit Live-Angriffen, Verlauf nach Dienst, Top-Länder/Ports/IPs/Netzbetreiber/Zugangsdaten/Befehle |
 | Live-Karte | große Karte: Jede neue Verbindung zeichnet eine Linie vom Ursprung zum Honeypot; Laufliste, Angriffe pro Minute |
-| Live-Feed | alle Ereignisse in Echtzeit, filterbar; Export als CSV/JSON und Blockliste der Angreifer-IPs |
+| Live-Feed | alle Ereignisse in Echtzeit, filterbar; Export als CSV/JSON, Blockliste der Angreifer-IPs und STIX 2.1 (für MISP, OpenCTI) |
 | Sitzungen | Verbindungen mit Logins oder Befehlen; Ablauf, Angriffsbericht und bei Cowrie der Terminal-Mitschnitt zum Abspielen |
 | Analyse | erkannte Angriffsmuster, benutzte und installierte Programme, Scanner, Nachlade-Adressen |
-| Angreifer | alles zu einer IP: Herkunft, Angriffsbericht, Reputation (AbuseIPDB), Ports, Passwörter, Ereignisse |
+| Angreifer | alles zu einer IP: Herkunft, Angriffsbericht, Reputation (AbuseIPDB, GreyNoise), Ports, Passwörter, Ereignisse |
 | Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen |
 | Tarpit | verschwendete Angreiferzeit, gerade festgehaltene Verbindungen, Spitzenreiter |
 | Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort; bei mehreren Sensoren je Sensor. Dazu Standort für die Karte, Benachrichtigungen, KI-Auswertung, AbuseIPDB |
@@ -137,6 +140,14 @@ Die Muster erkennt der Hive nach festen Regeln, ohne fremde Dienste. Beispiele: 
 | OpenRouter | `https://openrouter.ai/api/v1` | braucht einen API-Schlüssel und kostet je Anfrage; IP-Adressen, Zugangsdaten und Befehle der Angreifer verlassen dabei dein Netz |
 
 Die Auswertung stammt von einem Sprachmodell und kann Fehler enthalten. Der Bericht darüber ist die Grundlage.
+
+### Weitere Benutzer
+
+Unter **Einstellungen → Benutzer** legt ein Admin weitere Konten an. Rolle **„Nur ansehen“** sieht alle Auswertungen, kann aber nichts ändern, keine KI-Auswertung starten und die Zusatz-Einstellungen (Benachrichtigungs-Ziele, Schlüssel) nicht sehen. Ein zweiter Faktor fehlt noch.
+
+### UDP-Dienste
+
+SIP (5060), SNMP (161) und DNS (53) laufen über UDP und **antworten nie**. Bei UDP lässt sich die Absenderadresse fälschen; jede Antwort könnte jemand nutzen, um Dritte mit unseren Paketen zu überfluten. Scanner verraten trotzdem, was sie suchen: SIP-Scanner ihre Software und Zielnummer, SNMP-Scanner den Community-String (erscheint als Login), DNS-Scanner die Abfrage. Absender-IPs bei UDP können gefälscht sein.
 
 ### Benachrichtigungen
 
@@ -272,8 +283,8 @@ Auf eine andere Version zurückrollen: `git checkout <Version>`, dann `sh update
 Für den Raspberry Pi gibt es ein fertiges Image – kein Docker, keine Konsole. Aufspielen, einstecken, im Browser einrichten:
 
 1. Auf der [Releases-Seite](https://github.com/MrLuigi938/hivornet/releases) die passende Datei laden: `hivornet-pi-arm64-*.img.xz` für Pi 3, 4, 5 und Zero 2 W, `hivornet-pi-armv7-*.img.xz` für ältere Modelle.
-2. Mit dem [Raspberry Pi Imager](https://www.raspberrypi.com/software/) oder Balena Etcher auf eine SD-Karte schreiben (im Imager „Eigenes Image“ wählen). Nichts weiter einstellen.
-3. Karte in den Pi, LAN-Kabel anstecken, Strom dran. Beim ersten Start richtet sich das Gerät selbst ein (ein bis zwei Minuten).
+2. Mit dem [Raspberry Pi Imager](https://www.raspberrypi.com/software/) oder [balenaEtcher](https://etcher.balena.io/) auf eine SD-Karte (ab 8 GB) schreiben. Im Imager: Gerät wählen, bei „Betriebssystem“ ganz unten **„Eigenes Image“** und die `.img.xz`-Datei; die Frage nach **Anpassungen** (Benutzer, WLAN, SSH) mit **„Nein“** beantworten. Hivornet richtet sich selbst ein; Anpassungen des Imagers würden diese Einrichtung ersetzen.
+3. Karte in den Pi, **LAN-Kabel** anstecken (WLAN ist nicht eingerichtet), Strom dran. Beim ersten Start vergrößert der Pi die Partition, startet einmal neu und installiert Hivornet. Das dauert **zwei bis fünf Minuten**.
 4. Am Rechner im selben Netz **`http://hivornet.local:8088`** öffnen. Beim ersten Aufruf vergibst du dein Passwort und den Standort für die Karte – danach bist du sofort drin.
 5. Im Router die Honeypot-Ports **1:1** an den Pi weiterleiten (extern 22 → Pi 22 usw.). Die Ports 8088 und 8089 nie weiterleiten, den Pi nie als „Exposed Host“ eintragen.
 
@@ -281,9 +292,22 @@ Findet dein Rechner `hivornet.local` nicht (kein mDNS), sieh die IP-Adresse des 
 
 **Updates:** Erscheint eine neue Version, zeigt die Fußzeile einen Hinweis mit Knopf **„Jetzt aktualisieren"**. Der Pi lädt die neue Version selbst, prüft die Signatur und startet neu; schlägt etwas fehl, kehrt er zur alten Version zurück. Eine neue SD-Karte ist nur für größere Sprünge nötig (wenn sich die Systemdienste ändern; steht dann in den Release-Hinweisen).
 
-**Eigenes Image bauen** (z. B. zum Testen aus diesem Branch): `pi/build-image.sh` legt Hivornet in ein Raspberry Pi OS Lite, ohne Emulation. Es läuft in der CI (`.github/workflows/release.yml`, auch von Hand über „Run workflow") und auf jedem Linux-Rechner mit Root (`sudo sh pi/build-image.sh arm64 v0.3.0 <ordner-mit-hive-und-honeypot>`).
+Welche Ports im Router: Die Liste steht in der Web-UI unter **Einstellungen → Ports und Modi** (Spalte „Öffentlich“ zeigt „direkt am Gerät“). Für den Anfang genügen 21, 22, 23, 80, 443 und 3389. UDP-Ports (5060, 161) nur bei Interesse; sie zeichnen nur auf.
 
-Hinweise zum Betrieb: Das Pi-Image hat **kein Cowrie** (das braucht Python und viel RAM). SSH und Telnet übernehmen der SSH-Tarpit und der Telnet-Honeypot des Go-Dienstes; es gibt dort also keine echte Fake-Shell und keine TTY-Mitschnitte. Das Image schont die SD-Karte von sich aus (`HIVE_FLUSH_MS=5000`) und begrenzt die Datenbank auf 1 GB. Auf echter Pi-Hardware ist das Image noch nicht erprobt.
+**Klappt etwas nicht?** Bildschirm an den Pi anschließen: Nach der Installation steht dort die Adresse der Web-UI. Das Installationsprotokoll liegt auf dem Pi unter `/var/log/hivornet-install.log`. Ein Konsolen-Benutzer ist absichtlich gesperrt (eigenes Image mit `--password` bauen, wenn du einen brauchst); SSH ist aus, weil Port 22 dem Honeypot gehört.
+
+**Eigenes Image bauen** (z. B. zum Testen aus diesem Branch). Das Skript ändert nur die Bootpartition eines offiziellen Raspberry Pi OS Lite und braucht weder Linux noch Root, nur Python 3 und openssl:
+
+```bash
+pip install pyfatfs==1.1.0
+cd hive && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dist/arm64/hive . && cd ..
+cd honeypot && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dist/arm64/honeypot . && cd ..
+python3 pi/build_image.py --arch arm64 --version v0.3.0 --bin dist/arm64 --out dist
+```
+
+Das Basis-Image (Raspberry Pi OS Lite „trixie“ vom 06.10.2026) wird geladen und an der Prüfsumme erkannt; ein neueres trägt man in `BASE` in `pi/build_image.py` ein. In der CI passiert dasselbe bei jedem Tag (`.github/workflows/release.yml`, auch von Hand über „Run workflow“).
+
+Hinweise zum Betrieb: Das Pi-Image hat **kein Cowrie** (das braucht Python und viel RAM). SSH und Telnet übernehmen der SSH-Tarpit und der Telnet-Honeypot des Go-Dienstes; es gibt dort also keine echte Fake-Shell und keine TTY-Mitschnitte. Das Image schont die SD-Karte von sich aus (`HIVE_FLUSH_MS=5000`) und begrenzt die Datenbank auf 1 GB. **Auf echter Pi-Hardware ist das Image noch nicht erprobt.**
 
 ### UI mit HTTPS (optional)
 
@@ -336,17 +360,17 @@ Ein Git-Tag `v*` baut die Images und legt sie in der GitHub Container Registry a
 
 Hivornet ist ein Sensor für Massenscans und Login-Versuche mit guter Übersicht, kein Werkzeug für Malware-Analyse oder Forschung. Gegenüber T-Pot fehlt bewusst:
 
-- **Weniger und einfachere Honeypots:** über 20 spezialisierte bei T-Pot, hier 12 einfache Emulationen plus Cowrie. Kein Dateisystem, keine Nutzlast-Ausführung, kein SMB. RDP ohne NLA: erfasst wird nur der Benutzername aus dem Verbindungs-Cookie.
+- **Weniger und einfachere Honeypots:** über 20 spezialisierte bei T-Pot, hier 15 einfache Emulationen (davon 3 über UDP, nur aufzeichnend) plus Cowrie. Kein Dateisystem, keine Nutzlast-Ausführung, SMB nur als Rohdaten auf Port 445. RDP ohne NLA: erfasst wird nur der Benutzername aus dem Verbindungs-Cookie.
 - **Keine Netzwerk-Erkennung:** kein Suricata, p0f oder Fatt.
 - **Feste Auswertungen:** keine frei definierbaren Abfragen wie in Kibana. Die Angriffsmuster sind einfache Regeln und können danebenliegen.
-- **Kein UDP, kein IPv6:** Die Docker-Netze sind nur IPv4; Angriffe über IPv6 sieht Hivornet nicht.
+- **UDP nur aufzeichnend, kein IPv6:** UDP-Dienste antworten nie (siehe oben). Die Docker-Netze sind nur IPv4; Angriffe über IPv6 sieht Hivornet nicht.
 - **Erkennbar:** Server-Kennungen und Antworten sind fest bzw. einfach gehalten. Geübte Scanner können den Honeypot erkennen.
 - **Mehrere Sensoren:** Sie können eigene Konfigurationen haben, teilen sich aber ein Token. Die Sensor-API hat kein TLS und ist nur für das interne Docker-Netz gedacht.
 
 Mögliche nächste Schritte:
-- **Weitere Protokolle:** SMB, RDP mit NLA, UDP-Dienste.
-- **Datenabgleich:** GreyNoise per API, STIX/MISP-Export, Benachrichtigung per E-Mail.
-- **Konten und Betrieb:** Mehrbenutzer mit Leserolle und zweitem Faktor, eigenes Raspberry-Pi-Image.
+- **Weitere Protokolle:** SMB mit Anmeldedialog, RDP mit NLA.
+- **Datenabgleich:** Benachrichtigung per E-Mail.
+- **Konten:** zweiter Faktor für die Anmeldung.
 
 ## Lizenzen und Quellen
 

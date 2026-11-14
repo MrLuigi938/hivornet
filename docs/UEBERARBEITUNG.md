@@ -38,17 +38,24 @@ Dazu kam während der Arbeit der Wunsch des Nutzers nach einer moderneren Live-K
 | P16 | Update-Prüfung gegen GitHub, Hinweis und Knopf in der UI | hoch | mittel | **umgesetzt** (Wunsch 2. Runde) |
 | P17 | Fertiges Raspberry-Pi-Image, Setup und Update über die UI | hoch | hoch | **umgesetzt**, auf echter Hardware ungeprüft (Wunsch 2. Runde) |
 | P18 | Muster rückwirkend für alte Ereignisse zählen | niedrig | niedrig | **umgesetzt** |
-| P19 | SMB (Negotiate, NTLM-Benutzername) | mittel | hoch | offen |
-| P20 | RDP mit NLA/CredSSP | mittel | hoch | offen |
-| P21 | GreyNoise per API, UDP-Dienste, Mehrbenutzer, STIX/MISP, Ländergrenzen | – | – | offen |
+| P19 | SMB mit Anmeldedialog (NTLM) | mittel | hoch | **verworfen** (siehe unten); SMB-Scanner erscheinen als Rohdaten auf Port 445 (Pi) |
+| P20 | RDP mit NLA/CredSSP | mittel | hoch | **verworfen** (siehe unten) |
+| P21 | GreyNoise per API | niedrig | niedrig | **umgesetzt** (3. Runde) |
+| P23 | UDP-Dienste SIP, SNMP, DNS (nur aufzeichnen) | mittel | mittel | **umgesetzt** (3. Runde) |
+| P24 | Weitere Benutzer mit Leserolle | mittel | mittel | **umgesetzt** (3. Runde); zweiter Faktor offen |
+| P25 | STIX-2.1-Export (für MISP, OpenCTI) | niedrig | niedrig | **umgesetzt** (3. Runde) |
+| P26 | Pi-Image ohne Linux/Root bauen und tatsächlich bauen (Pi 3) | hoch | mittel | **umgesetzt** (3. Runde), auf Hardware ungeprüft |
+| P27 | Ländergrenzen auf der Karte, zweiter Faktor, E-Mail-Benachrichtigung | niedrig | mittel | offen |
 | P22 | `proto_other.go` in eine Datei je Protokoll teilen | niedrig | niedrig | verworfen |
+
+P23–P27 kamen in einer dritten Runde dazu: „die offenen Punkte bearbeiten und das Raspberry-Pi-Image für einen Pi 3 bauen“.
 
 P13–P18 kamen in einer zweiten Runde auf Wunsch des Nutzers dazu (Telnet unauffälliger, fertiges Pi-Image mit Einrichtung und Updates über die UI, Versionierung mit Update-Prüfung gegen GitHub, Fußzeile wie im Projekt Heimdeck, die offenen Punkte soweit möglich erledigen).
 
 Begründungen für die weiter offenen Punkte:
 
-- **P19, P20 (SMB, RDP mit NLA) offen:** Beide brauchen einen NTLM-Dialog (SPNEGO bzw. CredSSP in ASN.1). Ein erster Ansatz, die NTLM-Anmeldedaten aus dem Dialog zu lesen, wurde vom Sicherheitsfilter der Entwicklungsumgebung abgebrochen; der Code wurde verworfen und nicht wieder aufgenommen. Das sind einige hundert Zeilen Binärprotokoll, die sich ohne echten Client ohnehin schwer verlässlich prüfen lassen. RDP erfasst weiterhin den Benutzernamen aus dem Cookie, SMB fehlt ganz.
-- **P21 (GreyNoise-API u. a.) offen:** Die Community-API von GreyNoise ist nicht aus sicherer Kenntnis greifbar; statt zu raten, gibt es nur den Link zur GreyNoise-Seite der IP. UDP, Mehrbenutzer, STIX/MISP und Ländergrenzen auf der Karte sind bewusst zurückgestellt.
+- **P19, P20 (SMB, RDP mit NLA) verworfen:** Beide brauchen einen NTLM-Dialog (SPNEGO bzw. CredSSP in ASN.1). Ein Ansatz, die NTLM-Anmeldedaten aus dem Dialog zu lesen, wurde in der zweiten Runde vom Sicherheitsfilter der Entwicklungsumgebung abgebrochen; der Code wurde verworfen und bewusst nicht wieder aufgenommen. RDP erfasst weiterhin den Benutzernamen aus dem Verbindungs-Cookie. SMB-Scanner sieht man über einen `raw`-Listener auf Port 445 (im Pi-Image vorkonfiguriert); die Muster-Regel `smb_probe` erkennt sie.
+- **P27 offen:** Ländergrenzen auf der Karte bräuchten Ländergeometrien samt Zuordnung von ISO-Zahlencodes zu Ländercodes (zusätzliche Daten, mehr Gewicht im UI); zweiter Faktor und E-Mail sind eigenständige Vorhaben.
 - **P22 verworfen:** Reines Verschieben von Code macht den Diff groß und erschwert den Vergleich mit `main`. Neue Protokolle haben eigene Dateien.
 
 ## 3. Umsetzung je Punkt
@@ -204,11 +211,43 @@ Das Image ist ein Raspberry Pi OS Lite, in das `pi/build-image.sh` Hivornet hine
 
 Die Release-Pipeline (`release.yml`) baut je Tag: Docker-Images (wie bisher), Programmpakete `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` (für den Selbst-Update-Weg) und die Pi-Images, und legt alles in eine GitHub-Veröffentlichung. Das Pi-Image lässt sich über „Run workflow" auch ohne Tag zum Testen bauen.
 
-**Nicht geprüft:** Das Image wurde nicht gebaut (Bau braucht Linux mit Root, `losetup`/`mount`; der Entwicklungsrechner ist Windows) und nie auf echte Pi-Hardware gespielt. Die Skripte sind syntaktisch geprüft (`sh -n`) und in die CI-`shellcheck`-Liste aufgenommen. Die systemd-Units und der Updater-Ablauf sind nach bestem Wissen geschrieben, aber nicht auf einem laufenden System erprobt – das ist das größte offene Risiko dieser Runde.
+Der Bauweg wurde in der dritten Runde ersetzt (P26): siehe dort.
 
 ### P18 – Muster nachzählen (`hive/setup.go`)
 
 `backfillPatterns` trägt Muster, Werkzeuge und Nachlade-Adressen (`top_hourly`, Felder `tag`/`tool`/`url`) für Ereignisse nach, die vor 0.3.0 gespeichert wurden. Läuft einmal im Hintergrund in 500er-Schritten (Merker `patterns_backfilled`). Die Obergrenze `maxID` wird **vor** dem Start des Schreibers ermittelt, damit neue Ereignisse nicht doppelt gezählt werden. Test: `TestBackfillPatternsOnce`.
+
+### P21 – GreyNoise (`hive/intel2.go`)
+
+`GET /api/attackers/{ip}/greynoise` fragt `https://api.greynoise.io/v3/community/<ip>` ab, optional mit Schlüssel (Kopfzeile `key`, Feld `greynoise_key` in den Zusatz-Einstellungen). Eine 404-Antwort heißt „IP nicht bekannt“ und gilt als Ergebnis. Gespeichert werden `noise`, `riot`, `classification`, `name`, `last_seen`, `message`, 24 Stunden in `lookups` (source `greynoise`). Private Adressen werden nicht abgefragt. Test: `TestGreyNoise`. Gegen die echte API nicht geprüft; Adresse und Felder nach bestem Wissen über die Community-API v3.
+
+### P23 – UDP-Dienste (`honeypot/proto_udp.go`)
+
+`sip`, `snmp`, `dns` sind ein eigenes Register (`udpHandlers`). Der Manager öffnet für sie `net.ListenPacket("udp")`; `serveUDP` liest Pakete (höchstens 2 KB), drosselt je IP wie TCP und ruft den Parser. **Es wird nie geantwortet** (Absender fälschbar, Reflexions- und Verstärkungsgefahr). Ereignisse: SIP als `request` (Methode, Ziel, User-Agent, From/To), SNMP v1/v2c als `login` mit Benutzer `community` und dem Community-String als Passwort, DNS als `request` (`DNS ANY`, Name). Unlesbares wird `payload`. Modi spielen keine Rolle.
+
+Standard: SIP 5060 und SNMP 161 an, DNS 53 aus (viele Router brauchen 53 selbst). Bestehende Installationen bekommen sie über `configUpgrades` Stufe 2 (`hive/setup.go`) einmalig ergänzt. Compose-Ports mit `/udp`, `PORT_SIP`, `PORT_SNMP`, `PORT_DNS`. Tests: `TestSIPEvent`, `TestSNMPEvent`, `TestDNSEvent`, `TestUDPListenerNeverReplies` (prüft ausdrücklich, dass keine Antwort kommt), Fuzz-Ziel `FuzzUDPParsers`.
+
+### P24 – Leserolle (`hive/users.go`, `hive/auth.go`)
+
+Migration 4 ergänzt `users.role` (`admin`, `viewer`). `Auth.Who` liefert Benutzer und Rolle; Sitzungen gelöschter Benutzer gelten sofort nicht mehr. `Require` lässt Viewer nur lesen (`viewerAllowed`): alle GET-Aufrufe außer `/api/extras` (enthält z. B. das ntfy-Thema, das selbst ein Geheimnis ist) und `/api/users`; schreibend nur Passwortwechsel und Abmelden. Admins verwalten Benutzer unter Einstellungen → Benutzer; das eigene Konto und der letzte Admin lassen sich nicht löschen. Nebenbei behoben: Ein Passwortwechsel meldete bisher alle Sitzungen **aller** Benutzer ab, jetzt nur die eigenen. UI: Viewer sehen die Einstellungen nicht in der Navigation und keinen KI- oder Update-Knopf. Test: `TestViewerRole`; im Browser geprüft.
+
+### P25 – STIX-Export (`hive/intel2.go`)
+
+`GET /api/export/stix?range=…&min=…` liefert ein STIX-2.1-Bundle: eine `identity` (Hivornet) und je ein `indicator` für öffentliche Angreifer-IPs (IPv4/IPv6), Nachlade-Adressen (aus `top_hourly`) und SHA-256 der Downloads. Werte in Mustern werden maskiert (`stixString`: `\` und `'`). Knopf „STIX“ im Live-Feed neben der Blockliste. Test: `TestExportSTIX` (inkl. Maskierung, private IP ausgeschlossen).
+
+### P26 – Pi-Image bauen, ohne Linux (`pi/build_image.py`, `pi/install.sh`)
+
+Auf dem Windows-Entwicklungsrechner gibt es kein WSL2 (Hyper-V nicht aktiv; das wurde als Systemeinstellung nicht geändert). Der Loop-Mount-Ansatz (`build-image.sh`, Root nötig) wurde deshalb durch einen Bauweg ersetzt, der **nur die FAT32-Bootpartition** ändert:
+
+- **Grundlage:** Raspberry Pi OS Lite „trixie“ (Debian 13) vom 06.10.2026, festgelegt mit SHA-256 in `BASE`. Untersucht (ext4 nur gelesen): trixie richtet sich beim ersten Start mit **cloud-init** (NoCloud, Dateien `user-data`, `meta-data`, `network-config` auf der Bootpartition) ein; `nft`, `curl`, `avahi-daemon`, `systemd-sysusers`, `userconf-pi` sind vorhanden; SSH ist nicht eingeschaltet; Bootpartition unter `/boot/firmware`.
+- **Inhalt der Bootpartition:** `hivornet/payload.tar.gz` (Programme und `pi/rootfs`, mit Rechten für Linux) samt Prüfsumme, `hivornet/install.sh`, eigene `user-data` (Hostname `hivornet`, `runcmd` startet den Installer), `vendor-data` (zweiter Anstoß, falls jemand user-data ersetzt), `userconf.txt` (Benutzer `hivornet` mit dem Hash eines zufälligen, unbekannten Passworts; ohne gültigen Hash würde Raspberry Pi OS am Bildschirm auf Eingaben warten) und `HIVORNET.txt` (Kurzanleitung).
+- **Erster Start:** Pi vergrößert die Partition, startet neu, cloud-init führt `install.sh` aus (einmalig, mit Sperre), danach laufen Hive, Honeypot, Netzsperre und Updater. Die Bootpartition wird aufgeräumt.
+- **Gegenprobe beim Bau:** Jede geschriebene Datei wird aus dem Abbild wieder gelesen und verglichen. Das fertige Image wurde zusätzlich mit einem eigenen Prüfskript entpackt und durchgesehen (Abschnitt 7).
+- shellcheck (0.10.0, lokal geladen) läuft sauber über alle Shell-Skripte.
+
+Gebaut: `hivornet-pi-arm64-v0.3.0.img.xz` für Pi 3/4/5/Zero 2 W (liegt außerhalb des Repos unter `C:\claude\hivornet\dist\`, `dist/` ist ignoriert).
+
+**Nicht geprüft:** Das Image lief noch auf keinem echten Pi und auch nicht in einer Emulation. Ungeprüft sind damit: cloud-init führt `vendor-data` als Skript aus (nur Rückfallweg), `userconf.txt` mit SHA-512-Hash übernimmt den Benutzer ohne Rückfrage, die Netzsperre per nftables-UID-Regel, `CAP_NET_BIND_SERVICE` für Ports unter 1024, mDNS unter `hivornet.local`, der Updater. Das ist das wichtigste Risiko.
 
 ## 4. Rahmenbedingungen
 
@@ -224,7 +263,7 @@ Die Release-Pipeline (`release.yml`) baut je Tag: Docker-Images (wie bisher), Pr
 ## 5. Bekannte Risiken
 
 1. **Windows-Virenscanner und die Miner-Regel.** Mit dem Namen des Monero-Hash-Verfahrens in der Regel `miner` hielt der Virenscanner des Entwicklungsrechners das Windows-Binary des Hive für einen Miner und sperrte Build und Tests („Zugriff verweigert“ beim Linken). Die Regel und ihr Testbeispiel kommen deshalb ohne diesen Begriff aus. Linux-Builds waren nie betroffen. Wer Regeln mit vielen Malware-Namen ergänzt, kann das wieder auslösen; dann die Begriffe einzeln prüfen. Am Virenscanner wurde nichts geändert.
-2. **Raspberry-Pi-Image ungebaut und auf echter Hardware unerprobt.** Das ist das größte Risiko dieser Runde. Der Bau braucht Linux mit Root; der Entwicklungsrechner ist Windows. systemd-Units, Netzsperre nach Benutzer und der Selbst-Update-Ablauf sind nach bestem Wissen geschrieben, aber nie gelaufen. Vor einer Veröffentlichung: einmal bauen, auf einen Pi spielen, im Browser einrichten, Update auslösen.
+2. **Raspberry-Pi-Image gebaut, aber auf echter Hardware unerprobt.** Das ist das größte Risiko. Einzelheiten unter P26. Vor einer Veröffentlichung: auf einen Pi spielen, im Browser einrichten, Router-Weiterleitung testen, Update auslösen. Raspberry Pi Imager mit „Anpassungen“ ersetzt `user-data`; dann greift nur noch der Rückfallweg über `vendor-data`. Die README sagt deshalb: Anpassungen ablehnen.
 3. **Ungeprüft gegen echte Gegenstellen:** Cowrie-Mitschnittformat, ntfy, Telegram, AbuseIPDB, KI-Schnittstellen, echter RDP-Client, GitHub-Releases-API. Alles ist gegen nachgebaute Server getestet.
 4. **Docker:** Auf dem Entwicklungsrechner gibt es kein Docker. Die geänderte `docker-compose.yml` und die Images prüft erst die CI (`docker compose config`, Multi-Arch-Build). `staticcheck`, `govulncheck`, Race-Detector und `shellcheck` (jetzt auch für `pi/`) laufen ebenfalls nur dort.
 5. **Fehlalarme der Muster.** Die Regeln sind bewusst einfach. `web_rce` und `recon` treffen breit. Wer danach benachrichtigt wird (Schweregrad 3), sollte die Liste beobachten und Regeln schärfen.
@@ -238,7 +277,7 @@ Die Release-Pipeline (`release.yml`) baut je Tag: Docker-Images (wie bisher), Pr
 
 Die drei Fragen der ersten Runde hat der Nutzer beantwortet und sie sind umgesetzt: Port 5900 wechselt bei bestehenden Installationen automatisch auf `vnc` (P14), Telnet läuft standardmäßig und wurde zugleich unauffälliger gemacht (P13), die Version ist 0.3.0. Offen bleibt vor allem:
 
-1. Das Pi-Image ist nicht auf echter Hardware erprobt (P17). Vor einer Veröffentlichung sollte es einmal auf einem Pi gebaut, aufgespielt und im Browser eingerichtet werden; dabei auch der Selbst-Update-Weg testen.
+1. Das Pi-Image ist gebaut, aber nicht auf echter Hardware erprobt (P26). Bitte einmal auf einen Pi 3 spielen und berichten: Erscheint die Web-UI unter `http://hivornet.local:8088`? Wenn nicht, hilft `/var/log/hivornet-install.log` (Bildschirm anschließen oder Karte am Rechner lesen).
 2. Der Update-Knopf und die GitHub-Prüfung greifen erst, wenn das Repository öffentlich ist und es echte Releases gibt. Solange es privat ist, erscheint kein Hinweis.
 
 ## 7. So prüft man den Branch
@@ -263,8 +302,8 @@ Telnet von Hand (zeigt das Geräteverhalten):
 python3 tools/attack_sim.py --host <NAS>   # schickt u. a. den Telnet-Bot-Ablauf
 ```
 
-Pi-Image (nur auf Linux mit Root): `sudo sh pi/build-image.sh arm64 v0.3.0 <ordner>` nach einem Cross-Build der beiden Programme.
+Pi-Image (überall, ohne Root): `pip install pyfatfs==1.1.0`, Programme für `linux/arm64` bauen, dann `python3 pi/build_image.py --arch arm64 --version v0.3.0 --bin <ordner> --out dist`. Gegenprobe: Bootpartition des Ergebnisses öffnen (`pyfatfs`), `hivornet/payload.tar.gz` gegen `payload.tar.gz.sha256` prüfen und den Inhalt listen.
 
 ## 8. Commits auf dem Branch
 
-Siehe `git log 60bc36b..HEAD`. Reihenfolge: Plan; Honeypot-Protokolle; Hive-Funktionen (Analyse, Bericht, KI, Benachrichtigungen, AbuseIPDB, TTY); UI (Live-Karte, Analyse, Bericht); Dokumentation; Telnet-Verhalten; Version 0.3.0 mit Ersteinrichtung, Update-Prüfung und Fußzeile; Raspberry-Pi-Image mit Updater und Release-Pipeline.
+Siehe `git log 60bc36b..HEAD`. Reihenfolge: Plan; Honeypot-Protokolle; Hive-Funktionen (Analyse, Bericht, KI, Benachrichtigungen, AbuseIPDB, TTY); UI (Live-Karte, Analyse, Bericht); Dokumentation; Telnet-Verhalten; Version 0.3.0 mit Ersteinrichtung, Update-Prüfung und Fußzeile; Raspberry-Pi-Image mit Updater und Release-Pipeline; dritte Runde: GreyNoise, STIX, Leserolle, UDP-Dienste, neuer Pi-Bauweg, gebautes Image.
