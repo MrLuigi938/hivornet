@@ -20,7 +20,7 @@ jobs:
         working-directory: ${{ matrix.module }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v7
         with:
           # immer den neuesten Patch, damit govulncheck nicht an alten Standardbibliotheken scheitert
           go-version: "1.26.x"
