@@ -52,6 +52,9 @@ services:
       PORT_MYSQL: ${PORT_MYSQL:-13306}
       PORT_REDIS: ${PORT_REDIS:-16379}
       PORT_RAW: ${PORT_RAW:-15900}
+      PORT_SMTP: ${PORT_SMTP:-10025}
+      PORT_TELNET_ALT: ${PORT_TELNET_ALT:-12323}
+      PORT_RDP: ${PORT_RDP:-13389}
     volumes:
       - hive-data:/data
       - cowrie-log:/cowrie-log:ro
@@ -91,6 +94,9 @@ services:
       - "${PORT_MYSQL:-13306}:3306"
       - "${PORT_REDIS:-16379}:6379"
       - "${PORT_RAW:-15900}:5900"
+      - "${PORT_SMTP:-10025}:10025"
+      - "${PORT_TELNET_ALT:-12323}:2323"
+      - "${PORT_RDP:-13389}:3389"
     networks: [honeynet, ingest]
     depends_on:
       hive: { condition: service_healthy }

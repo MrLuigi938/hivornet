@@ -39,7 +39,7 @@ jobs:
       - name: Kurzes Fuzzing
         if: matrix.module == 'honeypot'
         run: |
-          for f in FuzzReadRESP FuzzParseMySQLLogin FuzzReadLine FuzzHTTPRequestParsing; do
+          for f in FuzzReadRESP FuzzParseMySQLLogin FuzzReadLine FuzzHTTPRequestParsing FuzzTelnetReadLine FuzzRDP; do
             go test -run='^$' -fuzz="^$f\$" -fuzztime=20s .
           done
 

@@ -29,7 +29,8 @@ type SensorConfig struct {
 	Tarpit    TarpitConfig     `json:"tarpit"`
 }
 
-var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw"}
+// Muss zur Tabelle "handlers" im Honeypot passen (dort prüft das TestServiceListsInSync).
+var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw", "telnet", "smtp", "vnc", "rdp"}
 var knownModes = []string{"emulate", "tarpit", "hybrid"}
 
 const maxTarpitConns = 8000 // wie im Honeypot

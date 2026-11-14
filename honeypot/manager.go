@@ -194,6 +194,8 @@ func (m *Manager) Status() (Config, []ListenerStatus) {
 	return m.current, out
 }
 
+// handlers ist das Register aller Dienste: Name -> Handler. Ein neues Protokoll
+// wird hier eingetragen (Schritte: docs/ARCHITEKTUR.md, „Neues Protokoll“).
 var handlers = map[string]func(*Session){
 	"http":       handleHTTP,
 	"https":      handleHTTPS,
@@ -203,6 +205,10 @@ var handlers = map[string]func(*Session){
 	"mysql":      handleMySQL,
 	"ssh-tarpit": handleSSHTarpit,
 	"raw":        handleRaw,
+	"telnet":     handleTelnet,
+	"smtp":       handleSMTP,
+	"vnc":        handleVNC,
+	"rdp":        handleRDP,
 }
 
 func (m *Manager) fromOwnNet(ip net.IP) bool {

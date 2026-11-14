@@ -501,6 +501,7 @@ func (h *Hive) blocklist(w http.ResponseWriter, r *http.Request) {
 var publishedPorts = map[int]string{
 	21: "PORT_FTP", 80: "PORT_HTTP", 443: "PORT_HTTPS", 2375: "PORT_DOCKER", 2222: "PORT_SSH_TARPIT",
 	3306: "PORT_MYSQL", 6379: "PORT_REDIS", 5900: "PORT_RAW", 8080: "PORT_HTTP_ALT",
+	25: "PORT_SMTP", 2323: "PORT_TELNET_ALT", 3389: "PORT_RDP",
 }
 
 func (h *Hive) getSettings(w http.ResponseWriter, r *http.Request) {

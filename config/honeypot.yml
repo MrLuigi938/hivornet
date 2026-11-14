@@ -4,6 +4,9 @@
 # speichert es, der Honeypot holt es alle 15 s ab). Diese Datei ist dann nur
 # noch der Ausgangspunkt für einen frischen Hive.
 #
+# Dienste: ftp, http, https, dockerapi, mysql, redis, smtp, telnet, rdp, vnc,
+#          ssh-tarpit, raw (generisch: zeichnet die ersten Bytes auf)
+#
 # Modi:  emulate = nachspielen und aufzeichnen
 #        tarpit  = Verbindung sofort festhalten (endlos langsame Daten)
 #        hybrid  = erst Login/Anfrage aufzeichnen, dann festhalten
@@ -21,9 +24,12 @@ listeners:
   - { service: dockerapi,  port: 2375, mode: emulate }
   - { service: ssh-tarpit, port: 2222, mode: tarpit }
   - { service: mysql,      port: 3306, mode: emulate }
-  - { service: raw,        port: 5900, mode: hybrid }
+  - { service: vnc,        port: 5900, mode: hybrid }
   - { service: redis,      port: 6379, mode: emulate }
   - { service: http,       port: 8080, mode: hybrid }
+  - { service: smtp,       port: 25,   mode: emulate }
+  - { service: telnet,     port: 2323, mode: emulate }
+  - { service: rdp,        port: 3389, mode: emulate }
 
 tarpit:
   interval_ms: 10000     # alle 10 s ein winziges Datenstück
