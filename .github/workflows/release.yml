@@ -103,12 +103,16 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: programme
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: Image bauen
         run: |
           tag="${GITHUB_REF_NAME}"
           case "$tag" in v*) ;; *) tag="v0.0.0-test" ;; esac
-          sudo sh pi/build-image.sh "${{ matrix.arch }}" "$tag" "dist/${{ matrix.arch }}"
-          sha256sum honeylite-pi-*.img.xz >"honeylite-pi-${{ matrix.arch }}-$tag.img.xz.sha256"
+          pip install pyfatfs==1.1.0
+          # baut ohne Root: nur die FAT-Bootpartition wird geändert (pi/build_image.py)
+          python3 pi/build_image.py --arch "${{ matrix.arch }}" --version "$tag" --bin "dist/${{ matrix.arch }}" --out .
       - uses: actions/upload-artifact@v4
         with:
           name: pi-image-${{ matrix.arch }}
