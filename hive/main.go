@@ -244,7 +244,7 @@ func main() {
 	ui.HandleFunc("GET /api/system", a.Require(h.system))
 	ui.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := st.db.PingContext(r.Context()); err != nil {
-			http.Error(w, "db", 503)
+			http.Error(w, "db", http.StatusServiceUnavailable)
 			return
 		}
 		w.Write([]byte("ok"))
