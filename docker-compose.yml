@@ -1,0 +1,179 @@
+# HoneyLite – leichtgewichtiger Honeypot (T-Pot-Alternative)
+# Start:  sh install.sh   (oder: cp .env.example .env, Werte setzen, docker compose up -d --build)
+# Pflicht für den Betrieb am Internet: sh tools/firewall.sh (Netzsperre, siehe README)
+
+name: honeylite
+
+x-hardening: &hardening
+  restart: unless-stopped
+  security_opt: ["no-new-privileges:true"]
+  cap_drop: [ALL]
+  logging:
+    driver: json-file
+    options: { max-size: "10m", max-file: "3" }
+
+services:
+  # Sammelt alle Ereignisse, GeoIP, Datenbank, API und Web-UI.
+  # Port 8088 (UI) nur im Heimnetz; die Sensor-API (8089) ist nur im internen Netz "ingest".
+  hive:
+    <<: *hardening
+    build:
+      context: ./hive
+      args: { VERSION: "${HONEYLITE_VERSION:-0.2.0}" }
+    image: honeylite/hive:${HONEYLITE_VERSION:-0.2.0}
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      HONEYLITE_TOKEN: ${HONEYLITE_TOKEN:?HONEYLITE_TOKEN fehlt in .env - bitte install.sh ausführen}
+      HIVE_ADMIN_USER: ${HIVE_ADMIN_USER:-admin}
+      HIVE_ADMIN_PASSWORD: ${HIVE_ADMIN_PASSWORD:-}
+      HIVE_RESET_ADMIN: ${HIVE_RESET_ADMIN:-0}
+      HIVE_RETENTION_DAYS: ${HIVE_RETENTION_DAYS:-30}
+      HIVE_MAX_DB_MB: ${HIVE_MAX_DB_MB:-2048}
+      HIVE_MIN_FREE_MB: ${HIVE_MIN_FREE_MB:-1024}
+      HIVE_ALLOWED_HOSTS: ${HIVE_ALLOWED_HOSTS:-}
+      HIVE_COOKIE_SECURE: ${HIVE_COOKIE_SECURE:-0}
+      HIVE_METRICS_TOKEN: ${HIVE_METRICS_TOKEN:-}
+      HIVE_LISTEN: ":8088"
+      HIVE_SENSOR_LISTEN: ":8089"
+      HIVE_INGEST_SUBNET: 172.30.250.0/24
+      HIVE_COWRIE_LOG: /cowrie-log/cowrie.json
+      HIVE_COWRIE_LIB: /cowrie-lib
+      SENSOR_NAME: ${SENSOR_NAME:-nas}
+      # nur zur Anzeige in der UI (welcher NAS-Port gehört zu welchem Dienst)
+      PORT_SSH: ${PORT_SSH:-10022}
+      PORT_TELNET: ${PORT_TELNET:-10023}
+      PORT_FTP: ${PORT_FTP:-10021}
+      PORT_HTTP: ${PORT_HTTP:-10080}
+      PORT_HTTPS: ${PORT_HTTPS:-10443}
+      PORT_HTTP_ALT: ${PORT_HTTP_ALT:-18080}
+      PORT_DOCKER: ${PORT_DOCKER:-12375}
+      PORT_SSH_TARPIT: ${PORT_SSH_TARPIT:-12222}
+      PORT_MYSQL: ${PORT_MYSQL:-13306}
+      PORT_REDIS: ${PORT_REDIS:-16379}
+      PORT_RAW: ${PORT_RAW:-15900}
+    volumes:
+      - hive-data:/data
+      - cowrie-log:/cowrie-log:ro
+      - cowrie-lib:/cowrie-lib:ro
+    ports:
+      - "${HIVE_BIND:-127.0.0.1}:${HIVE_PORT:-8088}:8088"
+    networks:
+      admin: {}
+      ingest: { ipv4_address: 172.30.250.2 }
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 256
+
+  # Eigener Multi-Protokoll-Honeypot mit Tarpit-Modus.
+  honeypot:
+    <<: *hardening
+    build:
+      context: ./honeypot
+      args: { VERSION: "${HONEYLITE_VERSION:-0.2.0}" }
+    image: honeylite/honeypot:${HONEYLITE_VERSION:-0.2.0}
+    read_only: true
+    tmpfs: [/tmp]
+    environment:
+      HONEYLITE_TOKEN: ${HONEYLITE_TOKEN:?HONEYLITE_TOKEN fehlt in .env}
+      SENSOR_NAME: ${SENSOR_NAME:-nas}
+      HIVE_URL: http://hive:8089
+    volumes:
+      - ./config/honeypot.yml:/etc/honeylite/honeypot.yml:ro
+    # NAS-Port : Container-Port (Ports < 1024 lauschen im Container auf Port+10000)
+    ports:
+      - "${PORT_FTP:-10021}:10021"
+      - "${PORT_HTTP:-10080}:10080"
+      - "${PORT_HTTPS:-10443}:10443"
+      - "${PORT_HTTP_ALT:-18080}:8080"
+      - "${PORT_DOCKER:-12375}:2375"
+      - "${PORT_SSH_TARPIT:-12222}:2222"
+      - "${PORT_MYSQL:-13306}:3306"
+      - "${PORT_REDIS:-16379}:6379"
+      - "${PORT_RAW:-15900}:5900"
+    networks: [honeynet, ingest]
+    depends_on:
+      hive: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "/honeypot", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    ulimits:
+      nofile: { soft: 16384, hard: 16384 }
+    mem_limit: 192m
+    cpus: 0.5
+    pids_limit: 256
+
+  # SSH/Telnet-Honeypot mit gefälschter Shell (Version per Digest festgelegt).
+  cowrie:
+    <<: *hardening
+    image: cowrie/cowrie:3.1.6@sha256:99dc2531f317b0d1a44feccd1cdd2a5ec8fc456b31cb0ed59e7bed1a35dbd345
+    profiles: [cowrie]
+    read_only: true
+    environment:
+      COWRIE_HONEYPOT_HOSTNAME: ${COWRIE_HOSTNAME:-nas-backup01}
+      COWRIE_TELNET_ENABLED: "yes"
+      COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE: "10485760" # Downloads der Angreifer höchstens 10 MB
+    volumes:
+      - cowrie-log:/cowrie/cowrie-git/var/log/cowrie
+      - cowrie-lib:/cowrie/cowrie-git/var/lib/cowrie
+    tmpfs: [/tmp]
+    ports:
+      - "${PORT_SSH:-10022}:2222"
+      - "${PORT_TELNET:-10023}:2223"
+    networks: [honeynet]
+    healthcheck:
+      test: ["CMD", "/cowrie/cowrie-env/bin/python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 2222), 3)"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 256
+
+  # Räumt alte Cowrie-Logs, TTY-Mitschnitte und Downloads auf (ohne Netzwerk).
+  janitor:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    profiles: [cowrie]
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    security_opt: ["no-new-privileges:true"]
+    cap_drop: [ALL]
+    user: "999:999" # gleicher Benutzer wie Cowrie, darf dessen Dateien löschen
+    environment:
+      KEEP_DAYS: ${COWRIE_KEEP_DAYS:-14}
+    volumes:
+      - cowrie-log:/cowrie-log
+      - cowrie-lib:/cowrie-lib
+    command:
+      - sh
+      - -c
+      - |
+        while true; do
+          find /cowrie-log -type f -name 'cowrie.*.*' -mtime +$$KEEP_DAYS -delete
+          find /cowrie-lib/tty /cowrie-lib/downloads -type f -mtime +$$KEEP_DAYS -delete 2>/dev/null
+          sleep 21600
+        done
+    mem_limit: 16m
+    cpus: 0.1
+    pids_limit: 16
+
+volumes:
+  hive-data:
+  cowrie-log:
+  cowrie-lib:
+
+networks:
+  admin: {} # Web-UI und GeoIP-Download
+  ingest: # Honeypot -> Hive, ohne Internetzugang
+    internal: true
+    ipam:
+      config: [{ subnet: 172.30.250.0/24 }]
+  honeynet: # öffentliche Honeypot-Ports; ausgehender Verkehr wird per tools/firewall.sh gesperrt
+    driver_opts:
+      com.docker.network.bridge.name: hl-honeynet
+    ipam:
+      config: [{ subnet: 172.30.252.0/24 }]

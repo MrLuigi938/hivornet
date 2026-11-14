@@ -1,0 +1,18 @@
+# systemd-Unit: setzt die HoneyLite-Netzsperre bei jedem Start, nachdem Docker läuft.
+# Installation (Pfad anpassen, falls HoneyLite woanders liegt):
+#   sudo cp tools/honeylite-firewall.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now honeylite-firewall
+[Unit]
+Description=HoneyLite Netzsperre für Honeypot-Container
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+Environment=ALLOW_DOWNLOADS=0
+ExecStart=/bin/sh /opt/honeylite/tools/firewall.sh apply
+ExecStop=/bin/sh /opt/honeylite/tools/firewall.sh remove
+
+[Install]
+WantedBy=multi-user.target

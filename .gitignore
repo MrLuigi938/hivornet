@@ -1,0 +1,17 @@
+# Geheimnisse und lokale Daten
+.env
+.env.*
+!.env.example
+backups/
+data/
+
+# Build-Ergebnisse
+*.exe
+hive/hive
+honeypot/honeypot
+
+# Datenbanken und GeoIP
+*.db
+*.db-wal
+*.db-shm
+*.mmdb
