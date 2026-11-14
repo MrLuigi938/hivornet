@@ -8,11 +8,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Services, die der Go-Honeypot kennt.
-var knownServices = map[string]bool{
-	"http": true, "https": true, "dockerapi": true, "ftp": true,
-	"redis": true, "mysql": true, "ssh-tarpit": true, "raw": true,
-}
+// Welche Dienste es gibt, steht nur an einer Stelle: in der Tabelle "handlers"
+// (manager.go). TestServiceListsInSync prüft, dass Hive und UI dieselben kennen.
 
 var knownModes = map[string]bool{"emulate": true, "tarpit": true, "hybrid": true}
 
@@ -51,8 +48,11 @@ func DefaultConfig() Config {
 			{"ssh-tarpit", 2222, "tarpit", true},
 			{"mysql", 3306, "emulate", true},
 			{"redis", 6379, "emulate", true},
-			{"raw", 5900, "hybrid", true},
+			{"vnc", 5900, "hybrid", true},
 			{"http", 8080, "hybrid", true},
+			{"smtp", 25, "emulate", true},
+			{"telnet", 2323, "emulate", true},
+			{"rdp", 3389, "emulate", true},
 		},
 		Tarpit: TarpitConfig{IntervalMs: 10000, MaxConns: 4096, MaxPerIP: 32, MaxDurationMin: 1440},
 	}
@@ -137,7 +137,7 @@ func (c *Config) Normalize(lowOffset int) []string {
 		}
 		bp := BindPort(l.Port, lowOffset)
 		switch {
-		case !knownServices[l.Service]:
+		case handlers[l.Service] == nil:
 			warn = append(warn, fmt.Sprintf("unbekannter Dienst %q ignoriert", l.Service))
 			continue
 		case !knownModes[l.Mode]:

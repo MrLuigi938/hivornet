@@ -16,7 +16,8 @@ const TYPE_NAME = {
   connect: "Verbindung", disconnect: "Ende", login: "Login", request: "Anfrage", command: "Befehl",
   download: "Download", client_version: "Client", payload: "Daten", tls: "TLS", fingerprint: "Fingerabdruck",
 };
-const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "redis", "mysql", "dockerapi", "ssh-tarpit", "raw"];
+// Muss alle Dienste des Honeypots enthalten (Test TestServiceListsInSync im Honeypot).
+const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "ssh-tarpit", "raw"];
 const MODE_NAME = { emulate: "Aufzeichnen", tarpit: "Tarpit", hybrid: "Hybrid" };
 
 // ---------- Theme ----------

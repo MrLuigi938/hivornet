@@ -7,6 +7,7 @@ const SVC_COLOR = { ssh: "--s1", http: "--s2", https: "--s3", telnet: "--s4", ft
 const SVC_NAME = {
   ssh: "SSH", telnet: "Telnet", http: "HTTP", https: "HTTPS", ftp: "FTP", redis: "Redis", mysql: "MySQL",
   dockerapi: "Docker-API", "ssh-tarpit": "SSH-Tarpit", raw: "Generisch", other: "Andere",
+  smtp: "SMTP", vnc: "VNC", rdp: "RDP",
 };
 export const svcName = (s) => SVC_NAME[s] || s;
 export const svcColor = (s) => `var(${SVC_COLOR[s] || "--other"})`;
