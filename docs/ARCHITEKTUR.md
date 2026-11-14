@@ -49,6 +49,7 @@ Ausgehende Verbindungen:
 | `proto_smtp.go` | `smtp`: AUTH PLAIN/LOGIN, MAIL/RCPT/DATA; `smtpReadData` begrenzt die Mail |
 | `proto_vnc.go` | `vnc`: RFB-Handshake bis zur Challenge/Response |
 | `proto_rdp.go` | `rdp`: `readTPKT`, `parseRDPRequest` (Cookie, Protokolle), `rdpConfirm`, `rdpClientInfo` |
+| `proto_udp.go` | UDP-Dienste `sip`, `snmp`, `dns`: **`udpHandlers`** (Register der UDP-Dienste, je ein Parser `[]byte -> Event`), `serveUDP` (Empfang, Drossel, nie eine Antwort), `berTLV` für SNMP |
 | `honeypot_test.go`, `proto_new_test.go` | Tests, Fuzz-Ziele, Vertragstests (`TestEventSizeContract`, `TestNewProtocolsSizeBudget`, `TestServiceListsInSync`) |
 
 Jeder Handler hat die Form `func(*Session)` und kennt drei Modi (`s.Mode`): `emulate` (nachspielen), `tarpit` (sofort `s.Tarpit(...)`), `hybrid` (erst aufzeichnen, dann `s.Tarpit(...)`). Der Handler läuft unter `recover`; Lesefristen setzt er selbst mit `s.ReadDeadline`.
@@ -76,6 +77,8 @@ Regeln, die jeder Handler einhalten muss:
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `watchWarnings`, Testnachricht |
 | `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB), Geheimnis-Behandlung, Tabelle `lookups` |
 | `tty.go` | `parseTTYLog`, `ttyClean`, `/api/sessions/{id}/tty` |
+| `users.go` | Benutzerverwaltung (`usersList`, `usersCreate`, `usersDelete`); Rollen `admin` und `viewer`, Regeln in `viewerAllowed` (auth.go) |
+| `intel2.go` | GreyNoise-Abfrage (`greynoise`), STIX-2.1-Export (`exportSTIX`, `stixID`, `stixString`) |
 | `setup.go` | Ersteinrichtung (`setupStatus`, `setupRun`), einmalige Port-Anpassung (`upgradeSensorConfigs`), Update-Prüfung gegen GitHub (`checkUpdates`, `newestRelease`, `parseSemver`), Update-Auslösung (`updateRun`), Muster-Nachzählen (`backfillPatterns`) |
 | `disk_linux.go`, `disk_other.go` | freier Speicher |
 | `hive_test.go`, `extra_test.go` | Tests |
@@ -93,16 +96,19 @@ Regeln, die jeder Handler einhalten muss:
 
 Sensor-API (Token, Port 8089): `POST /api/ingest`, `POST /api/sensor/heartbeat`, `GET /api/sensor/config`.
 
-Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-With: honeylite`):
+Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-With: honeylite`; Benutzer mit Rolle `viewer` dürfen nur lesen, siehe `viewerAllowed` in `auth.go`):
 
 | Route | Zweck |
 |---|---|
-| `POST /api/login`, `POST /api/logout`, `GET /api/me`, `POST /api/password` | Anmeldung |
+| `POST /api/login`, `POST /api/logout`, `GET /api/me`, `POST /api/password` | Anmeldung (`me` liefert auch Rolle und Update-Hinweis) |
+| `GET/POST /api/setup` | Ersteinrichtung, ohne Anmeldung, nur solange kein Konto existiert |
+| `GET/POST /api/users`, `DELETE /api/users/{name}` | Benutzerverwaltung (nur Admin) |
+| `POST /api/update` | Update anstoßen (nur wo `HIVE_UPDATE_REQUEST` gesetzt ist) |
 | `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map` | Kennzahlen; `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
 | `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `q`, `range`, `hide_noise`, `before`, `limit` |
-| `GET /api/export/events`, `/api/export/blocklist` | Export |
+| `GET /api/export/events`, `/api/export/blocklist`, `/api/export/stix` | Export (CSV/JSON, Blockliste, STIX 2.1) |
 | `GET /api/stream` | Live-Ereignisse (SSE) |
-| `GET /api/attackers/{ip}`, `GET /api/attackers/{ip}/intel` | Angreifer, AbuseIPDB |
+| `GET /api/attackers/{ip}`, `…/intel`, `…/greynoise` | Angreifer, AbuseIPDB, GreyNoise |
 | `GET /api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/tty` | Sitzungen, Mitschnitt |
 | `GET /api/report?ip=…` oder `?session=…` (`&format=text`), `POST /api/report/ai` | Angriffsbericht, KI-Auswertung |
 | `GET/PUT /api/settings` | Sensor-Konfiguration, Aufbewahrung |
@@ -119,7 +125,8 @@ SQLite über `modernc.org/sqlite` (ohne cgo), WAL, `auto_vacuum=INCREMENTAL`, h�
 |---|---|
 | 1 | Grundschema: `events`, `hourly`, `attackers`, `kv`, `users`, `auth_sessions` |
 | 2 | `top_hourly`; Sitzungs-Token nur noch als Hash (alte Sitzungen gelöscht) |
-| 3 | `lookups` (Zwischenspeicher für AbuseIPDB und KI-Auswertung) |
+| 3 | `lookups` (Zwischenspeicher für AbuseIPDB, GreyNoise und KI-Auswertung) |
+| 4 | Spalte `users.role` (`admin` oder `viewer`, Standard `admin`) |
 
 | Tabelle | Schlüssel | Inhalt | Aufbewahrung |
 |---|---|---|---|
@@ -129,7 +136,7 @@ SQLite über `modernc.org/sqlite` (ohne cgo), WAL, `auto_vacuum=INCREMENTAL`, h�
 | `attackers` | `ip` | erste/letzte Sichtung, Zähler, Herkunft | Frist |
 | `lookups` | `subject`, `source` | `subject` = `ip:<IP>` oder `session:<ID>`; `source` = `abuseipdb` oder `ai`; `data` = JSON bzw. Text | Frist |
 | `kv` | `k` | `sensor_config`, `sensor_config:<name>`, `retention_days`, `cowrie_state`, `extras` | bleibt |
-| `users`, `auth_sessions` | | Admin-Konto (bcrypt), Sitzungen (SHA-256 des Tokens) | Sitzungen 7 Tage |
+| `users`, `auth_sessions` | | Konten mit Rolle (bcrypt), Sitzungen (SHA-256 des Tokens). Sitzungen gelöschter Benutzer gelten nicht mehr (JOIN in `Auth.Who`) | Sitzungen 7 Tage |
 
 `top_hourly.field`: `country`, `port`, `ip`, `asn`, `service`, `geo` (Karte, Schlüssel „Breite,Länge“), `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag` (Muster-ID, `label` = Name), `tool`, `url`.
 
@@ -202,6 +209,8 @@ In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, **Zusa
 5. Tests: Ablauf über `run(t, m, "<name>", "emulate")` mit `net.Pipe` (Muster in `proto_new_test.go`), den Dienst in `TestNewProtocolsSizeBudget` aufnehmen, für Parser ein Fuzz-Ziel schreiben und in `.github/workflows/ci.yml` eintragen.
 6. `tools/attack_sim.py` um einen Testangriff ergänzen; `docs/events.md` ergänzen, falls neue Felder in `data` entstehen.
 
+
+**UDP-Dienst** statt TCP: Parser `func(p []byte) Event` in `honeypot/proto_udp.go` schreiben und in `udpHandlers` eintragen (nicht in `handlers`). Er darf **nie antworten** (Absender fälschbar, Reflexionsgefahr). Ansonsten dieselben Schritte 3 bis 6; Compose-Ports mit `/udp`. Tests nach dem Muster `TestUDPListenerNeverReplies`, Parser ins Fuzz-Ziel `FuzzUDPParsers` (läuft über alle Einträge von `udpHandlers`).
 ### Neuer Ereignistyp
 
 1. `validTypes` in `hive/store.go`. Ältere Hives verwerfen unbekannte Typen einzeln (der Rest des Blocks wird angenommen); neue Typen sind also abwärtskompatibel, werden von einem alten Hive aber nicht gespeichert.
@@ -237,7 +246,8 @@ Betrieb ohne Docker: zwei systemd-Dienste statt Container, sonst dieselben Progr
 
 | Datei | Zweck |
 |---|---|
-| `pi/build-image.sh` | legt den Inhalt von `pi/rootfs/` samt den Programmen in ein Raspberry Pi OS Lite (Loop-Mount, ohne Emulation); erzeugt `honeylite-pi-<arch>-<tag>.img.xz` |
+| `pi/build_image.py` | baut das Image: lädt das festgelegte Raspberry Pi OS Lite (Adresse und Prüfsumme in `BASE`), packt Programme und `pi/rootfs/` als `payload.tar.gz` (Rechte root, Skripte 0755) und schreibt es mit `user-data`, `vendor-data`, `userconf.txt` und `install.sh` in die **FAT-Bootpartition** (pyfatfs). Die Linux-Partition bleibt unberührt; deshalb kein Root und kein Linux nötig |
+| `pi/install.sh` | läuft beim ersten Start über cloud-init (`runcmd`, zusätzlich `vendor-data`), genau einmal (`flock`, Merker `/var/lib/honeylite-installed`): Paket prüfen und entpacken, Benutzer anlegen, Token, SSH maskieren, Hostname `honeylite`, Dienste starten, Paket von der Bootpartition löschen. Protokoll `/var/log/honeylite-install.log` |
 | `pi/rootfs/etc/systemd/system/honeylite-hive.service` | Hive als Benutzer `honeylite-hive`, gehärtet, `HIVE_DIRECT_PORTS=1`, SD-schonend |
 | `pi/rootfs/etc/systemd/system/honeylite-honeypot.service` | Honeypot als Benutzer `honeylite-pot`, nur `CAP_NET_BIND_SERVICE`, lauscht direkt auf den echten Ports |
 | `pi/rootfs/.../honeylite-firstboot` | erzeugt beim ersten Start das Token (Passwort kommt aus der UI-Ersteinrichtung) |
