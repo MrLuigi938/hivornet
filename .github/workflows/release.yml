@@ -1,20 +1,30 @@
 name: Release
 
-# Ein Tag wie v0.3.0 baut die Images für amd64, arm64 und armv7 und legt sie in der
-# GitHub Container Registry ab: ghcr.io/<owner>/honeylite-hive und -honeypot.
-# Auf der NAS dann in .env HONEYLITE_VERSION setzen und in docker-compose.yml
-# "build:" durch das Registry-Image ersetzen (spart den Build auf der NAS).
+# Ein Tag wie v0.3.0 erzeugt eine Veröffentlichung mit allem, was man zum Betrieb braucht:
+#
+#   1. Docker-Images für amd64, arm64 und armv7 in der GitHub Container Registry
+#      (ghcr.io/<owner>/honeylite-hive und -honeypot). Auf der NAS dann in .env
+#      HONEYLITE_VERSION setzen und in docker-compose.yml "build:" durch das
+#      Registry-Image ersetzen (spart den Build auf der NAS).
+#   2. Programmpakete honeylite-<tag>-linux-<arch>.tar.gz mit SHA256SUMS. Daraus
+#      aktualisiert sich das Raspberry-Pi-Image selbst (Knopf in der Web-UI).
+#   3. Raspberry-Pi-Images honeylite-pi-<arch>-<tag>.img.xz zum Aufspielen auf eine SD-Karte.
+#
+# Über "Run workflow" lässt sich das Pi-Image auch ohne Tag zum Testen bauen; es liegt
+# dann als Artefakt am Lauf und nicht in einer Veröffentlichung.
 
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   packages: write
 
 jobs:
   images:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -43,3 +53,81 @@ jobs:
           build-args: VERSION=${{ github.ref_name }}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  binaries:
+    name: Programmpakete
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          check-latest: true
+          cache: false
+      - name: Bauen
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in v*) ;; *) tag="v0.0.0-test" ;; esac
+          echo "TAG=$tag" >>"$GITHUB_ENV"
+          mkdir -p out
+          for arch in amd64 arm64 armv7; do
+            goarch=$arch; goarm=""
+            if [ "$arch" = armv7 ]; then goarch=arm; goarm=7; fi
+            mkdir -p "dist/$arch"
+            for c in hive honeypot; do
+              (cd "$c" && CGO_ENABLED=0 GOOS=linux GOARCH=$goarch GOARM=$goarm \
+                go build -trimpath -ldflags "-s -w -X main.version=${tag#v}" -o "../dist/$arch/$c" .)
+            done
+            printf '%s\n' "$tag" >"dist/$arch/VERSION"
+            tar -czf "out/honeylite-$tag-linux-$arch.tar.gz" -C "dist/$arch" hive honeypot VERSION
+          done
+          (cd out && sha256sum honeylite-*.tar.gz >SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: programme
+          path: |
+            out/
+            dist/
+          retention-days: 7
+
+  pi-image:
+    name: Raspberry-Pi-Image (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    needs: [binaries]
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [arm64, armv7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: programme
+      - name: Image bauen
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          case "$tag" in v*) ;; *) tag="v0.0.0-test" ;; esac
+          sudo sh pi/build-image.sh "${{ matrix.arch }}" "$tag" "dist/${{ matrix.arch }}"
+          sha256sum honeylite-pi-*.img.xz >"honeylite-pi-${{ matrix.arch }}-$tag.img.xz.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pi-image-${{ matrix.arch }}
+          path: honeylite-pi-*
+          retention-days: 7
+
+  publish:
+    name: Veröffentlichung
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [binaries, pi-image]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: all
+      - name: Veröffentlichung anlegen
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "HoneyLite ${GITHUB_REF_NAME#v}" \
+            --notes "Änderungen: siehe CHANGELOG.md. Raspberry Pi: Datei honeylite-pi-arm64-*.img.xz auf eine SD-Karte schreiben (README, Abschnitt Raspberry Pi)." \
+            all/programme/out/honeylite-*.tar.gz all/programme/out/SHA256SUMS all/pi-image-*/honeylite-pi-*

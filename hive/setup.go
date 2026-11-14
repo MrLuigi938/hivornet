@@ -8,7 +8,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -288,8 +287,9 @@ func (h *Hive) updateStatus() map[string]any {
 	defer h.upd.mu.Unlock()
 	out := map[string]any{"available": h.upd.newest, "checked": h.upd.checked, "error": h.upd.lastErr,
 		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != ""}
-	if p := os.Getenv("HIVE_UPDATE_REQUEST"); p != "" {
-		if b, err := os.ReadFile(filepath.Join(filepath.Dir(p), "update-status")); err == nil {
+	// Ergebnis des letzten Laufs, vom Updater geschrieben (liegt außerhalb des Datenordners des Hive).
+	if p := os.Getenv("HIVE_UPDATE_STATUS"); p != "" {
+		if b, err := os.ReadFile(p); err == nil {
 			out["last_run"] = clip(strings.TrimSpace(string(b)), 300)
 		}
 	}
@@ -314,4 +314,69 @@ func (h *Hive) updateRun(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Update auf %s angefordert", rel.Version)
 	writeJSON(w, map[string]any{"ok": true, "version": rel.Version})
+}
+
+// ---- Muster für alte Ereignisse nachzählen ----
+
+// backfillPatterns trägt Muster, Werkzeuge und Nachlade-Adressen für Ereignisse nach,
+// die vor Version 0.3.0 gespeichert wurden (bis einschließlich maxID). Läuft einmal
+// im Hintergrund, in kleinen Transaktionen, damit der Schreiber nicht wartet.
+// maxID muss vor dem Start des Schreibers ermittelt sein, sonst würde doppelt gezählt.
+func backfillPatterns(st *Store, maxID int64) {
+	const key = "patterns_backfilled"
+	if _, done := st.GetKV(key); done {
+		return
+	}
+	var last, total int64
+	for last < maxID {
+		rows, err := st.db.Query(`SELECT id, ts, service, type, data FROM events
+			WHERE id > ? AND id <= ? AND type IN ('command','request','payload','client_version','download') ORDER BY id LIMIT 500`, last, maxID)
+		if err != nil {
+			log.Printf("Muster nachzählen: %v", err)
+			return
+		}
+		var evs []*Event
+		for rows.Next() {
+			e := &Event{}
+			var ms int64
+			var data *string
+			if rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &data) != nil {
+				continue
+			}
+			e.TS = time.UnixMilli(ms)
+			if data != nil {
+				e.Data = json.RawMessage(*data)
+			}
+			evs = append(evs, e)
+		}
+		rows.Close()
+		if len(evs) == 0 {
+			break
+		}
+		tx, err := st.db.Begin()
+		if err != nil {
+			return
+		}
+		for _, e := range evs {
+			last = e.ID
+			for _, k := range topKeys(e) {
+				if k[0] == "tag" || k[0] == "tool" || k[0] == "url" {
+					if _, err := tx.Exec(topUpsert, e.TS.UnixMilli()/3600000, k[0], k[1], k[2]); err != nil {
+						tx.Rollback()
+						log.Printf("Muster nachzählen: %v", err)
+						return
+					}
+				}
+			}
+		}
+		if tx.Commit() != nil {
+			return
+		}
+		total += int64(len(evs))
+		time.Sleep(50 * time.Millisecond)
+	}
+	st.SetKV(key, "1")
+	if total > 0 {
+		log.Printf("Muster für %d ältere Ereignisse nachgezählt", total)
+	}
 }

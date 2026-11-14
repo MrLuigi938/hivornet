@@ -1,0 +1,10 @@
+# Lädt die angeforderte Version von GitHub, prüft die Prüfsumme und tauscht die Programme aus.
+[Unit]
+Description=HoneyLite Update
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/honeylite-update
+StateDirectory=honeylite-update

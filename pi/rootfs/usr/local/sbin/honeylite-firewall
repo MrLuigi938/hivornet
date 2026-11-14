@@ -1,0 +1,61 @@
+#!/bin/sh
+# HoneyLite Netzsperre auf dem Raspberry Pi (Betrieb ohne Docker).
+#
+# Der Honeypot läuft als Benutzer honeylite-pot. Diesem Benutzer wird jede NEUE
+# ausgehende Verbindung verboten; erlaubt bleiben Antworten an Angreifer und die
+# Sensor-API des Hive auf 127.0.0.1:8089. Wird der Honeypot übernommen, kommt der
+# Angreifer von dort weder ins Heimnetz noch ins Internet noch an die Web-UI.
+#
+#   honeylite-firewall apply | remove | status
+#
+# Die Web-UI zeigt unter System, ob die Sperre wirkt ("Internet aus dem Container").
+set -eu
+POT=honeylite-pot
+die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
+id "$POT" >/dev/null 2>&1 || die "Benutzer $POT fehlt"
+
+remove() {
+  if command -v nft >/dev/null 2>&1; then
+    nft delete table inet honeylite 2>/dev/null || true
+  fi
+  if command -v iptables >/dev/null 2>&1; then
+    while iptables -D OUTPUT -m owner --uid-owner "$POT" -j HONEYLITE-POT 2>/dev/null; do :; done
+    iptables -F HONEYLITE-POT 2>/dev/null || true
+    iptables -X HONEYLITE-POT 2>/dev/null || true
+  fi
+}
+
+apply() {
+  remove
+  if command -v nft >/dev/null 2>&1; then
+    nft -f - <<EOF
+table inet honeylite {
+  chain output {
+    type filter hook output priority filter; policy accept;
+    meta skuid "$POT" ct state established,related accept
+    meta skuid "$POT" oifname "lo" ip daddr 127.0.0.1 tcp dport 8089 accept
+    meta skuid "$POT" drop
+  }
+}
+EOF
+    echo "Netzsperre aktiv (nftables)."
+  elif command -v iptables >/dev/null 2>&1; then
+    iptables -N HONEYLITE-POT
+    iptables -A HONEYLITE-POT -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+    iptables -A HONEYLITE-POT -o lo -d 127.0.0.1 -p tcp --dport 8089 -j RETURN
+    iptables -A HONEYLITE-POT -j DROP
+    iptables -I OUTPUT 1 -m owner --uid-owner "$POT" -j HONEYLITE-POT
+    echo "Netzsperre aktiv (iptables)."
+  else
+    die "weder nft noch iptables vorhanden; die Netzsperre fehlt"
+  fi
+}
+
+case "${1:-apply}" in
+  apply) apply ;;
+  remove) remove; echo "Netzsperre entfernt." ;;
+  status)
+    if command -v nft >/dev/null 2>&1; then nft list table inet honeylite 2>/dev/null || echo "nicht aktiv"; fi
+    ;;
+  *) die "unbekannter Befehl: $1 (apply|remove|status)" ;;
+esac

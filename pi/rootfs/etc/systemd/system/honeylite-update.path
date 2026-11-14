@@ -1,0 +1,10 @@
+# Startet den Updater, sobald der Hive ein Update anfordert (Knopf in der Web-UI).
+[Unit]
+Description=HoneyLite Update-Anforderung beobachten
+
+[Path]
+PathExists=/var/lib/honeylite/update-request
+Unit=honeylite-update.service
+
+[Install]
+WantedBy=multi-user.target

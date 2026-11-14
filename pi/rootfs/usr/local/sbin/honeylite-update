@@ -1,0 +1,80 @@
+#!/bin/sh
+# HoneyLite-Updater für den Raspberry Pi (läuft als root, gestartet von honeylite-update.path).
+#
+# Der Hive legt nur die gewünschte Versionsnummer in /var/lib/honeylite/update-request ab.
+# Dieses Skript
+#   1. prüft, dass darin nichts als eine Versionsnummer steht,
+#   2. lädt das Paket dieser Version von der festen GitHub-Adresse,
+#   3. prüft die SHA-256-Prüfsumme aus derselben Veröffentlichung,
+#   4. tauscht hive und honeypot aus und startet die Dienste neu,
+#   5. stellt die alte Version wieder her, wenn der Hive danach nicht läuft.
+# Das Ergebnis steht in /var/lib/honeylite-update/status und erscheint in der UI unter System.
+#
+# Aktualisiert werden nur die beiden Programme. Änderungen an den systemd-Dateien
+# oder an diesem Skript brauchen ein neues Image.
+set -eu
+REQ=/var/lib/honeylite/update-request
+STATE=/var/lib/honeylite-update
+DEST=/opt/honeylite
+REPO=https://github.com/MrLuigi938/honeylite/releases/download
+
+mkdir -p "$STATE"
+status() { printf '%s %s\n' "$(date '+%d.%m.%Y %H:%M')" "$*" >"$STATE/status"; echo "$*"; }
+fail() { status "Update fehlgeschlagen: $*"; rm -f "$REQ"; exit 1; }
+
+# Die Anforderung liegt in einem Ordner, in den der Hive schreiben darf: nichts
+# daraus ausführen, nur die erste Zeile lesen und streng prüfen.
+[ -f "$REQ" ] && [ ! -L "$REQ" ] || { rm -f "$REQ"; exit 0; }
+ver=$(head -c 40 "$REQ" | head -n 1 | tr -d '\r')
+rm -f "$REQ"
+printf '%s' "$ver" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$' || fail "ungültige Versionsangabe"
+
+case "$(uname -m)" in
+  aarch64) arch=arm64 ;;
+  armv7l | armv6l) arch=armv7 ;;
+  x86_64) arch=amd64 ;;
+  *) fail "unbekannte Architektur $(uname -m)" ;;
+esac
+pkg="honeylite-$ver-linux-$arch.tar.gz"
+
+get() { # get ADRESSE ZIEL
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL --max-time 300 -o "$2" "$1"
+  else
+    wget -q -T 300 -O "$2" "$1"
+  fi
+}
+
+tmp=$(mktemp -d "$STATE/dl.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+status "Lade $ver ..."
+get "$REPO/$ver/$pkg" "$tmp/$pkg" || fail "Download von $pkg nicht möglich"
+get "$REPO/$ver/SHA256SUMS" "$tmp/SHA256SUMS" || fail "Prüfsummen nicht abrufbar"
+(cd "$tmp" && grep " $pkg\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1) || fail "Prüfsumme stimmt nicht"
+mkdir "$tmp/x"
+tar -xzf "$tmp/$pkg" -C "$tmp/x" --no-same-owner || fail "Paket nicht entpackbar"
+for b in hive honeypot; do
+  [ -f "$tmp/x/$b" ] && [ ! -L "$tmp/x/$b" ] || fail "$b fehlt im Paket"
+  chmod 755 "$tmp/x/$b"
+done
+"$tmp/x/hive" version >/dev/null 2>&1 || fail "neues Programm startet nicht"
+
+# Datenbank vorher sichern (wie update.sh im Docker-Betrieb); liegt dann unter /var/lib/honeylite/backups
+runuser -u honeylite-hive -- env HIVE_DB=/var/lib/honeylite/hive.db "$DEST/hive" backup >/dev/null 2>&1 || true
+systemctl stop honeylite-honeypot honeylite-hive || true
+for b in hive honeypot; do
+  cp -p "$DEST/$b" "$DEST/$b.alt" 2>/dev/null || true
+  cp "$tmp/x/$b" "$DEST/$b.neu" && mv "$DEST/$b.neu" "$DEST/$b"
+done
+systemctl start honeylite-hive honeylite-honeypot || true
+sleep 15
+if systemctl is-active --quiet honeylite-hive; then
+  status "Aktualisiert auf $ver"
+else
+  for b in hive honeypot; do
+    [ -f "$DEST/$b.alt" ] && mv "$DEST/$b.alt" "$DEST/$b"
+  done
+  systemctl restart honeylite-hive honeylite-honeypot || true
+  status "Update auf $ver fehlgeschlagen, alte Version wiederhergestellt"
+  exit 1
+fi

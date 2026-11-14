@@ -1,0 +1,13 @@
+# Erzeugt beim ersten Start das Token zwischen Honeypot und Hive (/etc/honeylite/env).
+[Unit]
+Description=HoneyLite Ersteinrichtung (Token erzeugen)
+After=systemd-sysusers.service
+ConditionPathExists=!/etc/honeylite/env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/honeylite-firstboot
+
+[Install]
+WantedBy=multi-user.target

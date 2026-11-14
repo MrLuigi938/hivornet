@@ -345,3 +345,17 @@ func FuzzRDP(f *testing.F) {
 		smtpPlain(string(b))
 	})
 }
+
+// Die mitgelieferten Startkonfigurationen (Docker und Raspberry Pi) müssen ohne Warnung laden.
+func TestShippedConfigsLoad(t *testing.T) {
+	for file, offset := range map[string]int{"../config/honeypot.yml": 10000, "../pi/rootfs/etc/honeylite/honeypot.yml": 0} {
+		c, err := LoadConfigFile(file)
+		if err != nil {
+			t.Skipf("%s nicht lesbar: %v", file, err)
+		}
+		n := len(c.Listeners)
+		if warn := c.Normalize(offset); len(warn) != 0 || len(c.Listeners) != n || n == 0 {
+			t.Errorf("%s: Warnungen %v, %d von %d Ports übrig", file, warn, len(c.Listeners), n)
+		}
+	}
+}

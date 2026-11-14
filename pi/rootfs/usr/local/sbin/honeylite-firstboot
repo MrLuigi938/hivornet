@@ -1,0 +1,12 @@
+#!/bin/sh
+# HoneyLite auf dem Raspberry Pi: läuft einmal beim ersten Start.
+# Erzeugt das gemeinsame Token von Honeypot und Hive. Das Admin-Passwort legt der
+# Nutzer danach im Browser fest (Ersteinrichtung der Web-UI).
+set -eu
+umask 077
+mkdir -p /etc/honeylite
+token=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+[ "${#token}" -eq 64 ] || { echo "Token konnte nicht erzeugt werden" >&2; exit 1; }
+printf 'HONEYLITE_TOKEN=%s\n' "$token" >/etc/honeylite/env.new
+mv /etc/honeylite/env.new /etc/honeylite/env
+echo "HoneyLite: Token erzeugt. Web-UI: http://$(hostname).local:8088"

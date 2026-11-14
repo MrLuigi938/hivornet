@@ -1,0 +1,37 @@
+# HoneyLite Honeypot auf dem Raspberry Pi (ohne Docker). Lauscht direkt auf den
+# echten Ports (21, 22, 23, 80 ...); dafür genügt CAP_NET_BIND_SERVICE, Root ist nicht nötig.
+# Ausgehende Verbindungen dieses Benutzers sperrt honeylite-firewall.service.
+[Unit]
+Description=HoneyLite Honeypot
+After=network-online.target honeylite-firewall.service honeylite-hive.service
+Wants=network-online.target honeylite-firewall.service
+Requires=honeylite-firstboot.service
+
+[Service]
+User=honeylite-pot
+EnvironmentFile=/etc/honeylite/env
+Environment=HIVE_URL=http://127.0.0.1:8089 SENSOR_NAME=pi
+Environment=HONEYPOT_CONFIG=/etc/honeylite/honeypot.yml HONEYPOT_LOW_PORT_OFFSET=0
+ExecStart=/opt/honeylite/honeypot
+Restart=always
+RestartSec=5
+MemoryMax=192M
+TasksMax=256
+LimitNOFILE=16384
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target
