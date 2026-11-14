@@ -13,6 +13,6 @@ COPY --from=build /out/honeypot /honeypot
 USER 65532:65532
 # Ports unter 1024 lauschen im Container auf Port+10000 (80 -> 10080),
 # damit keine Root-Rechte oder Kernel-Sonderfunktionen nötig sind.
-ENV HONEYPOT_LOW_PORT_OFFSET=10000 HONEYPOT_CONFIG=/etc/hivornet/honeypot.yml
+ENV HONEYPOT_LOW_PORT_OFFSET=10000 HONEYPOT_CONFIG=/etc/hivornet/honeypot.yml HONEYPOT_PROXY_CHECK=1
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 CMD ["/honeypot", "healthcheck"]
 ENTRYPOINT ["/honeypot"]

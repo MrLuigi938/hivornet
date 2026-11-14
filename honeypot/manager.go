@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"os"
 	"reflect"
 	"sort"
 	"sync"
@@ -49,8 +50,8 @@ type Manager struct {
 	tlsConf   atomic.Pointer[tls.Config]
 	certUntil time.Time
 
-	ownNets []*net.IPNet // eigene Container-Netze (Erkennung Userland-Proxy)
-	proxied atomic.Int64 // Verbindungen, die aus dem eigenen Docker-Netz zu kommen scheinen
+	proxyGateways []net.IP     // Gateway-Adressen der Docker-Netze (Erkennung Userland-Proxy)
+	proxied       atomic.Int64 // Verbindungen, die aus dem eigenen Docker-Netz zu kommen scheinen
 }
 
 func NewManager(em *Emitter, bind string, lowOffset int) *Manager {
@@ -59,14 +60,34 @@ func NewManager(em *Emitter, bind string, lowOffset int) *Manager {
 	d := DefaultConfig()
 	m.tarpit.Store(&d.Tarpit)
 	m.hostname.Store(d.Hostname)
-	if addrs, err := net.InterfaceAddrs(); err == nil {
-		for _, a := range addrs {
-			if n, ok := a.(*net.IPNet); ok && !n.IP.IsLoopback() && n.IP.To4() != nil {
-				m.ownNets = append(m.ownNets, n)
-			}
-		}
+	// Erkennung des Docker-Userland-Proxys: Er verbindet sich immer von der Gateway-Adresse
+	// des Docker-Netzes aus (erste Adresse, z. B. 172.30.252.1). Nur im Docker-Image aktiv
+	// (HONEYPOT_PROXY_CHECK=1). Ohne Docker, z. B. auf dem Raspberry Pi, ist das eigene Netz
+	// das Heimnetz; dort wären Zugriffe aus dem LAN sonst Fehlalarme.
+	if os.Getenv("HONEYPOT_PROXY_CHECK") == "1" {
+		m.proxyGateways = dockerGateways()
 	}
 	return m
+}
+
+func dockerGateways() []net.IP {
+	var out []net.IP
+	addrs, err := net.InterfaceAddrs()
+	if err != nil {
+		return nil
+	}
+	for _, a := range addrs {
+		n, ok := a.(*net.IPNet)
+		if !ok || n.IP.IsLoopback() || n.IP.To4() == nil {
+			continue
+		}
+		gw := n.IP.Mask(n.Mask).To4()
+		gw = net.IPv4(gw[0], gw[1], gw[2], gw[3]+1).To4()
+		if !gw.Equal(n.IP.To4()) { // der Container selbst ist nie das Gateway
+			out = append(out, gw)
+		}
+	}
+	return out
 }
 
 func (m *Manager) Hostname() string        { return m.hostname.Load().(string) }
@@ -238,9 +259,11 @@ var handlers = map[string]func(*Session){
 	"rdp":        handleRDP,
 }
 
+// fromOwnNet meldet Verbindungen von der Gateway-Adresse des Docker-Netzes,
+// also über den Userland-Proxy, bei dem die echte Angreifer-IP verloren geht.
 func (m *Manager) fromOwnNet(ip net.IP) bool {
-	for _, n := range m.ownNets {
-		if n.Contains(ip) {
+	for _, gw := range m.proxyGateways {
+		if gw.Equal(ip) {
 			return true
 		}
 	}
