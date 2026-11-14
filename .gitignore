@@ -18,3 +18,5 @@ honeypot/honeypot
 
 # Gebaute Pi-Images und Pakete
 dist/
+__pycache__/
+*.pyc
