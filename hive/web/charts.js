@@ -3,7 +3,11 @@ import { h, s, fmtNum, hoverTip } from "./dom.js";
 import { LAND } from "./world.js";
 
 // Farbe folgt dem Dienst, nie dem Rang: jeder Dienst hat seinen festen Platz.
-const SVC_COLOR = { ssh: "--s1", http: "--s2", https: "--s3", telnet: "--s4", ftp: "--s5", redis: "--s6", mysql: "--s7", dockerapi: "--s8" };
+// Verwandte Dienste teilen sich eine Farbe (Fernzugriff, Web, Datenbanken, Mail).
+const SVC_COLOR = {
+  ssh: "--s1", http: "--s2", https: "--s3", telnet: "--s4", ftp: "--s5", redis: "--s6", mysql: "--s7", dockerapi: "--s8",
+  "ssh-tarpit": "--s1", rdp: "--s7", vnc: "--s8", smtp: "--s5",
+};
 const SVC_NAME = {
   ssh: "SSH", telnet: "Telnet", http: "HTTP", https: "HTTPS", ftp: "FTP", redis: "Redis", mysql: "MySQL",
   dockerapi: "Docker-API", "ssh-tarpit": "SSH-Tarpit", raw: "Generisch", other: "Andere",
@@ -14,8 +18,11 @@ export const svcColor = (s) => `var(${SVC_COLOR[s] || "--other"})`;
 
 // ---------- Weltkarte ----------
 
-export function worldMap(points) {
+// home = { lat, lon, label }: Standort des Honeypots. Ist er gesetzt, zeichnet
+// attack() eine Linie vom Ursprung dorthin (Farbe = Dienst).
+export function worldMap(points, { home = null, large = false } = {}) {
   const max = Math.max(1, ...points.map((p) => p.n));
+  const px = (lon) => lon + 180, py = (lat) => 90 - lat;
   const dots = s("g");
   const sorted = [...points].sort((a, b) => b.n - a.n); // kleine Punkte oben
   for (const p of sorted) {
@@ -28,18 +35,44 @@ export function worldMap(points) {
     dots.append(c);
   }
   const live = s("g");
+  let homeEl = null;
+  if (home && (home.lat || home.lon)) {
+    const hx = px(home.lon).toFixed(2), hy = py(home.lat).toFixed(2);
+    homeEl = s("g", { class: "home" },
+      s("circle", { class: "home-ring", cx: hx, cy: hy, r: 2.6 }),
+      s("circle", { class: "home-dot", cx: hx, cy: hy, r: 1.3 }));
+    hoverTip(homeEl, () => [home.label || "Honeypot", [["Ziel der Angriffe", ""]]]);
+  }
   const svg = s("svg", { viewBox: "0 5 360 150", role: "img", "aria-label": "Weltkarte der Angriffsherkunft" },
-    s("path", { class: "land", d: LAND }), dots, live);
-  const el = h("div", { class: "chart map" }, svg);
+    s("path", { class: "land", d: LAND }), dots, live, homeEl);
+  const el = h("div", { class: "chart map" + (large ? " large" : "") }, svg);
+  const pulse = (lat, lon) => {
+    if (!lat && !lon) return;
+    if (live.childNodes.length > 120) live.firstChild.remove();
+    const x = px(lon).toFixed(2), y = py(lat).toFixed(2);
+    const g = s("g", null, s("circle", { class: "pulse", cx: x, cy: y, r: 3 }), s("circle", { class: "pulse-core", cx: x, cy: y, r: 1.1 }));
+    live.append(g);
+    setTimeout(() => g.remove(), 2300);
+  };
   return {
     el,
-    pulse(lat, lon) {
+    pulse,
+    // Angriff: Puls am Ursprung und, wenn ein Standort bekannt ist, eine Linie zum Honeypot.
+    attack(lat, lon, service) {
       if (!lat && !lon) return;
-      if (live.childNodes.length > 80) live.firstChild.remove();
-      const x = (lon + 180).toFixed(2), y = (90 - lat).toFixed(2);
-      const g = s("g", null, s("circle", { class: "pulse", cx: x, cy: y, r: 3 }), s("circle", { class: "pulse-core", cx: x, cy: y, r: 1.1 }));
+      pulse(lat, lon);
+      if (!homeEl) return;
+      const x1 = px(lon), y1 = py(lat), x2 = px(home.lon), y2 = py(home.lat);
+      const dist = Math.hypot(x2 - x1, y2 - y1);
+      if (dist < 1) return;
+      // Bogen: Kontrollpunkt über der Mitte, umso höher, je länger die Strecke
+      const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 - Math.min(40, dist * 0.28);
+      const d = `M${x1.toFixed(2)} ${y1.toFixed(2)}Q${cx.toFixed(2)} ${cy.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+      const arc = s("path", { class: "arc", d, pathLength: 1, style: { stroke: svcColor(service) } });
+      const hit = s("circle", { class: "impact", cx: x2.toFixed(2), cy: y2.toFixed(2), r: 2.4, style: { stroke: svcColor(service) } });
+      const g = s("g", null, arc, hit);
       live.append(g);
-      setTimeout(() => g.remove(), 2300);
+      setTimeout(() => g.remove(), 2600);
     },
   };
 }

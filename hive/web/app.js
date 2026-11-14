@@ -3,18 +3,22 @@ import {
   h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store,
 } from "./dom.js";
 import { worldMap, timeline, toplist, svcName, svcColor } from "./charts.js";
+// Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
+import { viewLive, viewAnalysis, reportCard, ttyCard, intelCard, extrasCards, homeLocation } from "./extra.js";
 
 const app = document.getElementById("app");
 const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null };
 
 const NAV = [
-  ["#/", "Dashboard"], ["#/feed", "Live-Feed"], ["#/sessions", "Sitzungen"], ["#/creds", "Zugangsdaten"],
+  ["#/", "Dashboard"], ["#/live", "Live-Karte"], ["#/feed", "Live-Feed"], ["#/sessions", "Sitzungen"],
+  ["#/analysis", "Analyse"], ["#/creds", "Zugangsdaten"],
   ["#/tarpit", "Tarpit"], ["#/settings", "Einstellungen"], ["#/system", "System"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
 const TYPE_NAME = {
   connect: "Verbindung", disconnect: "Ende", login: "Login", request: "Anfrage", command: "Befehl",
   download: "Download", client_version: "Client", payload: "Daten", tls: "TLS", fingerprint: "Fingerabdruck",
+  tty: "Mitschnitt",
 };
 // Muss alle Dienste des Honeypots enthalten (Test TestServiceListsInSync im Honeypot).
 const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "ssh-tarpit", "raw"];
@@ -135,6 +139,7 @@ const routes = [
   [/^#?\/?$/, viewDashboard], [/^#\/feed$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings$/, viewSettings], [/^#\/system$/, viewSystem],
+  [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis],
 ];
 
 async function route() {
@@ -192,6 +197,7 @@ function describe(e) {
   switch (e.type) {
     case "login": {
       const ok = d.success ? h("span", { class: "badge ok" }, "erfolgreich") : null;
+      if (d.cookie) return `${e.username || "–"} (nur Benutzername, aus dem RDP-Cookie)`;
       const pw = d.password_hashed ? "(Passwort gehasht)" : e.password;
       return [`${e.username || "–"} / ${pw ?? ""}`, ok ? " " : null, ok];
     }
@@ -202,6 +208,7 @@ function describe(e) {
     case "payload": return d.text || "";
     case "tls": return d.sni ? `SNI ${d.sni}` : "TLS";
     case "fingerprint": return d.hassh ? `HASSH ${d.hassh}` : "";
+    case "tty": return `Terminal-Mitschnitt, ${fmtBytes(d.size)} (in der Sitzung ansehen)`;
     case "connect": return d.mode ? `Modus ${MODE_NAME[d.mode] || d.mode}` : "";
     case "disconnect": return [`Dauer ${fmtDur(e.duration_ms)}`, e.tarpit ? [" ", h("span", { class: "badge tarpit" }, `festgehalten ${fmtDur(e.tarpit_ms)}`)] : null];
   }
@@ -210,13 +217,16 @@ function describe(e) {
 
 function eventRow(e, { fresh = false, showIP = true } = {}) {
   const det = h("td", { class: "det" }, describe(e));
-  const tr = h("tr", { class: "click" + (fresh ? " new" : ""), title: "Klicken für Details" },
+  const tr = h("tr", { class: "click" + (fresh ? " new" : ""), title: "Klicken oder Eingabetaste für Details", tabindex: 0 },
     h("td", { class: "num" }, fmtTime(e.ts)),
     h("td", null, svcBadge(e.service, e.dst_port)),
     h("td", null, TYPE_NAME[e.type] || e.type),
     showIP ? h("td", null, ipLink(e.src_ip), " ", cc(e.country, e.country_name)) : null,
     det);
   let open = false;
+  tr.addEventListener("keydown", (ev) => {
+    if ((ev.key === "Enter" || ev.key === " ") && ev.target === tr) { ev.preventDefault(); tr.click(); }
+  });
   tr.addEventListener("click", (ev) => {
     if (ev.target.closest("a")) return;
     open = !open;
@@ -256,7 +266,8 @@ async function viewDashboard(el, ctx) {
     q("stats/top?field=cred"), q("stats/top?field=command"), api("events?limit=12&hide_noise=1"),
     api("system").catch(() => null),
   ]);
-  const map = worldMap(mp);
+  const home = await homeLocation();
+  const map = worldMap(mp, { home });
   const recentBody = h("tbody", null, recent.map((e) => eventRow(e)));
   const connTile = tile("Verbindungen", fmtNum(sum.connect));
   mount(el,
@@ -273,7 +284,9 @@ async function viewDashboard(el, ctx) {
         tile("Gerade festgehalten", fmtNum(sum.active_tarpits), "offene Tarpit-Verbindungen")),
       card("Herkunft der Angriffe", map.el,
         h("div", { class: "legend" }, h("span", null, h("i", { class: "swatch", style: { background: "var(--accent)" } }), "Punktgröße = Verbindungen"),
-          h("span", null, h("i", { class: "swatch", style: { background: "var(--live)" } }), "neuer Angriff (live)"))),
+          h("span", null, h("i", { class: "swatch", style: { background: "var(--live)" } }), "neuer Angriff (live), Linie zum Honeypot"),
+          h("span", null, h("i", { class: "swatch", style: { background: "var(--good)" } }), home.label || "Honeypot"),
+          h("a", { href: "#/live" }, "Große Live-Karte"))),
       card("Verbindungen nach Dienst", timeline(tl)),
       h("div", { class: "grid three" },
         card("Länder", toplist(countries, { key: (x) => x.label || x.key, extra: (x) => cc(x.key) })),
@@ -289,7 +302,7 @@ async function viewDashboard(el, ctx) {
   let conns = Number(sum.connect) || 0;
   ctx.live((e) => {
     if (e.type === "connect") {
-      map.pulse(e.lat, e.lon);
+      map.attack(e.lat, e.lon, e.service);
       conns++;
       connTile.querySelector(".value").textContent = fmtNum(conns);
     }
@@ -304,7 +317,7 @@ async function viewDashboard(el, ctx) {
 // ---------- Live-Feed ----------
 
 async function viewFeed(el, ctx) {
-  const f = { service: "", type: "", q: "", hideNoise: store("hideNoise") !== "0", paused: false };
+  const f = { service: "", type: "", q: "", country: "", port: "", hideNoise: store("hideNoise") !== "0", paused: false };
   const body = h("tbody");
   const info = h("span", { class: "muted" });
   const more = h("button", { class: "btn", onclick: () => load(true) }, "Ältere laden");
@@ -316,6 +329,8 @@ async function viewFeed(el, ctx) {
     if (f.service) p.set("service", f.service);
     if (f.type) p.set("type", f.type);
     if (f.q) p.set("q", f.q);
+    if (f.country) p.set("country", f.country);
+    if (f.port) p.set("dst_port", f.port);
     if (f.hideNoise) p.set("hide_noise", "1");
     if (before) p.set("before", String(lastId));
     return p.toString();
@@ -329,6 +344,7 @@ async function viewFeed(el, ctx) {
     info.textContent = `${fmtNum(body.children.length)} Ereignisse angezeigt`;
   }
   const matches = (e) => (!f.service || e.service === f.service) && (!f.type || e.type === f.type) && !(f.hideNoise && isNoise(e))
+    && (!f.country || e.country === f.country) && (!f.port || String(e.dst_port) === f.port)
     && (!f.q || JSON.stringify(e).toLowerCase().includes(f.q.toLowerCase()));
 
   const sel = (opts, key, label) => h("select", { "aria-label": label, onchange: (e) => { f[key] = e.target.value; load(); } },
@@ -350,6 +366,8 @@ async function viewFeed(el, ctx) {
       sel(SERVICES.map((v) => [v, svcName(v)]), "service", "Alle Dienste"),
       sel(Object.entries(TYPE_NAME), "type", "Alle Typen"),
       h("input", { type: "search", placeholder: "Suche: IP, Passwort, Befehl …", oninput: (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { f.q = e.target.value.trim(); load(); }, 350); } }),
+      h("input", { "aria-label": "Land", placeholder: "Land (z. B. CN)", maxlength: 3, style: { width: "120px" }, onchange: (e) => { f.country = e.target.value.trim().toUpperCase(); e.target.value = f.country; load(); } }),
+      h("input", { "aria-label": "Port", type: "number", placeholder: "Port", min: 1, max: 65535, style: { width: "90px" }, onchange: (e) => { f.port = e.target.value.trim(); load(); } }),
       h("label", { class: "inline" }, h("input", { type: "checkbox", checked: f.hideNoise, onchange: (e) => { f.hideNoise = e.target.checked; store("hideNoise", f.hideNoise ? "1" : "0"); load(); } }), "Verbindungsauf- und -abbau ausblenden"),
       info),
     card(null, h("div", { class: "tablewrap" }, h("table", null,
@@ -400,6 +418,8 @@ async function viewSession(el, ctx, id) {
       tile("Quelle", h("span", null, ipLink(f.src_ip)), [f.city, f.country_name].filter(Boolean).join(", ")),
       tile("Dienst", svcName(f.service), "Port " + f.dst_port),
       tile("Beginn", fmtDateTime(start)), tile("Dauer", fmtDur(end - start))),
+    reportCard({ session: id }),
+    evs.some((e) => e.type === "tty") ? ttyCard(id) : null,
     card("Ablauf", h("div", { class: "term" }, evs.map(line)))));
 }
 
@@ -416,6 +436,8 @@ async function viewAttacker(el, ctx, ip) {
       tile("Erstmals gesehen", fmtDateTime(i.first_seen)), tile("Zuletzt gesehen", fmtDateTime(i.last_seen), relTime(i.last_seen)),
       tile("Ereignisse", fmtNum(i.events)), tile("Login-Versuche", fmtNum(i.logins)),
       tile("Befehle", fmtNum(i.commands)), tile("Tarpit-Zeit", fmtDur(i.tarpit_ms))),
+    reportCard({ ip }),
+    intelCard(ip),
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
       card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: `${c.username} / ${c.password}`, n: c.n }))))),
@@ -476,6 +498,7 @@ async function viewSettings(el) {
   header("Einstellungen");
   const sensor = store("settingsSensor") || "";
   const s = await api("settings?sensor=" + encodeURIComponent(sensor));
+  const extras = await extrasCards();
   const cfg = s.sensor_config ? structuredClone(s.sensor_config) : null;
   const msg = h("div", { class: "msg", hidden: true });
   const show = (text, ok) => { msg.className = "msg " + (ok ? "ok" : "err"); msg.textContent = text; msg.hidden = false; };
@@ -495,7 +518,7 @@ async function viewSettings(el) {
   if (!cfg) {
     mount(el, card("Noch keine Sensor-Konfiguration",
       h("p", null, "Der Honeypot hat sich noch nicht beim Hive gemeldet. Sobald er läuft (ca. 10 Sekunden nach dem Start), erscheint hier seine Konfiguration."),
-      h("button", { class: "btn", onclick: route }, "Neu laden")));
+      h("button", { class: "btn", onclick: route }, "Neu laden")), extras);
     return;
   }
 
@@ -566,6 +589,7 @@ async function viewSettings(el) {
       row("Hostname im Honeypot", h("input", { value: cfg.hostname, maxlength: 64, onchange: (e) => { cfg.hostname = e.target.value.trim(); } }), "Erscheint in Login-Seiten, Docker- und Redis-Antworten."),
       row("Rohdaten aufbewahren (Tage)", num(retention, 1, 3650, (v) => { retention = v; }), "Gilt für alle Sensoren. Danach werden Ereignisse und Angreifer-IPs gelöscht; Statistiken ohne IPs bleiben.")),
     h("div", null, h("button", { class: "btn primary", onclick: save }, sensor ? `Für ${sensor} speichern` : "Speichern"), msg),
+    extras,
     card("Admin-Passwort ändern",
       h("form", { onsubmit: changePw },
         row("Aktuelles Passwort", pwCur), row("Neues Passwort", pwNew, "10 bis 72 Zeichen. Andere angemeldete Geräte werden abgemeldet."),
@@ -595,7 +619,9 @@ async function viewSystem(el, ctx) {
         ["Seit Start geschrieben", fmtNum(hv.written)], ["Duplikate verworfen", fmtNum(hv.duplicates)],
         ["Nicht gespeichert", hv.dropped ? h("span", { class: "badge err" }, fmtNum(hv.dropped)) : "0"],
         ["Warteschlange", fmtNum(hv.queue)], ["Aufbewahrung", hv.retention_days + " Tage"],
-        ["Letztes Aufräumen", hv.retention && validDate(hv.retention.last_run) ? relTime(hv.retention.last_run) : "noch nicht"]])),
+        ["Letztes Aufräumen", hv.retention && validDate(hv.retention.last_run) ? relTime(hv.retention.last_run) : "noch nicht"],
+        ["Benachrichtigungen", d.notify ? `${fmtNum(d.notify.sent)} gesendet, ${fmtNum(d.notify.suppressed)} unterdrückt` : "–"],
+        d.notify && d.notify.last_error ? ["Letzter Sendefehler", h("span", { class: "warn-text" }, d.notify.last_error)] : null])),
       card("GeoIP", kv([["Status", d.geoip.status], ["Stand", validDate(d.geoip.updated) ? fmtDateTime(d.geoip.updated) : "–"],
         ["Quelle", h("a", { href: "https://db-ip.com", target: "_blank", rel: "noopener noreferrer" }, "IP-Geodaten von DB-IP.com (CC BY 4.0)")]])),
       card("Cowrie (SSH/Telnet)", kv(d.cowrie.enabled ? [
@@ -622,5 +648,9 @@ async function viewSystem(el, ctx) {
       : card("Sensoren", h("div", { class: "empty" }, "Noch kein Sensor hat sich gemeldet."))));
   ctx.every(15000, () => { if (!document.hidden && location.hash === "#/system" && ctx.current()) route(); });
 }
+
+// Bausteine für extra.js. Die beiden Module importieren sich gegenseitig; das ist
+// in Ordnung, weil extra.js diese Namen nur innerhalb von Funktionen benutzt.
+export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME };
 
 boot();

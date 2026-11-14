@@ -661,6 +661,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 			"duplicates": h.writer.dupes.Load(), "retention": h.retention(),
 		},
 		"geoip":   map[string]any{"status": geoStatus, "updated": geoUpdated},
+		"notify":  h.notifier.Status(),
 		"cowrie":  cow,
 		"sensors": h.sensors.All(),
 	})
