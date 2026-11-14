@@ -401,6 +401,14 @@ func (c *CowrieTail) handle(line []byte) {
 	case "cowrie.direct-tcpip.request":
 		e.Type = "request"
 		data["forward_to"] = str(m, "dst_ip") + ":" + strconv.Itoa(int(num(m, "dst_port")))
+	case "cowrie.log.closed": // TTY-Mitschnitt fertig; die Datei liest tty.go auf Abruf
+		if !sha256Re.MatchString(str(m, "shasum")) {
+			return
+		}
+		e.Type = "tty"
+		data["shasum"] = str(m, "shasum")
+		data["size"] = int64(num(m, "size"))
+		data["duration_s"] = num(m, "duration")
 	case "cowrie.session.closed":
 		e.Type = "disconnect"
 		e.DurationMs = int64(num(m, "duration") * 1000)

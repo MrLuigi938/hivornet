@@ -247,6 +247,7 @@ func (h *Hive) timeline(w http.ResponseWriter, r *http.Request) {
 var topFields = map[string]bool{
 	"country": true, "port": true, "ip": true, "asn": true, "service": true, "username": true, "password": true,
 	"cred": true, "command": true, "path": true, "useragent": true, "client": true,
+	"tag": true, "tool": true, "url": true, // aus der Muster-Analyse (analyze.go)
 }
 
 // top liest aus der beim Schreiben gepflegten Zähltabelle (schnell auch bei Millionen Ereignissen).
@@ -296,7 +297,11 @@ func eventFilter(r *http.Request) (string, []any) {
 		where = append(where, "id < ?")
 		args = append(args, v)
 	}
-	for _, f := range []string{"service", "type", "country", "session", "src_ip"} {
+	if v, err := strconv.Atoi(q.Get("dst_port")); err == nil && v > 0 {
+		where = append(where, "dst_port = ?")
+		args = append(args, v)
+	}
+	for _, f := range []string{"service", "type", "country", "session", "src_ip", "sensor"} {
 		if v := q.Get(f); v != "" {
 			where = append(where, f+" = ?")
 			args = append(args, v)
