@@ -31,6 +31,7 @@ services:
       HIVE_RETENTION_DAYS: ${HIVE_RETENTION_DAYS:-30}
       HIVE_MAX_DB_MB: ${HIVE_MAX_DB_MB:-2048}
       HIVE_MIN_FREE_MB: ${HIVE_MIN_FREE_MB:-1024}
+      HIVE_FLUSH_MS: ${HIVE_FLUSH_MS:-300}
       HIVE_ALLOWED_HOSTS: ${HIVE_ALLOWED_HOSTS:-}
       HIVE_COOKIE_SECURE: ${HIVE_COOKIE_SECURE:-0}
       HIVE_METRICS_TOKEN: ${HIVE_METRICS_TOKEN:-}
@@ -173,7 +174,7 @@ volumes:
   cowrie-lib:
 
 networks:
-  admin: {} # Web-UI und GeoIP-Download
+  admin: {} # Web-UI, GeoIP-Download und (falls eingerichtet) Benachrichtigungen, KI, AbuseIPDB
   ingest: # Honeypot -> Hive, ohne Internetzugang
     internal: true
     ipam:

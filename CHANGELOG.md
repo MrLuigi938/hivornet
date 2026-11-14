@@ -2,6 +2,36 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+Überarbeitung nach 0.2.0; Einzelheiten in `docs/UEBERARBEITUNG.md`, Aufbau in `docs/ARCHITEKTUR.md`. Die Datenbank wird beim ersten Start auf Schema-Version 3 gebracht. Bestehende Installationen behalten ihre Port-Konfiguration; die neuen Dienste fügt man unter Einstellungen hinzu.
+
+### Neu
+- **Vier weitere Protokolle im Honeypot:**
+  - Telnet mit Schein-Shell (zeigt die Befehle von IoT-Bots).
+  - SMTP mit Anmeldung und Mail-Annahme ohne Weiterleitung.
+  - VNC bis zur Authentifizierung.
+  - RDP mit Benutzername aus dem Verbindungs-Cookie und Client-Angaben.
+- **Analyse:** Der Hive erkennt 23 Angriffsmuster (z. B. Nachladen und Ausführen, Krypto-Miner, SSH-Schlüssel hinterlegen, Log4Shell), benutzte und installierte Programme, Scanner und Nachlade-Adressen. Neue Ansicht „Analyse“.
+- **Angriffsbericht** je Angreifer-IP und je Sitzung: Einstufung, Kurzfassung, Muster mit Beispiel, Werkzeuge, Zugangsdaten, Adressen, Dateien, Befehle; auch als Textdatei.
+- **KI-Auswertung (optional):** fasst einen Bericht auf Knopfdruck in Worte, über eine OpenAI-kompatible Schnittstelle (lokal mit Ollama oder LM Studio, oder OpenRouter).
+- **Live-Karte:** Jede neue Verbindung zeichnet eine Linie vom Ursprung zum Honeypot; eigene Ansicht mit Laufliste und Zählern. Der Standort ist einstellbar.
+- **Terminal-Mitschnitte von Cowrie** in der Sitzungsansicht, auch zum Abspielen.
+- **Benachrichtigungen** über ntfy, Telegram oder Webhook bei erfolgreichem Login, Download, schwerem Angriffsmuster, erstem Befehl einer Sitzung und kritischen Warnungen; mit Abklingzeit und Stundenlimit.
+- **Reputation:** Abfrage bei AbuseIPDB auf Knopfdruck (24 Stunden zwischengespeichert), Links zu GreyNoise, Shodan und VirusTotal.
+- **Live-Feed:** Filter nach Land und Port; Ereigniszeilen lassen sich mit der Tastatur aufklappen.
+- **Betrieb:** `HIVE_FLUSH_MS` bündelt Schreibvorgänge (schont SD-Karten); `tools/check.sh` führt alle Prüfungen in einem Aufruf aus.
+- **Dokumentation:** `docs/ARCHITEKTUR.md`, `docs/UEBERARBEITUNG.md`.
+
+### Geändert
+- Port 5900 ist in der Startkonfiguration jetzt `vnc` statt `raw` (nur bei frischen Installationen).
+- Neue öffentliche Ports in `docker-compose.yml` und `.env.example`: `PORT_SMTP` (10025), `PORT_TELNET_ALT` (12323), `PORT_RDP` (13389).
+- Die Liste der Dienste steht im Honeypot nur noch an einer Stelle; ein Test gleicht Hive und UI dagegen ab.
+- Ereignisformat ergänzt (abwärtskompatibel): Typ `tty`, neue Felder in `data` (siehe `docs/events.md`).
+
+### Behoben
+- Der Hive stürzte beim Start ab, wenn `HIVE_SENSOR_LISTEN` nicht gesetzt war (Entwicklungsmodus aus der README).
+
 ## [0.2.0] – 2026-11-14
 
 Umsetzung des Audits (`docs/AUDIT.md`). Datenbanken aus 0.1.0 werden beim ersten Start automatisch migriert. Bestehende Sitzungen werden dabei ungültig: Einmal neu anmelden.
