@@ -1,0 +1,37 @@
+# Hivornet Honeypot auf dem Raspberry Pi (ohne Docker). Lauscht direkt auf den
+# echten Ports (21, 22, 23, 80 ...); dafür genügt CAP_NET_BIND_SERVICE, Root ist nicht nötig.
+# Ausgehende Verbindungen dieses Benutzers sperrt hivornet-firewall.service.
+[Unit]
+Description=Hivornet Honeypot
+After=network-online.target hivornet-firewall.service hivornet-hive.service
+Wants=network-online.target hivornet-firewall.service
+Requires=hivornet-firstboot.service
+
+[Service]
+User=hivornet-pot
+EnvironmentFile=/etc/hivornet/env
+Environment=HIVE_URL=http://127.0.0.1:8089 SENSOR_NAME=pi
+Environment=HONEYPOT_CONFIG=/etc/hivornet/honeypot.yml HONEYPOT_LOW_PORT_OFFSET=0
+ExecStart=/opt/hivornet/honeypot
+Restart=always
+RestartSec=5
+MemoryMax=192M
+TasksMax=256
+LimitNOFILE=16384
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

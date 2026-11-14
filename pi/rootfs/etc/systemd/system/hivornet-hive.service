@@ -1,0 +1,39 @@
+# Hivornet Hive auf dem Raspberry Pi (ohne Docker): Datenbank, Auswertung, Web-UI auf Port 8088.
+[Unit]
+Description=Hivornet Hive (Web-UI und Auswertung)
+After=network-online.target hivornet-firstboot.service
+Wants=network-online.target
+Requires=hivornet-firstboot.service
+
+[Service]
+User=hivornet-hive
+EnvironmentFile=/etc/hivornet/env
+Environment=HIVE_DB=/var/lib/hivornet/hive.db HIVE_GEOIP_DIR=/var/lib/hivornet/geoip
+Environment=HIVE_LISTEN=:8088 HIVE_SENSOR_LISTEN=127.0.0.1:8089 SENSOR_NAME=pi
+# SD-Karte schonen: alle 5 s gebündelt schreiben; Datenbank höchstens 1 GB
+Environment=HIVE_FLUSH_MS=5000 HIVE_MAX_DB_MB=1024 HIVE_MIN_FREE_MB=512
+# Der Honeypot lauscht direkt auf den echten Ports; Updates per Knopf in der UI
+Environment=HIVE_DIRECT_PORTS=1 HIVE_UPDATE_REQUEST=/var/lib/hivornet/update-request HIVE_UPDATE_STATUS=/var/lib/hivornet-update/status
+ExecStart=/opt/hivornet/hive
+Restart=always
+RestartSec=5
+StateDirectory=hivornet
+MemoryMax=384M
+TasksMax=256
+# Härtung: keine Rechte, Dateisystem nur lesbar bis auf den eigenen Datenordner
+NoNewPrivileges=yes
+CapabilityBoundingSet=
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

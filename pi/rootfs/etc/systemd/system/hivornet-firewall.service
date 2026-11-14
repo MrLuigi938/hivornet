@@ -1,0 +1,15 @@
+# Netzsperre auf dem Raspberry Pi: Der Benutzer des Honeypots darf keine neuen
+# Verbindungen aufbauen (nur Antworten an Angreifer und den Weg zum Hive).
+[Unit]
+Description=Hivornet Netzsperre
+After=systemd-sysusers.service network-pre.target
+Before=hivornet-honeypot.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/hivornet-firewall apply
+ExecStop=/usr/local/sbin/hivornet-firewall remove
+
+[Install]
+WantedBy=multi-user.target

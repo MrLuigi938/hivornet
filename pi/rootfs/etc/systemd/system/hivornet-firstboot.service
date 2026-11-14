@@ -1,0 +1,13 @@
+# Erzeugt beim ersten Start das Token zwischen Honeypot und Hive (/etc/hivornet/env).
+[Unit]
+Description=Hivornet Ersteinrichtung (Token erzeugen)
+After=systemd-sysusers.service
+ConditionPathExists=!/etc/hivornet/env
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/local/sbin/hivornet-firstboot
+
+[Install]
+WantedBy=multi-user.target

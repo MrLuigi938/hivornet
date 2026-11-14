@@ -1,0 +1,10 @@
+# Startet den Updater, sobald der Hive ein Update anfordert (Knopf in der Web-UI).
+[Unit]
+Description=Hivornet Update-Anforderung beobachten
+
+[Path]
+PathExists=/var/lib/hivornet/update-request
+Unit=hivornet-update.service
+
+[Install]
+WantedBy=multi-user.target
