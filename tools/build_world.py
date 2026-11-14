@@ -1,17 +1,31 @@
 #!/usr/bin/env python3
-"""Erzeugt hive/web/world.js aus world-atlas land-110m.json (TopoJSON, ISC-Lizenz).
+"""Erzeugt hive/web/world.js: Länderumrisse, ISO-Codes und deutsche Ländernamen.
 
-  curl -sSL -o land-110m.json https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/land-110m.json
-  python3 tools/build_world.py land-110m.json hive/web/world.js
+Quellen (einmalig herunterladen, liegen nicht im Repository):
+  curl -sSL -o countries-110m.json https://cdn.jsdelivr.net/npm/world-atlas@2.0.2/countries-110m.json
+  curl -sSL -o codes.json https://cdn.jsdelivr.net/npm/i18n-iso-countries@7.14.0/codes.json
+  curl -sSL -o de.json https://cdn.jsdelivr.net/npm/i18n-iso-countries@7.14.0/langs/de.json
+
+  python3 tools/build_world.py countries-110m.json codes.json de.json hive/web/world.js
 
 Projektion: equirektangulär, x = Länge + 180, y = 90 - Breite (Einheit: Grad).
+
+Datumsgrenze: Länder wie Russland oder Fidschi liegen auf beiden Seiten von
+180°. Würde man ihre Punkte einfach umrechnen, zöge ein Ring von x=360 nach x=0
+quer über die ganze Karte (waagerechte Streifen). Deshalb werden die Längengrade
+jedes Rings "abgewickelt" (keine Sprünge > 180°), und Ringe, die über den
+Kartenrand ragen, werden zusätzlich um 360° verschoben gezeichnet. Den Rest
+schneidet die viewBox ab.
 """
 import json
 import sys
 
+# Gebiete ohne ISO-Nummer in world-atlas
+EXTRA_CODES = {"Kosovo": "XK", "Somaliland": "SO", "N. Cyprus": "CY"}
+SKIP = {"AQ"}  # Antarktis: dort greift niemand an, und sie stört am Kartenrand
 
-def main(src, dst):
-    topo = json.load(open(src, encoding="utf-8"))
+
+def rings_of(topo, geom):
     sx, sy = topo["transform"]["scale"]
     tx, ty = topo["transform"]["translate"]
     arcs = []
@@ -31,35 +45,77 @@ def main(src, dst):
             out.extend(pts if not out else pts[1:])
         return out
 
-    polys = []
-    for geom in topo["objects"]["land"]["geometries"]:
-        if geom["type"] == "Polygon":
-            polys.append(geom["arcs"])
-        elif geom["type"] == "MultiPolygon":
-            polys.extend(geom["arcs"])
-
-    parts = []
+    polys = geom["arcs"] if geom["type"] == "MultiPolygon" else [geom["arcs"]]
     for poly in polys:
         for r in poly:
-            pts = ring(r)
-            if len(pts) < 3 or max(lat for _, lat in pts) < -55:
-                continue  # Antarktis weglassen: dort greift niemand an, und sie stört am Kartenrand
-            seg = []
-            last = None
-            for lon, lat in pts:
-                p = (round(lon + 180, 1), round(90 - lat, 1))
-                if p != last:
-                    seg.append(p)
-                    last = p
-            if len(seg) < 3:
+            yield ring(r)
+
+
+def unwrap(ring):
+    """Längengrade ohne Sprünge über die Datumsgrenze."""
+    out = []
+    prev = None
+    for lon, lat in ring:
+        if prev is not None:
+            while lon - prev > 180:
+                lon -= 360
+            while lon - prev < -180:
+                lon += 360
+        out.append((lon, lat))
+        prev = lon
+    return out
+
+
+def path(ring, shift):
+    seg = []
+    last = None
+    for lon, lat in ring:
+        p = (round(lon + 180 + shift, 1), round(90 - lat, 1))
+        if p != last:
+            seg.append(p)
+            last = p
+    if len(seg) < 3:
+        return ""
+    return "M" + "L".join(f"{x:g} {y:g}" for x, y in seg) + "Z"
+
+
+def main(topo_path, codes_path, names_path, dst):
+    topo = json.load(open(topo_path, encoding="utf-8"))
+    num2a2 = {row[2]: row[0] for row in json.load(open(codes_path, encoding="utf-8"))}
+    names = {}
+    for code, name in json.load(open(names_path, encoding="utf-8"))["countries"].items():
+        names[code] = name[0] if isinstance(name, list) else name
+    names.setdefault("XK", "Kosovo")
+
+    countries = []
+    for g in topo["objects"]["countries"]["geometries"]:
+        cc = num2a2.get(str(g.get("id", "")).zfill(3), "") or EXTRA_CODES.get(g["properties"].get("name", ""), "")
+        if cc in SKIP:
+            continue
+        parts = []
+        for r in rings_of(topo, g):
+            r = unwrap(r)
+            if len(r) < 3:
                 continue
-            parts.append("M" + "L".join(f"{x:g} {y:g}" for x, y in seg) + "Z")
-    path = "".join(parts)
-    with open(dst, "w", encoding="utf-8") as f:
-        f.write("// Erzeugt von tools/build_world.py aus world-atlas land-110m (ISC-Lizenz, Natural Earth)\n")
-        f.write("export const LAND = " + json.dumps(path) + ";\n")
-    print(f"{dst}: {len(path)} Zeichen, {len(parts)} Flächen")
+            xs = [lon + 180 for lon, _ in r]
+            parts.append(path(r, 0))
+            if min(xs) < 0:
+                parts.append(path(r, 360))
+            if max(xs) > 360:
+                parts.append(path(r, -360))
+        d = "".join(p for p in parts if p)
+        if d:
+            countries.append({"c": cc, "d": d})
+
+    with open(dst, "w", encoding="utf-8", newline="\n") as f:
+        f.write("// Erzeugt von tools/build_world.py.\n")
+        f.write("// Umrisse: world-atlas countries-110m (ISC-Lizenz, Daten von Natural Earth).\n")
+        f.write("// Ländernamen und Codes: i18n-iso-countries (MIT-Lizenz).\n")
+        f.write("export const COUNTRIES = " + json.dumps(countries, ensure_ascii=False, separators=(",", ":")) + ";\n")
+        f.write("export const COUNTRY_NAMES = " + json.dumps(names, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + ";\n")
+    size = sum(len(c["d"]) for c in countries)
+    print(f"{dst}: {len(countries)} Länder, {size} Zeichen Umrisse, {len(names)} Namen")
 
 
 if __name__ == "__main__":
-    main(sys.argv[1], sys.argv[2])
+    main(*sys.argv[1:5])

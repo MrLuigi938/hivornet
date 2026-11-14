@@ -316,3 +316,27 @@ func TestPasswordLimits(t *testing.T) {
 		t.Fatal("Passwortregeln falsch")
 	}
 }
+
+// ---------- Angriffe je Land für die Karte ----------
+
+func TestCountryStats(t *testing.T) {
+	st := testStore(t)
+	now := time.Now().UnixMilli() / 3600000
+	st.db.Exec(`INSERT INTO hourly(hour,service,type,country,cnt) VALUES(?, 'ssh', 'connect', 'DE', 5)`, now)
+	st.db.Exec(`INSERT INTO hourly(hour,service,type,country,cnt) VALUES(?, 'ssh', 'connect', 'DE', 7)`, now-48)
+	st.db.Exec(`INSERT INTO hourly(hour,service,type,country,cnt) VALUES(?, 'ssh', 'login', 'DE', 99)`, now)
+	st.db.Exec(`INSERT INTO hourly(hour,service,type,country,cnt) VALUES(?, 'ssh', 'connect', 'LAN', 3)`, now)
+	h := &Hive{st: st}
+	rec := httptest.NewRecorder()
+	h.countryStats(rec, httptest.NewRequest("GET", fmt.Sprintf("/api/stats/countries?today_from=%d", (now-1)*3600000), nil))
+	var got map[string]map[string]int64
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err, rec.Body.String())
+	}
+	if got["DE"]["today"] != 5 || got["DE"]["total"] != 12 {
+		t.Fatalf("DE: %v (erwartet heute 5, insgesamt 12)", got["DE"])
+	}
+	if _, ok := got["LAN"]; ok {
+		t.Fatal("LAN darf nicht als Land erscheinen")
+	}
+}

@@ -63,7 +63,7 @@ export async function viewLive(el, ctx) {
 
   ctx.live((e) => {
     if (e.type === "connect") {
-      map.attack(e.lat, e.lon, e.service);
+      map.attack(e.lat, e.lon, e.service, e.country);
       stamps.push(Date.now());
       if (e.country && e.country !== "LAN") seen.set(e.country, Date.now());
       bySvc.set(e.service, (bySvc.get(e.service) || 0) + 1);

@@ -2,6 +2,16 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unreleased]
+
+### Behoben
+- Weltkarte: Waagerechte Streifen über die ganze Karte bei Ländern, die über die Datumsgrenze reichen (Russland, Fidschi). Die Umrisse werden jetzt abgewickelt und am Kartenrand umgebrochen.
+- Honeypot: Die Warnung „Verbindungen aus dem eigenen Docker-Netz“ war ohne Docker (Raspberry Pi) ein Fehlalarm für Zugriffe aus dem Heimnetz. Gezählt wird nur noch die Gateway-Adresse eines Docker-Netzes, und nur im Docker-Image.
+
+### Neu
+- Weltkarte mit Ländergrenzen. Beim Überfahren wird das Land hervorgehoben, mit Flagge, deutschem Namen und den Angriffen heute und insgesamt (`GET /api/stats/countries`); live mitgezählt.
+- Flaggen auch an den Länderkürzeln in Listen und Tabellen (eingebettete Schrift, funktioniert auch unter Windows).
+
 ## [0.3.0] – 2026-11-14
 
 Überarbeitung nach 0.2.0; Einzelheiten in `docs/UEBERARBEITUNG.md`, Aufbau in `docs/ARCHITEKTUR.md`. Die Datenbank wird beim ersten Start auf Schema-Version 4 gebracht. Bestehende Installationen bekommen die neuen Dienste automatisch in ihre Port-Konfiguration ergänzt (Port 5900 wird von `raw` zu `vnc`; SMTP, Telnet und RDP kommen auf freie Ports dazu).

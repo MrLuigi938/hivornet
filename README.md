@@ -377,4 +377,6 @@ Mögliche nächste Schritte:
 - Hivornet: [MIT-Lizenz](LICENSE)
 - IP-Geodaten: [DB-IP.com](https://db-ip.com) Lite, CC BY 4.0
 - Weltkarte: [world-atlas](https://github.com/topojson/world-atlas) (ISC), Daten von Natural Earth
+- Ländernamen und ISO-Codes: [i18n-iso-countries](https://github.com/michaelwittig/node-i18n-iso-countries) (MIT)
+- Flaggen: Schrift „Twemoji Country Flags“ aus [country-flag-emoji-polyfill](https://github.com/talkjs/country-flag-emoji-polyfill) (MIT), Grafiken von [Twemoji](https://github.com/jdecked/twemoji) (CC BY 4.0)
 - [Cowrie](https://github.com/cowrie/cowrie), BSD-Lizenz

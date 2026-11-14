@@ -1,3 +1,14 @@
+/* Flaggen: Emoji-Flaggen über eine eingebettete Schrift, damit sie auch unter Windows erscheinen.
+   Schrift "Twemoji Country Flags" (country-flag-emoji-polyfill, MIT; Grafiken Twemoji, CC BY 4.0). */
+@font-face {
+  font-family: "Twemoji Country Flags";
+  src: url("flags.woff2") format("woff2");
+  unicode-range: U+1F1E6-1F1FF, U+1F3F4, U+E0062-E007F;
+  font-display: swap;
+}
+.flag { font-family: "Twemoji Country Flags", "Segoe UI Emoji", sans-serif; font-style: normal; }
+#tip .t .flag { font-size: 15px; vertical-align: -1px; }
+
 /* Hivornet UI. Farben nach Rollen; Hell- und Dunkelmodus getrennt gewählt. */
 :root {
   color-scheme: light;
@@ -141,7 +152,9 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 6px; overfl
 .axis-label { fill: var(--muted); font-size: 11px; }
 .gridline { stroke: var(--grid); stroke-width: 1; }
 .baseline { stroke: var(--axis); stroke-width: 1; }
-.map .land { fill: var(--land); }
+.map svg { overflow: hidden; }
+.map .country { fill: var(--land); stroke: var(--page); stroke-width: 0.18; stroke-linejoin: round; transition: fill 0.12s; }
+.map .country:hover { fill: color-mix(in srgb, var(--accent) 38%, var(--land)); }
 .map .pt { fill: var(--accent); fill-opacity: 0.55; stroke: var(--surface); stroke-width: 0.25; }
 .map .pt:hover { fill-opacity: 0.9; }
 .map .pulse { fill: none; stroke: var(--live); stroke-width: 0.6; animation: pulse 2.2s ease-out forwards; transform-box: fill-box; transform-origin: center; }

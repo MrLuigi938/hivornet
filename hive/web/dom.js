@@ -8,6 +8,19 @@ const SVGNS = "http://www.w3.org/2000/svg";
 const CONTROL = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F؜​-‏‪-‮⁠-⁤⁦-⁩﻿]/g;
 export const safeText = (s) => String(s).replace(CONTROL, (c) => `⟨U+${c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0")}⟩`);
 
+// Flagge als Emoji aus dem Ländercode. Angezeigt wird sie mit der eingebetteten
+// Schrift "Twemoji Country Flags" (flags.woff2), weil Windows Flaggen-Emojis sonst
+// nur als zwei Buchstaben darstellt.
+export function flag(cc) {
+  if (!/^[A-Z]{2}$/.test(cc || "")) return null;
+  const emoji = String.fromCodePoint(...[...cc].map((c) => 0x1f1e6 + c.charCodeAt(0) - 65));
+  const el = document.createElement("span");
+  el.className = "flag";
+  el.setAttribute("aria-hidden", "true");
+  el.textContent = emoji;
+  return el;
+}
+
 function append(el, kids) {
   for (const k of kids.flat(Infinity)) {
     if (k === null || k === undefined || k === false) continue;

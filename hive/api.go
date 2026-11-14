@@ -264,6 +264,32 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 		GROUP BY key ORDER BY n DESC LIMIT ?`, field, since.UnixMilli()/3600000, qInt(r, "limit", 10, 100))
 }
 
+// countryStats liefert Angriffe (Verbindungen) je Land: heute und insgesamt.
+// "Heute" beginnt beim Zeitpunkt today_from (Millisekunden, Mitternacht in der
+// Zeitzone des Browsers); "insgesamt" ist alles, was die Stundenstatistik hält
+// (bis zu 400 Tage, unabhängig von der Aufbewahrung der Rohdaten).
+func (h *Hive) countryStats(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := qctx(r)
+	defer cancel()
+	from, err := strconv.ParseInt(r.URL.Query().Get("today_from"), 10, 64)
+	if err != nil || from <= 0 || from > time.Now().UnixMilli() {
+		now := time.Now()
+		from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
+	}
+	rs, err := h.rows(ctx, `SELECT country, SUM(cnt) AS total, SUM(CASE WHEN hour >= ? THEN cnt ELSE 0 END) AS today
+		FROM hourly WHERE type = 'connect' AND country NOT IN ('', 'LAN') GROUP BY country`, from/3600000)
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	out := make(map[string]map[string]any, len(rs))
+	for _, row := range rs {
+		cc, _ := row["country"].(string)
+		out[cc] = map[string]any{"today": row["today"], "total": row["total"]}
+	}
+	writeJSON(w, out)
+}
+
 func (h *Hive) mapPoints(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := qctx(r)
 	defer cancel()

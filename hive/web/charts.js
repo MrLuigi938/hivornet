@@ -1,6 +1,8 @@
 // Diagramme als SVG: Weltkarte, Zeitverlauf (gestapelte Säulen), Top-Listen.
-import { h, s, fmtNum, hoverTip } from "./dom.js";
-import { LAND } from "./world.js";
+import { h, s, fmtNum, hoverTip, api, flag } from "./dom.js";
+import { COUNTRIES, COUNTRY_NAMES } from "./world.js";
+
+export const countryName = (cc) => COUNTRY_NAMES[cc] || (cc === "LAN" ? "Lokales Netz" : cc) || "Unbekannt";
 
 // Farbe folgt dem Dienst, nie dem Rang: jeder Dienst hat seinen festen Platz.
 // Verwandte Dienste teilen sich eine Farbe (Fernzugriff, Web, Datenbanken, Mail).
@@ -23,14 +25,33 @@ export const svcColor = (s) => `var(${SVC_COLOR[s] || "--other"})`;
 export function worldMap(points, { home = null, large = false } = {}) {
   const max = Math.max(1, ...points.map((p) => p.n));
   const px = (lon) => lon + 180, py = (lat) => 90 - lat;
+
+  // Angriffe je Land (heute ab Mitternacht im Browser, insgesamt). Werden im
+  // Hintergrund geladen und bei Live-Angriffen weitergezählt.
+  const stats = {};
+  const midnight = new Date();
+  midnight.setHours(0, 0, 0, 0);
+  api("stats/countries?today_from=" + midnight.getTime()).then((d) => Object.assign(stats, d)).catch(() => {});
+  const countryRows = (cc) => {
+    const st = stats[cc] || { today: 0, total: 0 };
+    return [["Angriffe heute", fmtNum(st.today)], ["Angriffe insgesamt", fmtNum(st.total)]];
+  };
+
+  const land = s("g", { class: "countries" });
+  for (const c of COUNTRIES) {
+    const p = s("path", { class: "country", d: c.d });
+    if (c.c) hoverTip(p, () => [[flag(c.c), " ", countryName(c.c)], countryRows(c.c)]);
+    land.append(p);
+  }
+
   const dots = s("g");
   const sorted = [...points].sort((a, b) => b.n - a.n); // kleine Punkte oben
   for (const p of sorted) {
     const r = 0.8 + 4.2 * Math.sqrt(p.n / max);
     const c = s("circle", { class: "pt", cx: (p.lon + 180).toFixed(2), cy: (90 - p.lat).toFixed(2), r: r.toFixed(2) });
     hoverTip(c, () => [
-      [p.city, p.country].filter(Boolean).join(", ") || "Unbekannt",
-      [["Verbindungen", fmtNum(p.n)]],
+      [flag(p.country), " ", [p.city, countryName(p.country)].filter(Boolean).join(", ")],
+      [["Verbindungen von hier (Zeitraum)", fmtNum(p.n)], ...(p.country ? countryRows(p.country) : [])],
     ]);
     dots.append(c);
   }
@@ -44,7 +65,7 @@ export function worldMap(points, { home = null, large = false } = {}) {
     hoverTip(homeEl, () => [home.label || "Honeypot", [["Ziel der Angriffe", ""]]]);
   }
   const svg = s("svg", { viewBox: "0 5 360 150", role: "img", "aria-label": "Weltkarte der Angriffsherkunft" },
-    s("path", { class: "land", d: LAND }), dots, live, homeEl);
+    land, dots, live, homeEl);
   const el = h("div", { class: "chart map" + (large ? " large" : "") }, svg);
   const pulse = (lat, lon) => {
     if (!lat && !lon) return;
@@ -58,7 +79,12 @@ export function worldMap(points, { home = null, large = false } = {}) {
     el,
     pulse,
     // Angriff: Puls am Ursprung und, wenn ein Standort bekannt ist, eine Linie zum Honeypot.
-    attack(lat, lon, service) {
+    attack(lat, lon, service, country) {
+      if (country && country !== "LAN") { // Länderzähler live mitführen
+        const st = stats[country] || (stats[country] = { today: 0, total: 0 });
+        st.today++;
+        st.total++;
+      }
       if (!lat && !lon) return;
       pulse(lat, lon);
       if (!homeEl) return;

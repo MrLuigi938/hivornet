@@ -1,8 +1,8 @@
 // Hivornet Web-UI: Anmeldung, Navigation und alle Ansichten.
 import {
-  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store,
+  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag,
 } from "./dom.js";
-import { worldMap, timeline, toplist, svcName, svcColor } from "./charts.js";
+import { worldMap, timeline, toplist, svcName, svcColor, countryName } from "./charts.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewLive, viewAnalysis, reportCard, ttyCard, intelCard, extrasCards, homeLocation } from "./extra.js";
 
@@ -257,7 +257,7 @@ let routeSeq = 0;
 
 const card = (title, ...kids) => h("section", { class: "card" }, title ? h("div", { class: "head" }, h("h2", null, title)) : null, ...kids);
 const tile = (label, value, hint) => h("div", { class: "card tile" }, h("div", { class: "label" }, label), h("div", { class: "value num" }, value), hint ? h("div", { class: "hint" }, hint) : null);
-const cc = (code, name) => (code ? h("span", { class: "badge cc", title: name || code }, code) : null);
+const cc = (code, name) => (code ? h("span", { class: "badge cc", title: name || countryName(code) }, flag(code), flag(code) ? " " : null, code) : null);
 const ipLink = (ip) => h("a", { href: "#/attacker/" + encodeURIComponent(ip) }, ip);
 const svcBadge = (svc, port) => h("span", { class: "badge" }, h("i", { class: "swatch", style: { background: svcColor(svc) } }), svcName(svc), port ? ":" + port : "");
 
@@ -378,7 +378,7 @@ async function viewDashboard(el, ctx) {
   let conns = Number(sum.connect) || 0;
   ctx.live((e) => {
     if (e.type === "connect") {
-      map.attack(e.lat, e.lon, e.service);
+      map.attack(e.lat, e.lon, e.service, e.country);
       conns++;
       connTile.querySelector(".value").textContent = fmtNum(conns);
     }
