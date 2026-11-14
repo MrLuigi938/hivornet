@@ -194,7 +194,8 @@ func (h *Hive) me(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 401, "nicht angemeldet")
 		return
 	}
-	writeJSON(w, map[string]string{"username": u, "version": version})
+	writeJSON(w, map[string]any{"username": u, "version": version, "update": h.newerRelease(),
+		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != ""})
 }
 
 func (h *Hive) summary(w http.ResponseWriter, r *http.Request) {
@@ -516,13 +517,15 @@ func (h *Hive) getSettings(w http.ResponseWriter, r *http.Request) {
 	for p, envName := range publishedPorts {
 		pub[strconv.Itoa(p)] = map[string]string{"env": envName, "host": os.Getenv(envName)}
 	}
+	// Ohne Docker (Raspberry-Pi-Image) lauscht der Honeypot direkt auf den echten Ports.
+	direct := os.Getenv("HIVE_DIRECT_PORTS") == "1"
 	var names []string
 	for _, s := range h.sensors.All() {
 		names = append(names, s.Sensor)
 	}
 	writeJSON(w, map[string]any{
 		"sensor": sensor, "sensors": names, "own_config": own,
-		"sensor_config": cfg, "retention_days": h.retentionDays(), "published": pub,
+		"sensor_config": cfg, "retention_days": h.retentionDays(), "published": pub, "direct_ports": direct,
 		"services": knownServices, "modes": knownModes, "max_tarpit_conns": maxTarpitConns,
 		"cowrie": map[string]string{"ssh": os.Getenv("PORT_SSH"), "telnet": os.Getenv("PORT_TELNET")},
 	})
@@ -662,6 +665,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 		},
 		"geoip":   map[string]any{"status": geoStatus, "updated": geoUpdated},
 		"notify":  h.notifier.Status(),
+		"update":  h.updateStatus(),
 		"cowrie":  cow,
 		"sensors": h.sensors.All(),
 	})

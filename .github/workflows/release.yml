@@ -1,6 +1,6 @@
 name: Release
 
-# Ein Tag wie v0.2.0 baut die Images für amd64, arm64 und armv7 und legt sie in der
+# Ein Tag wie v0.3.0 baut die Images für amd64, arm64 und armv7 und legt sie in der
 # GitHub Container Registry ab: ghcr.io/<owner>/hivornet-hive und -honeypot.
 # Auf der NAS dann in .env HIVORNET_VERSION setzen und in docker-compose.yml
 # "build:" durch das Registry-Image ersetzen (spart den Build auf der NAS).

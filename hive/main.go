@@ -53,6 +53,7 @@ type Hive struct {
 	extras   extrasCache   // Einstellungen der Zusatzfunktionen (extras.go)
 	notifier *Notifier     // Benachrichtigungen (notify.go)
 	aiSem    chan struct{} // höchstens eine KI-Auswertung gleichzeitig
+	upd      updater       // Update-Prüfung (setup.go)
 }
 
 func env(k, def string) string {
@@ -145,6 +146,9 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("POST /api/login", a.Login)
 	ui.HandleFunc("POST /api/logout", a.Logout)
 	ui.HandleFunc("GET /api/me", h.me)
+	ui.HandleFunc("GET /api/setup", h.setupStatus) // ohne Anmeldung: nur solange kein Konto existiert
+	ui.HandleFunc("POST /api/setup", h.setupRun)
+	ui.HandleFunc("POST /api/update", a.Require(h.updateRun))
 	ui.HandleFunc("GET /api/stats/summary", a.Require(h.summary))
 	ui.HandleFunc("GET /api/stats/timeline", a.Require(h.timeline))
 	ui.HandleFunc("GET /api/stats/top", a.Require(h.top))
@@ -238,6 +242,8 @@ func main() {
 	bgStop := make(chan struct{})
 	go h.notifier.Run(bgStop)
 	go h.watchWarnings(bgStop)
+	go h.checkUpdates(bgStop)
+	upgradeSensorConfigs(st)
 	if h.writer, err = NewWriter(st, func(e *Event) { h.broker.Publish(e); h.notifier.OnEvent(e) }); err != nil {
 		log.Fatalf("Datenbank: %v", err)
 	}
