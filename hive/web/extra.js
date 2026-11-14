@@ -157,7 +157,8 @@ export function reportCard({ ip, session }) {
       r.commands.length ? [h("h3", null, "Befehle in Reihenfolge"), h("div", { class: "term" }, r.commands.map((c) => h("div", null, h("span", { class: "cmd" }, c))))] : null,
       h("div", { class: "btnrow" },
         h("a", { class: "btn", href: "api/report?" + query + "&format=text", download: "" }, "Als Text speichern"),
-        d.ai_enabled ? aiBtn : h("span", { class: "muted" }, "KI-Auswertung: unter Einstellungen einrichten (lokales Modell oder OpenRouter)."),
+        state.user.role === "viewer" ? null
+          : d.ai_enabled ? aiBtn : h("span", { class: "muted" }, "KI-Auswertung: unter Einstellungen einrichten (lokales Modell oder OpenRouter)."),
         aiMsg),
       aiBox);
     if (d.ai) showAI(d.ai);
@@ -234,12 +235,33 @@ export function intelCard(ip) {
       check.disabled = false;
     },
   }, "Bei AbuseIPDB abfragen");
+  const gnRes = h("div");
+  const gn = h("button", {
+    class: "btn",
+    onclick: async () => {
+      gn.disabled = true;
+      try {
+        const r = await api("attackers/" + enc + "/greynoise");
+        const d = r.data;
+        const cls = { malicious: "bösartig", benign: "harmlos", unknown: "unbekannt" }[d.classification] || d.classification || "–";
+        mount(gnRes, h("table", null, h("tbody", null, [
+          ["Bekannter Massen-Scanner", d.noise ? h("span", { class: "badge err" }, "ja") : "nein"],
+          ["Bekannter harmloser Dienst", d.riot ? h("span", { class: "badge ok" }, "ja") : "nein"],
+          ["Einstufung", d.found ? cls : "GreyNoise kennt diese IP nicht"],
+          d.name && d.name !== "unknown" ? ["Name", d.name] : null,
+          d.last_seen ? ["Zuletzt gesehen", d.last_seen] : null,
+          ["Stand", relTime(r.at) + (r.cached ? " (zwischengespeichert)" : "")],
+        ].filter(Boolean).map(([k, v]) => h("tr", null, h("th", null, k), h("td", null, v))))));
+      } catch (e) { mount(gnRes, h("div", { class: "msg err" }, e.message)); }
+      gn.disabled = false;
+    },
+  }, "Bei GreyNoise abfragen");
   return card("Reputation",
-    h("p", { class: "sub" }, "Die Abfrage schickt diese IP-Adresse an AbuseIPDB (nur auf Knopfdruck, Ergebnis 24 Stunden gespeichert). Die Links öffnen die Seite des jeweiligen Dienstes."),
-    h("div", { class: "btnrow" }, check,
+    h("p", { class: "sub" }, "Die Abfragen schicken diese IP-Adresse an AbuseIPDB bzw. GreyNoise (nur auf Knopfdruck, Ergebnis 24 Stunden gespeichert). Die Links öffnen die Seite des jeweiligen Dienstes."),
+    h("div", { class: "btnrow" }, check, gn,
       ext("AbuseIPDB", "https://www.abuseipdb.com/check/" + enc), ext("GreyNoise", "https://viz.greynoise.io/ip/" + enc),
       ext("Shodan", "https://www.shodan.io/host/" + enc), ext("VirusTotal", "https://www.virustotal.com/gui/ip-address/" + enc)),
-    res);
+    res, gnRes);
 }
 
 // ---------- Einstellungen der Zusatzfunktionen ----------
@@ -317,5 +339,50 @@ export async function extrasCards() {
     card("AbuseIPDB (optional)",
       h("p", { class: "sub" }, "Mit einem kostenlosen Schlüssel von abuseipdb.com lässt sich auf der Seite eines Angreifers nachsehen, wie oft seine IP weltweit gemeldet wurde."),
       row("API-Schlüssel", secret("abuseipdb_key"))),
-    h("div", null, h("button", { class: "btn primary", onclick: async () => { if (await save()) homeCache = null; } }, "Zusatzfunktionen speichern"), msg));
+    card("GreyNoise (optional)",
+      h("p", { class: "sub" }, "Zeigt, ob eine IP als Massen-Scanner oder als harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
+      row("API-Schlüssel", secret("greynoise_key"))),
+    h("div", null, h("button", { class: "btn primary", onclick: async () => { if (await save()) homeCache = null; } }, "Zusatzfunktionen speichern"), msg),
+    await usersCard());
+}
+
+// ---------- Benutzer (nur für Admins) ----------
+
+async function usersCard() {
+  const body = h("tbody");
+  const msg = h("div", { class: "msg", hidden: true });
+  const show = (text, ok) => { msg.className = "msg " + (ok ? "ok" : "err"); msg.textContent = text; msg.hidden = false; };
+  async function load() {
+    const list = await api("users");
+    body.replaceChildren(...list.map((u) => h("tr", null,
+      h("td", null, u.username), h("td", null, u.role === "admin" ? "Admin" : "Nur ansehen"),
+      h("td", null, h("button", {
+        class: "btn small",
+        onclick: async () => {
+          if (!confirm(`Benutzer ${u.username} löschen?`)) return;
+          try { await api("users/" + encodeURIComponent(u.username), { method: "DELETE" }); await load(); show("Gelöscht.", true); } catch (e) { show(e.message, false); }
+        },
+      }, "Löschen")))));
+  }
+  const name = h("input", { maxlength: 32, placeholder: "z. B. gast", autocomplete: "off" });
+  const pw = h("input", { type: "password", minlength: 10, maxlength: 72, autocomplete: "new-password" });
+  const role = h("select", null, h("option", { value: "viewer" }, "Nur ansehen"), h("option", { value: "admin" }, "Admin"));
+  const add = h("form", {
+    class: "filters",
+    onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        await api("users", { method: "POST", body: { username: name.value.trim(), password: pw.value, role: role.value } });
+        name.value = pw.value = "";
+        await load();
+        show("Benutzer angelegt.", true);
+      } catch (ex) { show(ex.message, false); }
+    },
+  }, h("label", { class: "inline" }, "Name", name), h("label", { class: "inline" }, "Passwort", pw), role,
+  h("button", { class: "btn", type: "submit" }, "Anlegen"));
+  try { await load(); } catch (e) { return h("div", { class: "msg err" }, "Benutzer nicht abrufbar: " + e.message); }
+  return card("Benutzer",
+    h("p", { class: "sub" }, "Weitere Konten für die Web-UI. „Nur ansehen“ sieht alle Auswertungen, kann aber nichts ändern und keine KI-Auswertung starten."),
+    h("div", { class: "tablewrap" }, h("table", null, h("thead", null, h("tr", null, h("th", null, "Name"), h("th", null, "Rolle"), h("th", null, ""))), body)),
+    add, msg);
 }

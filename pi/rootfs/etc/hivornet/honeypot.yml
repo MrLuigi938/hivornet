@@ -25,6 +25,11 @@ listeners:
   - { service: vnc,        port: 5900, mode: hybrid }
   - { service: redis,      port: 6379, mode: emulate }
   - { service: http,       port: 8080, mode: hybrid }
+  - { service: raw,        port: 445,  mode: emulate }   # SMB-Scanner (nur erste Bytes)
+  # UDP: zeichnen nur auf und antworten nie
+  - { service: sip,        port: 5060, mode: emulate }
+  - { service: snmp,       port: 161,  mode: emulate }
+  - { service: dns,        port: 53,   mode: emulate, enabled: false }
 
 tarpit:
   interval_ms: 10000

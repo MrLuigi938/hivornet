@@ -26,6 +26,7 @@ type Extras struct {
 	Notify       NotifyConfig `json:"notify"`
 	AI           AIConfig     `json:"ai"`
 	AbuseIPDBKey string       `json:"abuseipdb_key"`
+	GreyNoiseKey string       `json:"greynoise_key"` // optional; ohne Schlüssel geht die Community-API mit kleinem Kontingent
 }
 
 type NotifyConfig struct {
@@ -63,7 +64,7 @@ func defaultExtras() Extras {
 func (x *Extras) secretFields() map[string]*string {
 	return map[string]*string{
 		"ntfy_token": &x.Notify.NtfyToken, "telegram_token": &x.Notify.TelegramToken,
-		"ai_api_key": &x.AI.APIKey, "abuseipdb_key": &x.AbuseIPDBKey,
+		"ai_api_key": &x.AI.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey,
 	}
 }
 

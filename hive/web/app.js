@@ -21,7 +21,7 @@ const TYPE_NAME = {
   tty: "Mitschnitt",
 };
 // Muss alle Dienste des Honeypots enthalten (Test TestServiceListsInSync im Honeypot).
-const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "ssh-tarpit", "raw"];
+const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "sip", "snmp", "dns", "ssh-tarpit", "raw"];
 const MODE_NAME = { emulate: "Aufzeichnen", tarpit: "Tarpit", hybrid: "Hybrid" };
 
 // ---------- Theme ----------
@@ -78,7 +78,7 @@ function credit(inApp) {
   let update = null;
   if (inApp && u.update) {
     const link = h("a", { class: "update", href: u.update.url, target: "_blank", rel: "noopener noreferrer", title: "Was ist neu?" }, `⬆ Version ${u.update.version} ist da`);
-    const btn = u.can_install ? h("button", {
+    const btn = u.can_install && u.role === "admin" ? h("button", {
       class: "btn small",
       onclick: async () => {
         if (!confirm(`Hivornet jetzt auf Version ${u.update.version} aktualisieren? Die Dienste starten dabei neu.`)) return;
@@ -191,11 +191,11 @@ function renderShell() {
   mount(app, h("div", { class: "shell" },
     h("aside", { class: "side" },
       h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Hivornet"),
-      h("nav", { class: "nav" }, NAV.map(([href, label]) => h("a", { href }, label))),
+      h("nav", { class: "nav" }, NAV.filter(([href]) => state.user.role !== "viewer" || href !== "#/settings").map(([href, label]) => h("a", { href }, label))),
       h("div", { class: "grow" }),
       h("div", { class: "foot" },
         h("span", { id: "live", class: "live-dot" }, h("i"), h("span", null, "verbinde …")),
-        h("span", null, "Angemeldet als ", state.user.username),
+        h("span", null, "Angemeldet als ", state.user.username, state.user.role === "viewer" ? " (nur ansehen)" : ""),
         theme,
         h("button", { class: "btn small", onclick: logout }, "Abmelden"),
         h("span", null, "Version ", state.user.version))),
@@ -434,7 +434,8 @@ async function viewFeed(el, ctx) {
     h("span", { class: "muted" }, "Export:"), exRange,
     h("button", { class: "btn small", onclick: () => download(`api/export/events?${params()}&format=csv&range=${exRange.value}`) }, "CSV"),
     h("button", { class: "btn small", onclick: () => download(`api/export/events?${params()}&format=json&range=${exRange.value}`) }, "JSON"),
-    h("button", { class: "btn small", title: "Öffentliche Angreifer-IPs, eine pro Zeile (z. B. für Firewall-Regeln)", onclick: () => download(`api/export/blocklist?range=${exRange.value}`) }, "Blockliste"));
+    h("button", { class: "btn small", title: "Öffentliche Angreifer-IPs, eine pro Zeile (z. B. für Firewall-Regeln)", onclick: () => download(`api/export/blocklist?range=${exRange.value}`) }, "Blockliste"),
+    h("button", { class: "btn small", title: "Angreifer-IPs, Nachlade-Adressen und Datei-Hashes als STIX 2.1 (für MISP, OpenCTI, Firewalls)", onclick: () => download(`api/export/stix?range=${exRange.value}`) }, "STIX"));
   header("Live-Feed", { extra: pauseBtn });
   mount(el, h("div", { class: "stack" },
     exportBox,

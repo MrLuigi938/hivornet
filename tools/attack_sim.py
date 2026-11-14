@@ -25,7 +25,7 @@ from datetime import datetime, timezone
 # Container-Port -> Standard-Host-Port aus .env.example
 DEFAULT_HOST_PORTS = {21: 10021, 80: 10080, 443: 10443, 2375: 12375, 2222: 12222,
                       3306: 13306, 6379: 16379, 5900: 15900, 8080: 18080,
-                      25: 10025, 2323: 12323, 3389: 13389}
+                      25: 10025, 2323: 12323, 3389: 13389, 5060: 15060, 161: 10161}
 
 
 def conn(host, port, timeout=5):
@@ -165,6 +165,19 @@ def t_smtp(host, port):
     s.close()
 
 
+def t_udp(host, sip_port, snmp_port):
+    """UDP-Proben: Die Dienste antworten absichtlich nie; die Proben erscheinen nur im Live-Feed."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sip = "OPTIONS sip:100@x SIP/2.0|Via: SIP/2.0/UDP 10.0.0.1:5060|User-Agent: friendly-scanner|Content-Length: 0||"
+    s.sendto(sip.replace("|", "\r\n").encode(), (host, sip_port))
+    community = b"public"
+    pdu = bytes([0xa0, 0x0e, 0x02, 0x01, 0x01, 0x02, 0x01, 0x00, 0x02, 0x01, 0x00, 0x30, 0x03, 0x30, 0x01, 0x05])
+    body = bytes([0x02, 0x01, 0x01, 0x04, len(community)]) + community + pdu
+    s.sendto(bytes([0x30, len(body)]) + body, (host, snmp_port))
+    s.close()
+    print("  SIP OPTIONS und SNMP-Get gesendet (keine Antwort erwartet)")
+
+
 def t_rdp(host, port):
     x224 = b"\xe0\x00\x00\x00\x00\x00" + b"Cookie: mstshash=Administr\r\n" + b"\x01\x00\x08\x00\x00\x00\x00\x00"
     x224 = bytes([len(x224)]) + x224
@@ -223,7 +236,7 @@ def main():
              ("Redis", lambda: t_redis(a.host, p(6379))), ("MySQL", lambda: t_mysql(a.host, p(3306))),
              ("SSH-Tarpit", lambda: t_ssh_tarpit(a.host, p(2222))), ("VNC", lambda: t_vnc(a.host, p(5900))),
              ("Telnet", lambda: t_telnet(a.host, p(2323))), ("SMTP", lambda: t_smtp(a.host, p(25))),
-             ("RDP", lambda: t_rdp(a.host, p(3389))),
+             ("RDP", lambda: t_rdp(a.host, p(3389))), ("UDP: SIP und SNMP", lambda: t_udp(a.host, p(5060), p(161))),
              ("HTTP-Alt (hybrid)", lambda: t_http(a.host, p(8080)))]
     if not a.no_attacks:
         for name, fn in tests:

@@ -226,29 +226,37 @@ func (a *Auth) Logout(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
-// DropOtherSessions meldet alle anderen Sitzungen ab (nach Passwortwechsel).
+// DropOtherSessions meldet die anderen Sitzungen desselben Benutzers ab (nach Passwortwechsel).
 func (a *Auth) DropOtherSessions(r *http.Request) {
+	user, _ := a.Who(r)
 	keep := ""
 	if c, err := r.Cookie(cookieName); err == nil {
 		keep = tokenHash(c.Value)
 	}
-	a.st.db.Exec(`DELETE FROM auth_sessions WHERE token != ?`, keep)
+	a.st.db.Exec(`DELETE FROM auth_sessions WHERE username = ? AND token != ?`, user, keep)
+}
+
+// Who liefert Benutzer und Rolle der Sitzung, sonst leere Werte. Sitzungen gelöschter
+// Benutzer gelten nicht mehr (JOIN auf users).
+func (a *Auth) Who(r *http.Request) (user, role string) {
+	c, err := r.Cookie(cookieName)
+	if err != nil || len(c.Value) != 64 {
+		return "", ""
+	}
+	var exp int64
+	if a.st.db.QueryRowContext(r.Context(), `SELECT s.username, s.expires, u.role FROM auth_sessions s
+		JOIN users u ON u.username = s.username WHERE s.token=?`, tokenHash(c.Value)).Scan(&user, &exp, &role) != nil {
+		return "", ""
+	}
+	if time.Now().Unix() > exp {
+		return "", ""
+	}
+	return user, role
 }
 
 func (a *Auth) User(r *http.Request) string {
-	c, err := r.Cookie(cookieName)
-	if err != nil || len(c.Value) != 64 {
-		return ""
-	}
-	var user string
-	var exp int64
-	if a.st.db.QueryRowContext(r.Context(), `SELECT username, expires FROM auth_sessions WHERE token=?`, tokenHash(c.Value)).Scan(&user, &exp) != nil {
-		return ""
-	}
-	if time.Now().Unix() > exp {
-		return ""
-	}
-	return user
+	u, _ := a.Who(r)
+	return u
 }
 
 // Require schützt die API für die Web-UI. Schreibende Anfragen brauchen
@@ -259,12 +267,33 @@ func (a *Auth) Require(next http.HandlerFunc) http.HandlerFunc {
 			httpErr(w, 403, "fehlender Header")
 			return
 		}
-		if a.User(r) == "" {
+		user, role := a.Who(r)
+		if user == "" {
 			httpErr(w, 401, "nicht angemeldet")
+			return
+		}
+		if role != "admin" && !viewerAllowed(r) {
+			httpErr(w, 403, "Nur Lesezugriff: Das darf nur ein Admin.")
 			return
 		}
 		next(w, r)
 	}
+}
+
+// viewerAllowed: Was ein Benutzer mit Rolle "viewer" darf. Ansehen ja, ändern nein.
+// Ausgenommen sind die Zusatz-Einstellungen (enthalten z. B. das ntfy-Thema, das
+// selbst ein Geheimnis ist) und die Benutzerverwaltung.
+func viewerAllowed(r *http.Request) bool {
+	p := r.URL.Path
+	switch {
+	case r.Method == "POST" && (p == "/api/password" || p == "/api/logout"):
+		return true
+	case r.Method != "GET":
+		return false
+	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"):
+		return false
+	}
+	return true
 }
 
 // RequireSensor prüft das gemeinsame Token der Sensoren.

@@ -173,6 +173,8 @@ var migrations = []string{
 	// 3: Zwischenspeicher für Abfragen bei Dritten (AbuseIPDB, KI-Auswertung); subject = "ip:<IP>" oder "session:<ID>"
 	`CREATE TABLE IF NOT EXISTS lookups (subject TEXT NOT NULL, source TEXT NOT NULL, fetched INTEGER NOT NULL,
 	  data TEXT NOT NULL, PRIMARY KEY (subject, source)) WITHOUT ROWID;`,
+	// 4: Rollen für weitere Benutzer ("admin" darf alles, "viewer" nur ansehen; siehe users.go)
+	`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';`,
 }
 
 func OpenStore(path string) (*Store, error) {

@@ -3,8 +3,9 @@
 # Erzeugt das gemeinsame Token von Honeypot und Hive. Das Admin-Passwort legt der
 # Nutzer danach im Browser fest (Ersteinrichtung der Web-UI).
 set -eu
+# Ordner lesbar lassen: Der Honeypot liest dort honeypot.yml. Nur die Token-Datei ist geheim.
+install -d -m 755 /etc/hivornet
 umask 077
-mkdir -p /etc/hivornet
 token=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
 [ "${#token}" -eq 64 ] || { echo "Token konnte nicht erzeugt werden" >&2; exit 1; }
 printf 'HIVORNET_TOKEN=%s\n' "$token" >/etc/hivornet/env.new

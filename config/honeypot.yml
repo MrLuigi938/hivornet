@@ -5,7 +5,8 @@
 # noch der Ausgangspunkt für einen frischen Hive.
 #
 # Dienste: ftp, http, https, dockerapi, mysql, redis, smtp, telnet, rdp, vnc,
-#          ssh-tarpit, raw (generisch: zeichnet die ersten Bytes auf)
+#          ssh-tarpit, raw (generisch: zeichnet die ersten Bytes auf);
+#          UDP, nur aufzeichnen: sip, snmp, dns
 #
 # Modi:  emulate = nachspielen und aufzeichnen
 #        tarpit  = Verbindung sofort festhalten (endlos langsame Daten)
@@ -30,6 +31,10 @@ listeners:
   - { service: smtp,       port: 25,   mode: emulate }
   - { service: telnet,     port: 2323, mode: emulate }
   - { service: rdp,        port: 3389, mode: emulate }
+  # UDP: zeichnen nur auf und antworten nie (kein Missbrauch für Reflexionsangriffe)
+  - { service: sip,        port: 5060, mode: emulate }
+  - { service: snmp,       port: 161,  mode: emulate }
+  - { service: dns,        port: 53,   mode: emulate, enabled: false }
 
 tarpit:
   interval_ms: 10000     # alle 10 s ein winziges Datenstück
