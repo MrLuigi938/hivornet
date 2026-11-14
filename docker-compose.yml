@@ -57,6 +57,9 @@ services:
       PORT_SMTP: ${PORT_SMTP:-10025}
       PORT_TELNET_ALT: ${PORT_TELNET_ALT:-12323}
       PORT_RDP: ${PORT_RDP:-13389}
+      PORT_SIP: ${PORT_SIP:-15060}
+      PORT_SNMP: ${PORT_SNMP:-10161}
+      PORT_DNS: ${PORT_DNS:-10053}
     volumes:
       - hive-data:/data
       - cowrie-log:/cowrie-log:ro
@@ -99,6 +102,10 @@ services:
       - "${PORT_SMTP:-10025}:10025"
       - "${PORT_TELNET_ALT:-12323}:2323"
       - "${PORT_RDP:-13389}:3389"
+      # UDP: nur aufzeichnen, nie antworten
+      - "${PORT_SIP:-15060}:5060/udp"
+      - "${PORT_SNMP:-10161}:10161/udp"
+      - "${PORT_DNS:-10053}:10053/udp"
     networks: [honeynet, ingest]
     depends_on:
       hive: { condition: service_healthy }

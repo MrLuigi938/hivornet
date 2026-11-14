@@ -53,6 +53,9 @@ func DefaultConfig() Config {
 			{"smtp", 25, "emulate", true},
 			{"telnet", 2323, "emulate", true},
 			{"rdp", 3389, "emulate", true},
+			{"sip", 5060, "emulate", true}, // UDP, nur aufzeichnen
+			{"snmp", 161, "emulate", true}, // UDP, nur aufzeichnen
+			{"dns", 53, "emulate", false},  // UDP, nur aufzeichnen; aus, weil viele Router 53 selbst brauchen
 		},
 		Tarpit: TarpitConfig{IntervalMs: 10000, MaxConns: 4096, MaxPerIP: 32, MaxDurationMin: 1440},
 	}
@@ -137,7 +140,7 @@ func (c *Config) Normalize(lowOffset int) []string {
 		}
 		bp := BindPort(l.Port, lowOffset)
 		switch {
-		case handlers[l.Service] == nil:
+		case handlers[l.Service] == nil && !isUDP(l.Service):
 			warn = append(warn, fmt.Sprintf("unbekannter Dienst %q ignoriert", l.Service))
 			continue
 		case !knownModes[l.Mode]:

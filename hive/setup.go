@@ -98,12 +98,25 @@ func (h *Hive) setupRun(w http.ResponseWriter, r *http.Request) {
 
 // ---- Gespeicherte Port-Konfigurationen an neue Dienste anpassen ----
 
-// upgradeSensorConfigs läuft einmal je Stufe (Merker in kv). Stufe 1 (Version 0.3.0):
-// Port 5900 wird von "raw" zu "vnc", und SMTP, Telnet und RDP kommen dazu, sofern
-// ihre Ports noch frei sind. Was der Nutzer bewusst geändert hat, bleibt.
+// configUpgrades: je Stufe die Dienste, die hinzukommen, sofern ihr Port frei ist.
+// Stufe 1 (0.3.0): 5900 wird von "raw" zu "vnc", dazu SMTP, Telnet, RDP.
+// Stufe 2 (0.3.0): UDP-Dienste SIP und SNMP, DNS zunächst aus.
+// Neue Stufen nur anhängen.
+var configUpgrades = [][]ListenerConfig{
+	{{"smtp", 25, "emulate", true}, {"telnet", 2323, "emulate", true}, {"rdp", 3389, "emulate", true}},
+	{{"sip", 5060, "emulate", true}, {"snmp", 161, "emulate", true}, {"dns", 53, "emulate", false}},
+}
+
+// upgradeSensorConfigs bringt gespeicherte Port-Konfigurationen einmal je Stufe auf
+// den neuen Stand (Merker "config_level" in kv). Was der Nutzer selbst eingestellt
+// hat, bleibt; ein entfernter Dienst kommt nicht wieder, weil jede Stufe nur einmal läuft.
 func upgradeSensorConfigs(st *Store) {
-	const key, level = "config_level", "1"
-	if v, _ := st.GetKV(key); v == level {
+	const key = "config_level"
+	done := 0
+	if v, ok := st.GetKV(key); ok {
+		done, _ = strconv.Atoi(v)
+	}
+	if done >= len(configUpgrades) {
 		return
 	}
 	rows, err := st.db.Query(`SELECT k, v FROM kv WHERE k = 'sensor_config' OR k LIKE 'sensor_config:%'`)
@@ -126,13 +139,16 @@ func upgradeSensorConfigs(st *Store) {
 		used := map[int]bool{}
 		for i, l := range c.Listeners {
 			used[l.Port] = true
-			if l.Port == 5900 && l.Service == "raw" {
+			if done < 1 && l.Port == 5900 && l.Service == "raw" {
 				c.Listeners[i].Service = "vnc"
 			}
 		}
-		for _, add := range []ListenerConfig{{"smtp", 25, "emulate", true}, {"telnet", 2323, "emulate", true}, {"rdp", 3389, "emulate", true}} {
-			if !used[add.Port] {
-				c.Listeners = append(c.Listeners, add)
+		for _, stage := range configUpgrades[done:] {
+			for _, add := range stage {
+				if !used[add.Port] {
+					c.Listeners = append(c.Listeners, add)
+					used[add.Port] = true
+				}
 			}
 		}
 		if c.Validate() != nil {
@@ -140,9 +156,9 @@ func upgradeSensorConfigs(st *Store) {
 		}
 		b, _ := json.Marshal(c)
 		st.SetKV(k, string(b))
-		log.Printf("Port-Konfiguration %q um die neuen Dienste ergänzt (VNC, SMTP, Telnet, RDP)", k)
+		log.Printf("Port-Konfiguration %q um neue Dienste ergänzt (Stufe %d bis %d)", k, done+1, len(configUpgrades))
 	}
-	st.SetKV(key, level)
+	st.SetKV(key, strconv.Itoa(len(configUpgrades)))
 }
 
 // ---- Update-Prüfung ----

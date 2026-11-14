@@ -15,11 +15,21 @@ import (
 
 type runListener struct {
 	cfg        atomic.Pointer[ListenerConfig]
-	ln         net.Listener
+	ln         net.Listener   // TCP
+	pc         net.PacketConn // UDP (proto_udp.go); genau eines von beiden ist gesetzt
 	active     atomic.Int64
 	tarpitting atomic.Int64
 	total      atomic.Int64
 	rejected   atomic.Int64
+}
+
+func (rl *runListener) close() {
+	if rl.ln != nil {
+		rl.ln.Close()
+	}
+	if rl.pc != nil {
+		rl.pc.Close()
+	}
 }
 
 // Manager startet und stoppt Listener passend zur aktuellen Konfiguration.
@@ -99,7 +109,7 @@ func (m *Manager) Apply(c Config) bool {
 	for port, rl := range m.running {
 		w, ok := want[port]
 		if !ok || w.Service != rl.cfg.Load().Service {
-			rl.ln.Close()
+			rl.close()
 			delete(m.running, port)
 			log.Printf("Port %d gestoppt", port)
 		}
@@ -114,7 +124,24 @@ func (m *Manager) Apply(c Config) bool {
 			}
 			continue
 		}
-		ln, err := net.Listen("tcp", net.JoinHostPort(m.bind, fmt.Sprint(BindPort(port, m.lowOffset))))
+		addr := net.JoinHostPort(m.bind, fmt.Sprint(BindPort(port, m.lowOffset)))
+		if isUDP(lc.Service) {
+			pc, err := net.ListenPacket("udp", addr)
+			if err != nil {
+				m.failed[port] = err.Error()
+				if prevFailed[port] != err.Error() {
+					log.Printf("Port %d/udp (%s) kann nicht geöffnet werden: %v", port, lc.Service, err)
+				}
+				continue
+			}
+			rl := &runListener{pc: pc}
+			rl.cfg.Store(&lc)
+			m.running[port] = rl
+			log.Printf("Port %d/udp: %s (nur aufzeichnen)", port, lc.Service)
+			go m.serveUDP(rl)
+			continue
+		}
+		ln, err := net.Listen("tcp", addr)
 		if err != nil {
 			m.failed[port] = err.Error()
 			if prevFailed[port] != err.Error() { // jeden Fehler nur einmal melden, Neuversuch still
@@ -144,7 +171,7 @@ func (m *Manager) StopAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for port, rl := range m.running {
-		rl.ln.Close()
+		rl.close()
 		delete(m.running, port)
 	}
 }

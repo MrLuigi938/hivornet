@@ -607,3 +607,134 @@ func TestBackfillPatternsOnce(t *testing.T) {
 		t.Fatalf("Zähler %d, erwartet 1", count())
 	}
 }
+
+// ---------- GreyNoise ----------
+
+func TestGreyNoise(t *testing.T) {
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if r.URL.Path == "/v3/community/203.0.113.80" {
+			io.WriteString(w, `{"ip":"203.0.113.80","noise":true,"riot":false,"classification":"malicious","name":"unknown","link":"x","last_seen":"2026-11-13","message":"Success"}`)
+			return
+		}
+		w.WriteHeader(404)
+		io.WriteString(w, `{"ip":"203.0.113.81","noise":false,"riot":false,"message":"IP not observed scanning the internet or contained in RIOT data set."}`)
+	}))
+	defer srv.Close()
+	old := greynoiseBase
+	greynoiseBase = srv.URL
+	defer func() { greynoiseBase = old }()
+	h := testHive(t)
+	get := func(ip string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/api/attackers/"+ip+"/greynoise", nil)
+		req.SetPathValue("ip", ip)
+		rec := httptest.NewRecorder()
+		h.greynoise(rec, req)
+		return rec
+	}
+	for i := 0; i < 2; i++ {
+		rec := get("203.0.113.80")
+		if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"classification":"malicious"`) || strings.Contains(rec.Body.String(), "link") {
+			t.Fatalf("%d %s", rec.Code, rec.Body)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("%d Abfragen, zweite muss aus dem Zwischenspeicher kommen", calls)
+	}
+	if rec := get("203.0.113.81"); rec.Code != 200 || !strings.Contains(rec.Body.String(), `"found":false`) {
+		t.Fatalf("nicht gefunden: %d %s", rec.Code, rec.Body)
+	}
+	if rec := get("10.0.0.1"); rec.Code != 400 {
+		t.Fatalf("private IP: %d", rec.Code)
+	}
+}
+
+// ---------- STIX ----------
+
+func TestExportSTIX(t *testing.T) {
+	h := testHive(t)
+	now := time.Now().UnixMilli()
+	h.st.db.Exec(`INSERT INTO attackers(ip,first_seen,last_seen,events,country) VALUES('203.0.113.90',?,?,5,'NL'),('192.168.1.5',?,?,9,'LAN')`, now, now, now, now)
+	h.st.db.Exec(`INSERT INTO top_hourly(hour,field,key,label,n) VALUES(?, 'url', 'http://198.51.100.9/x''y.sh', 'ssh', 1)`, now/3600000)
+	h.st.db.Exec(`INSERT INTO events(ts,type,src_ip,service,data) VALUES(?, 'download', '203.0.113.90', 'ssh', ?)`, now, `{"sha256":"`+strings.Repeat("ab", 32)+`"}`)
+	rec := httptest.NewRecorder()
+	h.exportSTIX(rec, httptest.NewRequest("GET", "/api/export/stix?range=7d", nil))
+	var b struct {
+		Type    string
+		Objects []map[string]any
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &b); err != nil || b.Type != "bundle" {
+		t.Fatalf("%v %s", err, rec.Body)
+	}
+	var patterns []string
+	for _, o := range b.Objects {
+		if o["type"] == "indicator" {
+			patterns = append(patterns, o["pattern"].(string))
+			if !strings.HasPrefix(o["id"].(string), "indicator--") || o["spec_version"] != "2.1" {
+				t.Fatalf("Objekt: %v", o)
+			}
+		}
+	}
+	want := []string{"[ipv4-addr:value = '203.0.113.90']", `[url:value = 'http://198.51.100.9/x\'y.sh']`, "[file:hashes.'SHA-256' = '" + strings.Repeat("ab", 32) + "']"}
+	if strings.Join(patterns, "|") != strings.Join(want, "|") {
+		t.Fatalf("Muster: %v, erwartet: %v", patterns, want)
+	}
+}
+
+// ---------- Rollen ----------
+
+func TestViewerRole(t *testing.T) {
+	h := testHive(t)
+	h.auth = NewAuth(h.st, "tok", false)
+	h.auth.EnsureAdmin("admin", "adminpasswort1")
+	ui, _ := h.routes(false, "", http.NotFoundHandler())
+	cookie := func(user string) *http.Cookie {
+		rec := httptest.NewRecorder()
+		if err := h.auth.startSession(rec, user); err != nil {
+			t.Fatal(err)
+		}
+		return rec.Result().Cookies()[0]
+	}
+	call := func(c *http.Cookie, method, path, body string) int {
+		req := httptest.NewRequest(method, path, strings.NewReader(body))
+		req.Header.Set("X-Requested-With", "honeylite")
+		req.AddCookie(c)
+		rec := httptest.NewRecorder()
+		ui.ServeHTTP(rec, req)
+		return rec.Code
+	}
+	admin := cookie("admin")
+	if c := call(admin, "POST", "/api/users", `{"username":"gast","password":"gastpasswort1","role":"viewer"}`); c != 200 {
+		t.Fatalf("Benutzer anlegen: %d", c)
+	}
+	if c := call(admin, "POST", "/api/users", `{"username":"gast","password":"gastpasswort1","role":"viewer"}`); c != 409 {
+		t.Fatalf("doppelt anlegen: %d", c)
+	}
+	gast := cookie("gast")
+	for _, x := range []struct {
+		method, path, body string
+		want               int
+	}{
+		{"GET", "/api/stats/summary", "", 200},
+		{"GET", "/api/settings", "", 200},
+		{"PUT", "/api/settings", `{"retention_days":5}`, 403},
+		{"GET", "/api/extras", "", 403},
+		{"GET", "/api/users", "", 403},
+		{"POST", "/api/report/ai", `{}`, 403},
+		{"POST", "/api/password", `{"current":"falsch","new":"x"}`, 403}, // erlaubt, aber falsches Passwort
+	} {
+		if c := call(gast, x.method, x.path, x.body); c != x.want {
+			t.Errorf("Viewer %s %s: %d, erwartet %d", x.method, x.path, c, x.want)
+		}
+	}
+	if c := call(admin, "DELETE", "/api/users/admin", ""); c != 400 {
+		t.Fatalf("eigenes Konto löschen: %d", c)
+	}
+	if c := call(admin, "DELETE", "/api/users/gast", ""); c != 200 {
+		t.Fatalf("Viewer löschen: %d", c)
+	}
+	if c := call(gast, "GET", "/api/stats/summary", ""); c != 401 {
+		t.Fatalf("Sitzung gelöschter Benutzer gilt noch: %d", c)
+	}
+}

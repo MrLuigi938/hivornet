@@ -66,6 +66,7 @@ for b in hive honeypot; do
   cp -p "$DEST/$b" "$DEST/$b.alt" 2>/dev/null || true
   cp "$tmp/x/$b" "$DEST/$b.neu" && mv "$DEST/$b.neu" "$DEST/$b"
 done
+[ -f "$tmp/x/VERSION" ] && cp "$tmp/x/VERSION" "$DEST/VERSION"
 systemctl start honeylite-hive honeylite-honeypot || true
 sleep 15
 if systemctl is-active --quiet honeylite-hive; then

@@ -304,14 +304,21 @@ func TestServiceListsInSync(t *testing.T) {
 		if err != nil {
 			t.Skipf("%s nicht lesbar (Build ohne Hive-Quellen): %v", f, err)
 		}
+		names := []string{}
 		for name := range handlers {
+			names = append(names, name)
+		}
+		for name := range udpHandlers {
+			names = append(names, name)
+		}
+		for _, name := range names {
 			if !bytes.Contains(b, []byte(`"`+name+`"`)) {
 				t.Errorf("Dienst %q fehlt in %s", name, f)
 			}
 		}
 	}
 	for _, l := range DefaultConfig().Listeners {
-		if handlers[l.Service] == nil {
+		if handlers[l.Service] == nil && !isUDP(l.Service) {
 			t.Errorf("Standardkonfiguration nennt unbekannten Dienst %q", l.Service)
 		}
 	}

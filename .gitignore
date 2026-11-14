@@ -15,3 +15,6 @@ honeypot/honeypot
 *.db-wal
 *.db-shm
 *.mmdb
+
+# Gebaute Pi-Images und Pakete
+dist/
