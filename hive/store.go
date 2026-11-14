@@ -53,6 +53,7 @@ type Event struct {
 var validTypes = map[string]bool{
 	"connect": true, "disconnect": true, "login": true, "request": true, "command": true,
 	"download": true, "client_version": true, "payload": true, "tls": true, "fingerprint": true,
+	"tty": true, // Cowrie-Mitschnitt vorhanden (nur vom Cowrie-Leser erzeugt)
 }
 
 // Sanitize prüft und kürzt Felder von Sensoren, bevor sie gespeichert werden.
@@ -169,6 +170,9 @@ var migrations = []string{
 	  label TEXT NOT NULL DEFAULT '', n INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (hour, field, key)) WITHOUT ROWID;
 	CREATE INDEX IF NOT EXISTS top_field ON top_hourly(field, hour);
 	DELETE FROM auth_sessions;`,
+	// 3: Zwischenspeicher für Abfragen bei Dritten (AbuseIPDB, KI-Auswertung); subject = "ip:<IP>" oder "session:<ID>"
+	`CREATE TABLE IF NOT EXISTS lookups (subject TEXT NOT NULL, source TEXT NOT NULL, fetched INTEGER NOT NULL,
+	  data TEXT NOT NULL, PRIMARY KEY (subject, source)) WITHOUT ROWID;`,
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -339,6 +343,19 @@ func topKeys(e *Event) [][3]string {
 	case "client_version":
 		add("client", dataString(e.Data, "version"), e.Service)
 	}
+	// Muster, Werkzeuge und Nachlade-Adressen (analyze.go) für die Ansicht "Analyse"
+	text, on := eventText(e)
+	for _, id := range matchPatterns(text, on) {
+		add("tag", id, patternByID[id].Name)
+	}
+	for _, t := range eventTools(e) {
+		add("tool", t, "")
+	}
+	if e.Type == "command" || e.Type == "download" {
+		for _, u := range urlRe.FindAllString(text, 4) {
+			add("url", clip(u, 300), e.Service)
+		}
+	}
 	return out
 }
 
@@ -394,8 +411,11 @@ type Writer struct {
 	written atomic.Int64
 	lastErr atomic.Value // string
 	ins     [4]*sql.Stmt
-	stop    chan struct{}
-	done    chan struct{}
+	// Interval: so oft wird geschrieben (HIVE_FLUSH_MS). Länger schont SD-Karten,
+	// verzögert aber den Live-Feed und verliert bei Stromausfall mehr.
+	Interval time.Duration
+	stop     chan struct{}
+	done     chan struct{}
 }
 
 func approxSize(e *Event) int64 {
@@ -404,7 +424,7 @@ func approxSize(e *Event) int64 {
 
 func NewWriter(st *Store, pub func(*Event)) (*Writer, error) {
 	w := &Writer{st: st, ch: make(chan *Event, writerQueueLen), pub: pub, seen: newDedupe(200000),
-		stop: make(chan struct{}), done: make(chan struct{})}
+		Interval: 300 * time.Millisecond, stop: make(chan struct{}), done: make(chan struct{})}
 	w.lastErr.Store("")
 	qs := []string{
 		`INSERT INTO events(ts,sensor,service,type,src_ip,src_port,dst_port,session,username,password,data,duration_ms,tarpit,tarpit_ms,country,country_name,city,lat,lon,asn,as_org)
@@ -460,7 +480,7 @@ func (w *Writer) QueueLen() int { return len(w.ch) }
 func (w *Writer) Run() {
 	defer close(w.done)
 	batch := make([]*Event, 0, 500)
-	t := time.NewTicker(300 * time.Millisecond)
+	t := time.NewTicker(w.Interval)
 	defer t.Stop()
 	take := func(e *Event) {
 		w.queued.Add(-approxSize(e))
@@ -607,6 +627,7 @@ func (s *Store) Retention(p RetentionPolicy) RetentionStatus {
 		st.Deleted += s.deleteChunks(`DELETE FROM events WHERE id IN (SELECT id FROM events WHERE ts < ? LIMIT 5000)`, cut)
 		s.deleteChunks(`DELETE FROM attackers WHERE ip IN (SELECT ip FROM attackers WHERE last_seen < ? LIMIT 5000)`, cut)
 		s.db.Exec(`DELETE FROM top_hourly WHERE hour < ?`, cut/3600000)
+		s.db.Exec(`DELETE FROM lookups WHERE fetched < ?`, cut)
 	}
 	s.db.Exec(`DELETE FROM hourly WHERE hour < ?`, time.Now().Add(-400*24*time.Hour).UnixMilli()/3600000)
 	s.db.Exec(`DELETE FROM auth_sessions WHERE expires < ?`, time.Now().Unix())

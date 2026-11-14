@@ -49,6 +49,10 @@ type Hive struct {
 
 	retMu   sync.Mutex
 	retStat RetentionStatus
+
+	extras   extrasCache   // Einstellungen der Zusatzfunktionen (extras.go)
+	notifier *Notifier     // Benachrichtigungen (notify.go)
+	aiSem    chan struct{} // höchstens eine KI-Auswertung gleichzeitig
 }
 
 func env(k, def string) string {
@@ -165,8 +169,17 @@ func main() {
 		geo:          NewGeo(env("HIVE_GEOIP_DIR", filepath.Join(filepath.Dir(dbPath), "geoip"))),
 		cowrieLibDir: os.Getenv("HIVE_COWRIE_LIB"),
 	}
-	if h.writer, err = NewWriter(st, h.broker.Publish); err != nil {
+	h.aiSem = make(chan struct{}, 1)
+	h.loadExtras()
+	h.notifier = NewNotifier(func() NotifyConfig { return h.Extras().Notify })
+	bgStop := make(chan struct{})
+	go h.notifier.Run(bgStop)
+	go h.watchWarnings(bgStop)
+	if h.writer, err = NewWriter(st, func(e *Event) { h.broker.Publish(e); h.notifier.OnEvent(e) }); err != nil {
 		log.Fatalf("Datenbank: %v", err)
+	}
+	if ms, err := strconv.Atoi(os.Getenv("HIVE_FLUSH_MS")); err == nil && ms >= 100 && ms <= 60000 {
+		h.writer.Interval = time.Duration(ms) * time.Millisecond
 	}
 	go h.writer.Run()
 	if env("HIVE_GEOIP", "on") != "off" {
@@ -237,6 +250,13 @@ func main() {
 	ui.HandleFunc("GET /api/attackers/{ip}", a.Require(h.attacker))
 	ui.HandleFunc("GET /api/sessions", a.Require(h.sessionsList))
 	ui.HandleFunc("GET /api/sessions/{id}", a.Require(h.sessionDetail))
+	ui.HandleFunc("GET /api/sessions/{id}/tty", a.Require(h.sessionTTY))
+	ui.HandleFunc("GET /api/report", a.Require(h.report))
+	ui.HandleFunc("POST /api/report/ai", a.Require(h.reportAI))
+	ui.HandleFunc("GET /api/attackers/{ip}/intel", a.Require(h.intel))
+	ui.HandleFunc("GET /api/extras", a.Require(h.getExtras))
+	ui.HandleFunc("PUT /api/extras", a.Require(h.putExtras))
+	ui.HandleFunc("POST /api/extras/test-notify", a.Require(h.testNotify))
 	ui.HandleFunc("GET /api/tarpit", a.Require(h.tarpit))
 	ui.HandleFunc("GET /api/settings", a.Require(h.getSettings))
 	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
@@ -293,6 +313,7 @@ func main() {
 	<-sig
 	log.Printf("Beende ...")
 	cancelBase() // beendet offene Live-Streams
+	close(bgStop)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	for _, srv := range servers {
 		srv.Shutdown(ctx)
