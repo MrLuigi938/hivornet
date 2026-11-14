@@ -149,6 +149,8 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/setup", h.setupStatus) // ohne Anmeldung: nur solange kein Konto existiert
 	ui.HandleFunc("POST /api/setup", h.setupRun)
 	ui.HandleFunc("POST /api/update", a.Require(h.updateRun))
+	ui.HandleFunc("POST /api/update/check", a.Require(h.updateCheckNow))
+	ui.HandleFunc("PUT /api/update/channel", a.Require(h.updateSetChannel))
 	ui.HandleFunc("GET /api/users", a.Require(h.usersList))
 	ui.HandleFunc("POST /api/users", a.Require(h.usersCreate))
 	ui.HandleFunc("DELETE /api/users/{name}", a.Require(h.usersDelete))

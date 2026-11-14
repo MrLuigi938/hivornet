@@ -676,6 +676,70 @@ async function viewSettings(el) {
 
 // ---------- System ----------
 
+// Updates: Version, Kanal (fertige Versionen oder auch Vorabversionen), "Jetzt prüfen"
+// und, wo ein Updater eingerichtet ist (Raspberry-Pi-Image), "Jetzt aktualisieren".
+function updateCard(u) {
+  const admin = state.user && state.user.role === "admin";
+  const body = h("div");
+  const msg = h("div", { class: "msg", hidden: true });
+  const say = (text, ok) => { msg.className = "msg " + (ok ? "ok" : "err"); msg.textContent = text; msg.hidden = false; };
+  const validDate = (t) => toMs(t) > 0 && new Date(t).getFullYear() > 2000;
+
+  function render(st) {
+    const rows = [
+      ["Installiert", st.current || "–"],
+      ["Kanal", admin ? h("select", {
+        "aria-label": "Update-Kanal",
+        onchange: async (e) => {
+          e.target.disabled = true;
+          try { render(await api("update/channel", { method: "PUT", body: { channel: e.target.value } })); say("Kanal gespeichert.", true); }
+          catch (ex) { say(ex.message, false); e.target.disabled = false; }
+        },
+      },
+      h("option", { value: "stable", selected: st.channel !== "pre" }, "Stabil (nur fertige Versionen)"),
+      h("option", { value: "pre", selected: st.channel === "pre" }, "Vorabversionen (Pre-Release, zum Testen)"))
+        : (st.channel === "pre" ? "Vorabversionen" : "Stabil")],
+      ["Zuletzt geprüft", st.check_enabled === false ? st.disabled_reason : validDate(st.checked) ? relTime(st.checked) : "noch nicht"],
+      ["Ergebnis", st.error ? h("span", { class: "badge err", title: st.error }, "Prüfung fehlgeschlagen")
+        : st.available ? h("a", { href: st.available.url, target: "_blank", rel: "noopener noreferrer" }, `Version ${st.available.version} verfügbar`)
+          : validDate(st.checked) ? h("span", { class: "badge ok" }, "aktuell") : "–"],
+      st.last_run ? ["Letztes Update", st.last_run] : null,
+    ];
+    const checkBtn = admin && st.check_enabled !== false ? h("button", {
+      class: "btn",
+      onclick: async () => {
+        checkBtn.disabled = true;
+        checkBtn.textContent = "Prüfe …";
+        try {
+          const n = await api("update/check", { method: "POST" });
+          render(n);
+          say(n.error ? "GitHub nicht erreichbar oder Repository nicht öffentlich: " + n.error
+            : n.available ? `Version ${n.available.version} ist verfügbar.` : "Du hast die neueste Version.", !n.error);
+        } catch (ex) { say(ex.message, false); checkBtn.disabled = false; checkBtn.textContent = "Jetzt prüfen"; }
+      },
+    }, "Jetzt prüfen") : null;
+    const installBtn = admin && st.can_install && st.available ? h("button", {
+      class: "btn primary",
+      onclick: async () => {
+        if (!confirm(`Jetzt auf Version ${st.available.version} aktualisieren? Die Dienste starten dabei neu.`)) return;
+        installBtn.disabled = true;
+        try {
+          await api("update", { method: "POST" });
+          say("Update läuft. Die Seite lädt in etwa zwei Minuten neu.", true);
+          setTimeout(() => location.reload(), 120000);
+        } catch (ex) { say(ex.message, false); installBtn.disabled = false; }
+      },
+    }, `Auf ${st.available.version} aktualisieren`) : null;
+    mount(body,
+      h("table", null, h("tbody", null, rows.filter(Boolean).map(([k, v]) => h("tr", null, h("th", null, k), h("td", null, v))))),
+      h("div", { class: "filters", style: { marginTop: "10px" } }, checkBtn, installBtn,
+        !st.can_install ? h("span", { class: "muted" }, "Docker-Betrieb: aktualisieren mit „sh update.sh“.") : null));
+  }
+  render(u);
+  return card("Updates", body, msg,
+    h("p", { class: "muted" }, "Vorabversionen bringen neue Funktionen früher, können aber Fehler enthalten. Automatisch geprüft wird zweimal täglich."));
+}
+
 async function viewSystem(el, ctx) {
   header("System");
   const d = await api("system");
@@ -688,6 +752,7 @@ async function viewSystem(el, ctx) {
   const vols = d.cowrie.volumes || {};
   mount(el, h("div", { class: "stack" },
     warningsBox(d.warnings, false) || h("div", { class: "msg ok" }, "Keine Warnungen."),
+    updateCard(d.update || {}),
     h("div", { class: "grid three" },
       card("Hive", kv([
         ["Version", hv.version], ["Läuft seit", fmtDur(hv.uptime_s * 1000)], ["Arbeitsspeicher", fmtBytes(hv.mem_bytes)],

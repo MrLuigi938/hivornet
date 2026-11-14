@@ -210,8 +210,28 @@ func (a semver) newer(b semver) bool {
 	return a.pre == "" && b.pre != ""
 }
 
+// Update-Kanal: "stable" sieht nur fertige Veröffentlichungen, "pre" zusätzlich
+// Vorabversionen (auf GitHub als "Pre-release" markiert, Tag z. B. v0.4.0-beta.1).
+const (
+	channelStable = "stable"
+	channelPre    = "pre"
+)
+
+// updateChannel liefert den eingestellten Kanal. Ohne Einstellung: Wer selbst eine
+// Vorabversion installiert hat, bleibt auf Vorabversionen, sonst "stable".
+func (h *Hive) updateChannel() string {
+	if v, ok := h.st.GetKV("update_channel"); ok && (v == channelStable || v == channelPre) {
+		return v
+	}
+	if parseSemver(version).pre != "" {
+		return channelPre
+	}
+	return channelStable
+}
+
 // newestRelease liefert die neueste Veröffentlichung, die neuer als current ist, sonst nil.
-func newestRelease(ctx context.Context, current string) (*releaseInfo, error) {
+// allowPre: auch Vorabversionen berücksichtigen (Kanal "pre").
+func newestRelease(ctx context.Context, current string, allowPre bool) (*releaseInfo, error) {
 	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, "GET", releasesURL, nil)
@@ -241,7 +261,7 @@ func newestRelease(ctx context.Context, current string) (*releaseInfo, error) {
 	var bestV semver
 	for _, r := range list {
 		v := parseSemver(r.Tag)
-		if r.Draft || !v.ok || (r.Prerelease && cur.pre == "") || !v.newer(cur) {
+		if r.Draft || !v.ok || ((r.Prerelease || v.pre != "") && !allowPre) || !v.newer(cur) {
 			continue
 		}
 		// Nur Adressen des eigenen Repositorys verlinken.
@@ -260,6 +280,7 @@ type updater struct {
 	newest  *releaseInfo
 	checked time.Time
 	lastErr string
+	checkMu sync.Mutex // nur eine Prüfung gleichzeitig (Zeitplan und Knopf)
 }
 
 func (h *Hive) newerRelease() *releaseInfo {
@@ -268,26 +289,83 @@ func (h *Hive) newerRelease() *releaseInfo {
 	return h.upd.newest
 }
 
+func updateCheckEnabled() bool {
+	return parseSemver(version).ok && os.Getenv("HIVE_UPDATE_CHECK") != "off"
+}
+
+// runUpdateCheck fragt GitHub einmal ab und merkt sich das Ergebnis.
+func (h *Hive) runUpdateCheck(ctx context.Context) {
+	h.upd.checkMu.Lock()
+	defer h.upd.checkMu.Unlock()
+	r, err := newestRelease(ctx, version, h.updateChannel() == channelPre)
+	h.upd.mu.Lock()
+	defer h.upd.mu.Unlock()
+	h.upd.checked = time.Now()
+	if err != nil {
+		h.upd.lastErr = err.Error()
+		return
+	}
+	h.upd.newest, h.upd.lastErr = r, ""
+}
+
 func (h *Hive) checkUpdates(stop <-chan struct{}) {
-	if !parseSemver(version).ok || os.Getenv("HIVE_UPDATE_CHECK") == "off" {
+	if !updateCheckEnabled() {
 		return
 	}
 	for {
-		r, err := newestRelease(context.Background(), version)
-		h.upd.mu.Lock()
-		h.upd.checked = time.Now()
-		if err != nil {
-			h.upd.lastErr = err.Error()
-		} else {
-			h.upd.newest, h.upd.lastErr = r, ""
-		}
-		h.upd.mu.Unlock()
+		h.runUpdateCheck(context.Background())
 		select {
 		case <-stop:
 			return
 		case <-time.After(12 * time.Hour):
 		}
 	}
+}
+
+// updateCheckNow: Knopf "Jetzt prüfen". Höchstens alle 10 Sekunden eine echte Anfrage,
+// damit GitHub (60 Anfragen pro Stunde ohne Anmeldung) nicht sperrt.
+func (h *Hive) updateCheckNow(w http.ResponseWriter, r *http.Request) {
+	if !updateCheckEnabled() {
+		httpErr(w, 400, updateCheckOffReason())
+		return
+	}
+	h.upd.mu.Lock()
+	recent := time.Since(h.upd.checked) < 10*time.Second
+	h.upd.mu.Unlock()
+	if !recent {
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		h.runUpdateCheck(ctx)
+		cancel()
+	}
+	writeJSON(w, h.updateStatus())
+}
+
+// updateSetChannel stellt den Update-Kanal um und prüft gleich neu.
+func (h *Hive) updateSetChannel(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Channel string `json:"channel"`
+	}
+	if readJSON(w, r, &req) != nil || (req.Channel != channelStable && req.Channel != channelPre) {
+		httpErr(w, 400, `Kanal muss "stable" oder "pre" sein`)
+		return
+	}
+	if err := h.st.SetKV("update_channel", req.Channel); err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	if updateCheckEnabled() {
+		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+		h.runUpdateCheck(ctx)
+		cancel()
+	}
+	writeJSON(w, h.updateStatus())
+}
+
+func updateCheckOffReason() string {
+	if !parseSemver(version).ok {
+		return "Dies ist eine Entwicklungsversion; sie sucht nicht nach Updates."
+	}
+	return "Die Update-Prüfung ist abgeschaltet (HIVE_UPDATE_CHECK=off)."
 }
 
 // ---- Update auslösen (nur wo ein Updater eingerichtet ist, z. B. Raspberry-Pi-Image) ----
@@ -302,7 +380,11 @@ func (h *Hive) updateStatus() map[string]any {
 	h.upd.mu.Lock()
 	defer h.upd.mu.Unlock()
 	out := map[string]any{"available": h.upd.newest, "checked": h.upd.checked, "error": h.upd.lastErr,
-		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != ""}
+		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != "", "current": version,
+		"channel": h.updateChannel(), "check_enabled": updateCheckEnabled()}
+	if !updateCheckEnabled() {
+		out["disabled_reason"] = updateCheckOffReason()
+	}
 	// Ergebnis des letzten Laufs, vom Updater geschrieben (liegt außerhalb des Datenordners des Hive).
 	if p := os.Getenv("HIVE_UPDATE_STATUS"); p != "" {
 		if b, err := os.ReadFile(p); err == nil {

@@ -554,15 +554,23 @@ func TestNewestRelease(t *testing.T) {
 	old := releasesURL
 	releasesURL = srv.URL
 	defer func() { releasesURL = old }()
-	r, err := newestRelease(context.Background(), "0.3.0")
+	r, err := newestRelease(context.Background(), "0.3.0", false)
 	if err != nil || r == nil || r.Version != "0.3.1" {
 		t.Fatalf("stabil: %+v %v", r, err)
 	}
-	if r, _ := newestRelease(context.Background(), "0.3.1"); r != nil {
+	if r, _ := newestRelease(context.Background(), "0.3.1", false); r != nil {
 		t.Fatalf("aktuell, aber Hinweis: %+v", r)
 	}
-	if r, _ := newestRelease(context.Background(), "v0.3.1-beta.2"); r == nil || r.Version != "0.4.0-beta.1" {
+	if r, _ := newestRelease(context.Background(), "v0.3.1-beta.2", true); r == nil || r.Version != "0.4.0-beta.1" {
 		t.Fatalf("Vorabversion sieht neuere Vorabversionen: %+v", r)
+	}
+	// Kanal "pre" auf einer fertigen Version: sieht die Vorabversion 0.4.0-beta.1
+	if r, _ := newestRelease(context.Background(), "0.3.1", true); r == nil || r.Version != "0.4.0-beta.1" {
+		t.Fatalf("Kanal pre: %+v", r)
+	}
+	// Kanal "stable" auf einer Vorabversion: keine Vorabversionen, aber die fertige 0.3.1 (neuer als 0.3.1-beta.2)
+	if r, _ := newestRelease(context.Background(), "0.3.1-beta.2", false); r == nil || r.Version != "0.3.1" {
+		t.Fatalf("Kanal stable auf Vorabversion: %+v", r)
 	}
 	if !parseSemver("1.2.3").newer(parseSemver("1.2.3-rc.1")) || parseSemver("dev").ok {
 		t.Fatal("Versionsvergleich falsch")
@@ -736,5 +744,29 @@ func TestViewerRole(t *testing.T) {
 	}
 	if c := call(gast, "GET", "/api/stats/summary", ""); c != 401 {
 		t.Fatalf("Sitzung gelöschter Benutzer gilt noch: %d", c)
+	}
+}
+
+func TestUpdateChannelAndCheckNow(t *testing.T) {
+	h := testHive(t)
+	if h.updateChannel() != channelStable {
+		t.Fatalf("Standard-Kanal: %s", h.updateChannel())
+	}
+	put := func(body string) *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		h.updateSetChannel(rec, httptest.NewRequest("PUT", "/api/update/channel", strings.NewReader(body)))
+		return rec
+	}
+	if rec := put(`{"channel":"nightly"}`); rec.Code != 400 {
+		t.Fatalf("ungültiger Kanal angenommen: %d", rec.Code)
+	}
+	if rec := put(`{"channel":"pre"}`); rec.Code != 200 || h.updateChannel() != channelPre {
+		t.Fatalf("Kanal pre: %d %s", rec.Code, rec.Body.String())
+	}
+	// Tests laufen als Entwicklungsversion ("dev"): "Jetzt prüfen" erklärt, warum nicht geprüft wird.
+	rec := httptest.NewRecorder()
+	h.updateCheckNow(rec, httptest.NewRequest("POST", "/api/update/check", nil))
+	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "Entwicklungsversion") {
+		t.Fatalf("Jetzt prüfen in dev: %d %s", rec.Code, rec.Body.String())
 	}
 }

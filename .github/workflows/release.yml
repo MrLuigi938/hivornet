@@ -133,6 +133,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --title "Hivornet ${GITHUB_REF_NAME#v}" \
+          # Tags mit Bindestrich (v0.4.0-beta.1, v0.4.0-rc.1) sind Vorabversionen: Sie erscheinen
+          # nur bei Installationen, die in der UI den Kanal "Vorabversionen" gewählt haben.
+          pre=""
+          case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" $pre --repo "$GITHUB_REPOSITORY" --title "Hivornet ${GITHUB_REF_NAME#v}" \
             --notes "Änderungen: siehe CHANGELOG.md. Raspberry Pi: Datei hivornet-pi-arm64-*.img.xz auf eine SD-Karte schreiben (README, Abschnitt Raspberry Pi)." \
             all/programme/out/hivornet-*.tar.gz all/programme/out/SHA256SUMS all/pi-image-*/hivornet-pi-*
