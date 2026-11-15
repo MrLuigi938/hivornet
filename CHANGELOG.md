@@ -10,6 +10,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - CI: Neuer Test installiert Cowrie mit dem Skript des Pi-Images in Debian 13 und startet es mit der Befehlszeile aus `hivornet-cowrie.service`; SSH, Telnet und `cowrie.json` werden geprüft.
 
 ### Behoben
+- Raspberry Pi: **Cowrie startete nach der Installation nicht** (`twistd: Unknown command: cowrie`). Cowrie 3.1.6 muss selbst als Paket installiert werden, sonst fehlt `cowrie/_version.py` und das Plugin wird stillschweigend ignoriert. Der Installer installiert es jetzt mit `pip install -e` und prüft am Ende, dass `twistd` das Plugin findet; klappt das nicht, gilt die Installation als gescheitert und wird stündlich wiederholt.
 - Raspberry Pi: Beim ersten Start meldete `cloud-final.service` einen Fehler, obwohl die Installation geklappt hatte. vendor-data hatte den Installer schon ausgeführt (er löscht sich danach), und der zweite Anstoß aus user-data fand die Datei nicht mehr. Jetzt prüft der zweite Anstoß nur, ob die Installation fertig ist.
 
 ## [0.4.0-beta.3] – 2026-11-15

@@ -37,7 +37,7 @@ finish() {
   rc=$?
   [ -n "$tmp" ] && rm -rf "$tmp"
   if [ "$done_ok" != 1 ]; then
-    status failed "Schritt „$STEP“ fehlgeschlagen (Exit-Code $rc). Neuer Versuch stündlich; Details unter Protokolle."
+    status failed "Schritt '$STEP' fehlgeschlagen (Exit-Code $rc). Neuer Versuch stündlich; Details unter Protokolle."
   fi
 }
 trap finish EXIT
@@ -69,6 +69,10 @@ step "Python-Pakete installieren"
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q -r "$DEST/requirements.txt"
+# Cowrie selbst als Paket eintragen: Erst dabei entsteht src/cowrie/_version.py. Ohne sie
+# bricht "import cowrie" ab, und twistd kennt den Befehl "cowrie" nicht. Der Quelltext von
+# GitHub hat kein .git, darum die Versionsnummer für setuptools_scm vorgeben.
+SETUPTOOLS_SCM_PRETEND_VERSION_FOR_COWRIE="$VER" "$VENV/bin/pip" install -q --no-deps -e "$DEST"
 
 # Einstellungen von Hivornet (Pfade, Ports 22/23, Download-Grenze). Cowrie liest ./cowrie.cfg
 # im Arbeitsverzeichnis des Dienstes.
@@ -80,6 +84,12 @@ ln -sf /etc/hivornet/cowrie.cfg "$DEST/cowrie.cfg"
 PYTHONPATH="$DEST/src" "$VENV/bin/python3" -c "from twisted.plugin import IPlugin, getPlugins; list(getPlugins(IPlugin))" || true
 chown -R root:root "$DEST" "$VENV"
 chmod -R go-w "$DEST" "$VENV"
+
+# Prüfen, dass twistd das Cowrie-Plugin findet (wie hivornet-cowrie.service, gleiche Umgebung).
+# Scheitert das, bleibt der Merker aus und der Timer versucht es später erneut.
+step "Cowrie prüfen"
+PYTHONPATH="$DEST/src" "$VENV/bin/python3" -c "import cowrie" || { echo "Cowrie lässt sich nicht importieren" >&2; exit 1; }
+(cd "$DEST" && PYTHONPATH="$DEST/src" "$VENV/bin/twistd" --help) | grep -q "^ *cowrie " || { echo "twistd findet das Cowrie-Plugin nicht" >&2; exit 1; }
 
 touch "$MARK"
 step "Cowrie starten"
