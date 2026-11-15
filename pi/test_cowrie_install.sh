@@ -79,6 +79,10 @@ for _ in $(seq 1 15); do
   sleep 1
 done
 grep -q '"eventid": *"cowrie.session.connect"' "$log" 2>/dev/null || fail "$log fehlt oder enthält keine Verbindung"
-[ "$(stat -c %a "$log")" = 644 ] || fail "$log ist für den Hive nicht lesbar ($(stat -c %a "$log"))"
+# Der Hive läuft als anderer Benutzer: "andere" müssen lesen dürfen (644 oder 664)
+case "$(stat -c %a "$log")" in
+  *[4567]) ;;
+  *) fail "$log ist für den Hive nicht lesbar ($(stat -c %a "$log"))" ;;
+esac
 kill "$pid"
 echo "Cowrie-Installation: alle Prüfungen bestanden"
