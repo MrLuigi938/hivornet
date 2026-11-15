@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.4.0-beta.6] – 2026-11-15
 
 ### Geändert
 - Weltkarte: Die Punkte der Angriffsherkunft sind deutlich kleiner (größter Punkt etwa 2 statt 5 Grad Radius), ebenso die Live-Pulse. Nahe Orte lassen sich unterscheiden und das Land darunter bleibt sichtbar.
