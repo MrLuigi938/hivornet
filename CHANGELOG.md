@@ -4,6 +4,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unreleased]
 
+### Geändert
+- **Neuer Name: Hivornet.** Umbenannt sind Programmname, Oberfläche, Umgebungsvariablen (`HIVORNET_TOKEN`, `HIVORNET_VERSION`), Docker-Projekt und Volumes (`hivornet_*`), Image- und Paketnamen, Pi-Dienste und -Pfade (`/opt/hivornet`, `/etc/hivornet`, `hivornet-*.service`), Firewall-Ketten (`HIVORNET-OUT`), die Docker-Bridge (`hv-honeynet`), Sitzungs-Cookie und Browser-Speicher. Bestehende Installationen von 0.3.0 werden nicht automatisch übernommen: Pi neu aufspielen, im Docker-Betrieb `.env` mit den neuen Variablennamen anlegen.
+- Updates: Auf der System-Seite lässt sich der Kanal wählen (nur fertige Versionen oder auch Vorabversionen), und „Jetzt prüfen“ fragt sofort bei GitHub nach. Tags mit Bindestrich (`v0.4.0-beta.1`) werden als Pre-Release veröffentlicht.
+
 ### Behoben
 - Weltkarte: Waagerechte Streifen über die ganze Karte bei Ländern, die über die Datumsgrenze reichen (Russland, Fidschi). Die Umrisse werden jetzt abgewickelt und am Kartenrand umgebrochen.
 - Honeypot: Die Warnung „Verbindungen aus dem eigenen Docker-Netz“ war ohne Docker (Raspberry Pi) ein Fehlalarm für Zugriffe aus dem Heimnetz. Gezählt wird nur noch die Gateway-Adresse eines Docker-Netzes, und nur im Docker-Image.

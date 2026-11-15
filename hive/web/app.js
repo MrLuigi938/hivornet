@@ -1,6 +1,6 @@
 // Hivornet Web-UI: Anmeldung, Navigation und alle Ansichten.
 import {
-  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag,
+  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag, hideTip,
 } from "./dom.js";
 import { worldMap, timeline, toplist, svcName, svcColor, countryName } from "./charts.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
@@ -221,6 +221,7 @@ const routes = [
 async function route() {
   if (!mainEl) return;
   if (state.cleanup) { state.cleanup(); state.cleanup = null; }
+  hideTip(); // Tooltip der vorigen Ansicht nicht stehen lassen
   const hash = location.hash || "#/";
   for (const a of document.querySelectorAll(".nav a")) {
     const href = a.getAttribute("href");
