@@ -596,7 +596,8 @@ async function viewSettings(el) {
   if (!cfg) {
     mount(el, card("Noch keine Sensor-Konfiguration",
       h("p", null, "Der Honeypot hat sich noch nicht beim Hive gemeldet. Sobald er läuft (ca. 10 Sekunden nach dem Start), erscheint hier seine Konfiguration."),
-      h("button", { class: "btn", onclick: route }, "Neu laden")), extras);
+      h("button", { class: "btn", onclick: route }, "Neu laden")), extras,
+      state.user.role === "admin" ? backupCard() : null); // Import auch auf einem frisch installierten Gerät
     return;
   }
 
@@ -672,7 +673,113 @@ async function viewSettings(el) {
     card("Admin-Passwort ändern",
       h("form", { onsubmit: changePw },
         row("Aktuelles Passwort", pwCur), row("Neues Passwort", pwNew, "10 bis 72 Zeichen. Andere angemeldete Geräte werden abgemeldet."),
-        h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg))));
+        h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg)),
+    state.user.role === "admin" ? backupCard() : null));
+}
+
+// ---------- Sicherung (Export und Import aller Daten, verschlüsselt) ----------
+
+function backupCard() {
+  const msg = h("div", { class: "msg", hidden: true });
+  const show = (text, cls) => { msg.className = "msg " + cls; msg.textContent = text; msg.hidden = false; };
+  const pwOut = h("input", { type: "password", autocomplete: "current-password", maxlength: 72 });
+  const pwIn = h("input", { type: "password", autocomplete: "off", maxlength: 72 });
+  const file = h("input", { type: "file", accept: ".hvbak" });
+  const btnOut = h("button", { class: "btn", type: "submit" }, "Sicherung herunterladen");
+  const btnIn = h("button", { class: "btn", type: "submit" }, "Sicherung einspielen");
+
+  async function doExport(e) {
+    e.preventDefault();
+    if (!pwOut.value) { show("Bitte dein Passwort eingeben.", "err"); return; }
+    btnOut.disabled = true;
+    show("Sicherung wird erstellt und verschlüsselt … das kann bei vielen Daten etwas dauern.", "warn");
+    try {
+      const r = await fetch("api/backup/export", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json", "X-Requested-With": "hivornet" },
+        body: JSON.stringify({ password: pwOut.value }),
+      });
+      if (!r.ok) {
+        let err = r.statusText;
+        try { err = (await r.json()).error || err; } catch { /* leer */ }
+        throw new Error(err);
+      }
+      const blob = await r.blob();
+      const name = (/filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "") || [])[1] || "hivornet-sicherung.hvbak";
+      const url = URL.createObjectURL(blob);
+      const a = h("a", { href: url, download: name });
+      document.body.append(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+      pwOut.value = "";
+      show(`Sicherung gespeichert (${fmtBytes(blob.size)}). Bewahre die Datei sicher auf; zum Einspielen brauchst du dasselbe Passwort.`, "ok");
+    } catch (ex) {
+      show("Export fehlgeschlagen: " + ex.message, "err");
+    } finally { btnOut.disabled = false; }
+  }
+
+  // Nach dem Einspielen startet der Hive neu; warten, bis er wieder antwortet.
+  async function waitForRestart() {
+    await new Promise((r) => setTimeout(r, 3000));
+    for (let i = 0; i < 60; i++) {
+      try {
+        const r = await fetch("healthz", { cache: "no-store" });
+        if (r.ok) { location.hash = "#/"; location.reload(); return; }
+      } catch { /* startet noch */ }
+      await new Promise((r) => setTimeout(r, 2000));
+    }
+    show("Der Hive meldet sich nicht zurück. Startet er nicht von selbst neu (z. B. ohne Docker oder systemd), bitte von Hand starten.", "err");
+  }
+
+  function doImport(e) {
+    e.preventDefault();
+    const f = file.files && file.files[0];
+    if (!f) { show("Bitte eine Sicherungsdatei (.hvbak) auswählen.", "err"); return; }
+    if (!pwIn.value) { show("Bitte das Passwort der Sicherung eingeben.", "err"); return; }
+    if (!confirm("Alle aktuellen Daten, Einstellungen und Benutzer werden durch die Sicherung ersetzt. Die bisherige Datenbank wird vorher unter backups/ aufgehoben. Fortfahren?")) return;
+    const fd = new FormData();
+    fd.append("password", pwIn.value); // zuerst: der Hive liest die Felder in dieser Reihenfolge
+    fd.append("file", f);
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", "api/backup/import");
+    xhr.setRequestHeader("X-Requested-With", "hivornet");
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable) show(`Lade hoch … ${Math.round((ev.loaded / ev.total) * 100)} %`, "warn");
+    };
+    xhr.upload.onload = () => show("Entschlüssele und prüfe die Sicherung …", "warn");
+    xhr.onload = () => {
+      let d = null;
+      try { d = JSON.parse(xhr.responseText); } catch { /* leer */ }
+      if (xhr.status === 200) {
+        pwIn.value = "";
+        const m = (d && d.meta) || {};
+        show(`Sicherung vom ${m.created ? fmtDateTime(m.created) : "?"} mit ${fmtNum(m.events)} Ereignissen übernommen. Hivornet startet neu; danach meldest du dich mit den Zugangsdaten aus der Sicherung an …`, "ok");
+        waitForRestart();
+      } else {
+        btnIn.disabled = false;
+        show("Einspielen fehlgeschlagen: " + ((d && d.error) || xhr.statusText), "err");
+      }
+    };
+    xhr.onerror = () => { btnIn.disabled = false; show("Verbindung abgebrochen.", "err"); };
+    btnIn.disabled = true;
+    xhr.send(fd);
+  }
+
+  const row = (label, input, help) => h("div", { class: "form-row" }, h("label", null, label), input, help ? h("div", { class: "help" }, help) : null);
+  return card("Sicherung",
+    h("p", { class: "sub" }, "Sichert alles in eine verschlüsselte Datei: Einstellungen, Zusatzfunktionen mit allen API-Schlüsseln, Benutzer sowie alle Angriffe, Statistiken und Berichte. ",
+      "So geht nichts verloren, wenn du den Raspberry Pi neu aufsetzt oder auf ein anderes Gerät umziehst. Nicht enthalten sind Cowrie-Mitschnitte und -Downloads."),
+    h("h3", null, "Exportieren"),
+    h("form", { onsubmit: doExport },
+      row("Dein Passwort", pwOut, "Zur Bestätigung. Mit diesem Passwort wird die Datei verschlüsselt; ohne es lässt sie sich nicht einspielen."),
+      btnOut),
+    h("h3", null, "Importieren"),
+    h("form", { onsubmit: doImport },
+      row("Sicherungsdatei", file),
+      row("Passwort der Sicherung", pwIn, "Das Admin-Passwort, mit dem die Sicherung erstellt wurde."),
+      btnIn),
+    msg);
 }
 
 // ---------- System ----------

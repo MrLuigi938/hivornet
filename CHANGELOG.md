@@ -5,6 +5,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [0.4.0-beta.4] – 2026-11-15
 
 ### Neu
+- **Sicherung über die Web-UI** (Einstellungen → Sicherung, nur Admins): Export aller Daten in eine verschlüsselte Datei (`.hvbak`) mit Einstellungen, Zusatzfunktionen samt API-Schlüsseln, Benutzern, Ereignissen, Angreifern, Statistiken und Berichten. Der Export verlangt das Admin-Passwort und verschlüsselt damit (AES-256-GCM in 1-MiB-Blöcken, Schlüssel per Argon2id; Änderungen, Abschneiden und Umsortieren fallen auf). Der Import verlangt dasselbe Passwort, prüft die Datenbank (Integrität, Schema-Version, Admin-Konto), hebt die bisherige Datenbank unter `backups/vor-wiederherstellung-…` auf und startet den Hive neu. Anmeldesitzungen und der Lesestand des Cowrie-Logs werden nicht übernommen.
 - Raspberry Pi: Seite **Protokolle** in der Web-UI (nur Admins, nur lesen). Zeigt die Systemprotokolle der Hivornet-Dienste (Cowrie, Cowrie-Installation, Honeypot, Hive, Netzsperre, Updates) und das Installationsprotokoll des ersten Starts, auf Wunsch alle 5 Sekunden aktualisiert. Ein Bildschirm am Pi ist zur Fehlersuche nicht mehr nötig.
 - Raspberry Pi: Die Cowrie-Installation meldet ihren Stand (läuft mit aktuellem Schritt, fertig, gescheitert bei Schritt X). Die Web-UI zeigt ihn unter System und im Hinweis auf dem Dashboard statt der allgemeinen Meldung „Cowrie-Log nicht gefunden“.
 - CI: Neuer Test installiert Cowrie mit dem Skript des Pi-Images in Debian 13 und startet es mit der Befehlszeile aus `hivornet-cowrie.service`; SSH, Telnet und `cowrie.json` werden geprüft.
@@ -12,7 +13,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ### Behoben
 - Raspberry Pi: **Cowrie startete nach der Installation nicht** (`twistd: Unknown command: cowrie`). Cowrie 3.1.6 muss selbst als Paket installiert werden, sonst fehlt `cowrie/_version.py` und das Plugin wird stillschweigend ignoriert. Der Installer installiert es jetzt mit `pip install -e` und prüft am Ende, dass `twistd` das Plugin findet; klappt das nicht, gilt die Installation als gescheitert und wird stündlich wiederholt.
 - Raspberry Pi: Beim ersten Start meldete `cloud-final.service` einen Fehler, obwohl die Installation geklappt hatte. vendor-data hatte den Installer schon ausgeführt (er löscht sich danach), und der zweite Anstoß aus user-data fand die Datei nicht mehr. Jetzt prüft der zweite Anstoß nur, ob die Installation fertig ist.
-
+- Image-Bau: pyfatfs 1.1.0 zerstörte beim Überschreiben von `user-data` mit einer kürzeren Datei die Clusterkette der Bootpartition. Vorhandene Dateien werden jetzt vorher gelöscht.
 ## [0.4.0-beta.3] – 2026-11-15
 
 ### Behoben

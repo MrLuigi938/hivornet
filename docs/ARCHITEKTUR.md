@@ -66,7 +66,7 @@ Regeln, die jeder Handler einhalten muss:
 
 | Datei | Inhalt |
 |---|---|
-| `main.go` | Start, `Hive`-Struktur, `routes()` (alle HTTP-Routen), Server, sauberes Beenden, Unterbefehle `healthcheck`, `backup`, `version` |
+| `main.go` | Start, `Hive`-Struktur, `routes()` (alle HTTP-Routen), Server, sauberes Beenden (auch über `Hive.restart` nach einer Wiederherstellung), `applyRestore` (übernimmt `restore.db` beim Start, hebt die alte Datenbank unter `backups/vor-wiederherstellung-…` auf), Unterbefehle `healthcheck`, `backup`, `version` |
 | `store.go` | `Event`, `Sanitize`, `migrations`, `OpenStore`, `Writer` (ein Schreiber, Sammeltransaktionen, Duplikaterkennung über `eid`), `topKeys` (Zähltabelle), `Retention`, `Backup` |
 | `api.go` | Sensor-Endpunkte (`ingest`, `heartbeat`, `sensorConfig`), Statistik (auch `countryStats` für den Karten-Hover), Ereignisliste (`eventFilter`), Export, Einstellungen des Sensors, `warnings`, `system`, `metrics` |
 | `auth.go` | Admin-Konto, Login-Bremse, Sitzungen (nur Hash gespeichert), `Require` (Cookie + CSRF-Header), `RequireSensor` (Token), `uiGuard` (Sensor-Netz aussperren, Host-Prüfung) |
@@ -83,8 +83,9 @@ Regeln, die jeder Handler einhalten muss:
 | `intel2.go` | GreyNoise-Abfrage (`greynoise`), STIX-2.1-Export (`exportSTIX`, `stixID`, `stixString`) |
 | `setup.go` | Ersteinrichtung (`setupStatus`, `setupRun`), einmalige Port-Anpassung (`upgradeSensorConfigs`), Update-Prüfung gegen GitHub (`checkUpdates` zweimal täglich, `runUpdateCheck`, `newestRelease`; Versionsvergleich `parseSemver`/`newer`/`comparePre` nach Semantic Versioning), Update-Kanal (`updateChannel`, `updateSetChannel`: `stable` oder `pre`), „Jetzt prüfen“ (`updateCheckNow`, höchstens alle 10 s), Update-Auslösung (`updateRun`), Muster-Nachzählen (`backfillPatterns`) |
 | `pilogs.go` | Nur Raspberry Pi: Seite Protokolle (`logsList`, `logsGet`: `journalctl` für eine feste Liste von Diensten, Installationsprotokoll als Datei) und Stand der Cowrie-Installation (`cowrieInstallStatus`) |
+| `backup.go` | Sicherung über die UI: `backupExport` (Passwort prüfen, `VACUUM INTO`, `prepareSnapshot` entfernt Sitzungen und Cowrie-Lesestand), `writeBackup`/`readBackup` (gzip, AES-256-GCM in 1-MiB-Blöcken, Schlüssel per Argon2id, Kopf als Zusatzdaten), `backupImport` (Multipart: zuerst `password`, dann `file`; `checkRestoreDB`, legt `restore.db` ab, startet neu) |
 | `disk_linux.go`, `disk_other.go` | freier Speicher |
-| `hive_test.go`, `extra_test.go`, `pilogs_test.go` | Tests |
+| `hive_test.go`, `extra_test.go`, `pilogs_test.go`, `backup_test.go` | Tests |
 
 ### Weg eines Ereignisses
 
@@ -109,6 +110,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `POST /api/update` | Update anstoßen (nur wo `HIVE_UPDATE_REQUEST` gesetzt ist) |
 | `POST /api/update/check`, `PUT /api/update/channel` | sofort bei GitHub prüfen; Update-Kanal setzen (`stable`, `pre`) |
 | `GET /api/logs`, `GET /api/logs/{id}?lines=…` | Protokoll-Quellen und Inhalt (nur Pi mit `HIVE_JOURNAL=1`, nur Admin) |
+| `POST /api/backup/export`, `POST /api/backup/import` | verschlüsselte Sicherung herunterladen bzw. einspielen (nur Admin, Passwort nötig) |
 | `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map`, `/countries?today_from=…` | Kennzahlen (`countries`: Angriffe je Land heute und gesamt); `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
 | `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `q`, `range`, `hide_noise`, `before`, `limit` |
 | `GET /api/export/events`, `/api/export/blocklist`, `/api/export/stix` | Export (CSV/JSON, Blockliste, STIX 2.1) |

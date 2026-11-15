@@ -54,6 +54,7 @@ type Hive struct {
 	notifier *Notifier     // Benachrichtigungen (notify.go)
 	aiSem    chan struct{} // höchstens eine KI-Auswertung gleichzeitig
 	upd      updater       // Update-Prüfung (setup.go)
+	restart  chan struct{} // Neustart nach einer Wiederherstellung (backup.go)
 }
 
 func env(k, def string) string {
@@ -119,6 +120,20 @@ func applyRestore(dbPath string) {
 	if _, err := os.Stat(src); err != nil {
 		return
 	}
+	// Bisherige Datenbank aufheben (backups/vor-wiederherstellung-…), falls etwas schiefgeht.
+	if _, err := os.Stat(dbPath); err == nil {
+		if old, err := OpenStore(dbPath); err == nil {
+			dir := filepath.Join(filepath.Dir(dbPath), "backups")
+			os.MkdirAll(dir, 0o700)
+			name := filepath.Join(dir, "vor-wiederherstellung-"+time.Now().Format("20060102-150405")+".db")
+			if _, err := old.db.Exec(`VACUUM INTO ?`, name); err != nil {
+				log.Printf("Alte Datenbank nicht gesichert: %v", err)
+			} else {
+				log.Printf("Alte Datenbank gesichert: %s", name)
+			}
+			old.db.Close()
+		}
+	}
 	for _, suf := range []string{"-wal", "-shm"} {
 		os.Remove(dbPath + suf)
 	}
@@ -180,6 +195,8 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
 	ui.HandleFunc("POST /api/password", a.Require(h.changePassword))
 	ui.HandleFunc("GET /api/system", a.Require(h.system))
+	ui.HandleFunc("POST /api/backup/export", a.Require(h.backupExport))
+	ui.HandleFunc("POST /api/backup/import", a.Require(h.backupImport))
 	ui.HandleFunc("GET /api/logs", a.Require(h.logsList))
 	ui.HandleFunc("GET /api/logs/{id}", a.Require(h.logsGet))
 	ui.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
@@ -247,6 +264,7 @@ func main() {
 		cowrieLibDir: os.Getenv("HIVE_COWRIE_LIB"),
 	}
 	h.aiSem = make(chan struct{}, 1)
+	h.restart = make(chan struct{}, 1)
 	h.loadExtras()
 	h.notifier = NewNotifier(func() NotifyConfig { return h.Extras().Notify })
 	bgStop := make(chan struct{})
@@ -338,8 +356,14 @@ func main() {
 	// Sauber beenden: keine neuen Anfragen, Warteschlange schreiben, Datenbank schließen.
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
-	log.Printf("Beende ...")
+	select {
+	case <-sig:
+		log.Printf("Beende ...")
+	case <-h.restart:
+		// Nach einer Wiederherstellung: beenden, systemd bzw. Docker starten neu,
+		// beim Start übernimmt applyRestore die neue Datenbank.
+		log.Printf("Beende für die Wiederherstellung ...")
+	}
 	cancelBase() // beendet offene Live-Streams
 	close(bgStop)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

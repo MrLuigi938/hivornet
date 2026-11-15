@@ -227,7 +227,9 @@ sh uninstall.sh                      # stoppen, Daten behalten
 sh uninstall.sh --purge              # alles inkl. Daten löschen
 ```
 
-**Backup und Wiederherstellen:** `sh tools/backup.sh` erzeugt im laufenden Betrieb eine konsistente Kopie und legt sie unter `./backups/` ab. Lokal bleiben die letzten 14 Sicherungen, im Container die letzten 7. Wiederherstellen:
+**Sicherung über die Web-UI (Docker und Raspberry Pi):** Unter **Einstellungen → Sicherung** exportierst du alles in eine verschlüsselte Datei (`.hvbak`): Einstellungen, Zusatzfunktionen mit allen API-Schlüsseln, Benutzer sowie alle Angriffe, Statistiken und Berichte. Zum Export bestätigst du mit deinem Admin-Passwort; mit genau diesem Passwort wird die Datei verschlüsselt (AES-256-GCM, Schlüssel per Argon2id). Zum Einspielen, etwa nach dem Neuaufsetzen des Pi, wählst du die Datei aus und gibst dasselbe Passwort ein. Der Hive prüft die Sicherung, hebt die bisherige Datenbank unter `backups/` auf und startet neu; danach gelten die Zugangsdaten aus der Sicherung. Cowrie-Mitschnitte und -Downloads sind nicht enthalten. Ohne das Passwort lässt sich die Datei weder lesen noch einspielen – es gibt keinen Weg, es zurückzusetzen.
+
+**Backup und Wiederherstellen per Kommandozeile (Docker):** `sh tools/backup.sh` erzeugt im laufenden Betrieb eine konsistente Kopie und legt sie unter `./backups/` ab. Lokal bleiben die letzten 14 Sicherungen, im Container die letzten 7. Wiederherstellen:
 
 ```bash
 docker compose cp backups/hive-JJJJMMTT-HHMMSS.db hive:/data/restore.db

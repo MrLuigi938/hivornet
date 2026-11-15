@@ -169,6 +169,11 @@ def patch_boot(img, boot_off, boot_size, files):
         if not fs.exists("/hivornet"):
             fs.makedir("/hivornet")
         for name, data in files.items():
+            # Vorhandene Dateien (user-data aus dem Basis-Image) erst löschen: pyfatfs 1.1.0
+            # zerstört beim Überschreiben die Clusterkette, wenn die neue Datei kürzer ist
+            # ("FREE_CLUSTER mark found in FAT cluster chain").
+            if fs.exists(name):
+                fs.remove(name)
             with fs.openbin(name, "w") as fh:
                 fh.write(data)
     finally:
