@@ -881,6 +881,7 @@ async function viewSystem(el, ctx) {
         vols.log !== undefined ? ["Logs", fmtBytes(vols.log)] : null,
         vols.lib !== undefined ? ["Downloads und Mitschnitte", fmtBytes(vols.lib)] : null,
         d.cowrie.install ? ["Installation", installBadge(d.cowrie.install)] : null] : [["Status", "nicht eingerichtet"]]))),
+    d.network ? networkCard(d.network) : null,
     d.sensors.length ? d.sensors.map((s) => card("Sensor " + s.sensor,
       h("div", { class: "grid three" },
         kv([["Status", sensorOk(s) ? h("span", { class: "badge ok" }, "verbunden") : h("span", { class: "badge err" }, "keine Meldung")],
@@ -899,6 +900,27 @@ async function viewSystem(el, ctx) {
           h("td", { class: "num" }, fmtNum(l.active)), h("td", { class: "num" }, fmtNum(l.total)), h("td", { class: "num" }, fmtNum(l.rejected || 0)))))))))
       : card("Sensoren", h("div", { class: "empty" }, "Noch kein Sensor hat sich gemeldet."))));
   ctx.every(15000, () => { if (!document.hidden && location.hash === "#/system" && ctx.current()) route(); });
+}
+
+// Netzsperre und Verwaltungsanschluss auf dem Pi (USB-Adapter ins Heimnetz, nur Web-UI)
+function networkCard(n) {
+  const fw = !n.supported ? h("span", { class: "badge" }, "nicht verfügbar (älteres Image)")
+    : !n.firewall ? h("span", { class: "badge err" }, "keine Rückmeldung")
+    : h("span", null, h("span", { class: "badge " + (n.firewall.state === "ok" ? "ok" : "err") }, n.firewall.state === "ok" ? "aktiv" : "Fehler"),
+      " ", n.firewall.text, " · ", relTime(n.firewall.since));
+  const rows = [["Netzsperre", fw]];
+  if (!n.mgmt || !n.mgmt.length) {
+    rows.push(["Verwaltungsanschluss", "keiner"]);
+  } else {
+    for (const m of n.mgmt) {
+      rows.push(["Verwaltungsanschluss " + m.name, h("span", null,
+        h("span", { class: "badge " + (m.up ? "ok" : "") }, m.up ? "verbunden" : "getrennt"),
+        m.addrs.length ? " " + m.addrs.join(", ") : "")]);
+    }
+  }
+  return card("Netzwerk", h("table", null, h("tbody", null, rows.map(([k, v]) => h("tr", null, h("th", null, k), h("td", null, v))))),
+    h("p", { class: "muted" }, "Ein USB-Netzwerkadapter im Heimnetz dient als Verwaltungsanschluss: Darüber ist nur die Web-UI (Port 8088) erreichbar, "
+      + "der Pi baut dort selbst keine Verbindung auf. Honeypot und Internet laufen über den eingebauten Anschluss (Gastnetz)."));
 }
 
 // Stand der Cowrie-Installation auf dem Pi (Datei von hivornet-cowrie-install)

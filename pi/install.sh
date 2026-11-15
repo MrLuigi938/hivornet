@@ -44,6 +44,15 @@ systemctl daemon-reload
 systemctl enable hivornet-firstboot.service hivornet-firewall.service hivornet-hive.service \
   hivornet-honeypot.service hivornet-update.path hivornet-cowrie-install.service hivornet-cowrie-install.timer
 systemctl start hivornet-firewall.service hivornet-hive.service hivornet-update.path
+# Einstellung für den Verwaltungsanschluss (USB-Adapter) laden; ein schon verbundener
+# Adapter übernimmt sie beim erneuten Verbinden (sonst erst nach dem nächsten Neustart)
+if command -v nmcli >/dev/null 2>&1; then
+  nmcli general reload conf 2>/dev/null || true
+  for dev in /sys/class/net/eth[1-9] /sys/class/net/enx*; do
+    [ -e "$dev" ] || continue
+    nmcli device connect "${dev##*/}" 2>/dev/null || true
+  done
+fi
 systemctl start hivornet-honeypot.service
 # Cowrie im Hintergrund installieren; die übrigen Dienste laufen schon
 systemctl start --no-block hivornet-cowrie-install.service hivornet-cowrie-install.timer

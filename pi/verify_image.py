@@ -84,6 +84,7 @@ with tarfile.open(fileobj=io.BytesIO(pl), mode="r:gz") as t:
         "etc/systemd/system/hivornet-cowrie.service": 0o644, "etc/systemd/system/hivornet-cowrie-install.service": 0o644,
         "etc/systemd/system/hivornet-cowrie-install.timer": 0o644, "etc/systemd/system/hivornet-cowrie-clean.service": 0o644,
         "etc/systemd/system/hivornet-cowrie-clean.timer": 0o644,
+        "etc/NetworkManager/conf.d/hivornet-mgmt.conf": 0o644,
     }
     for n, mode in expect.items():
         m = members.get(n)
@@ -96,7 +97,7 @@ with tarfile.open(fileobj=io.BytesIO(pl), mode="r:gz") as t:
     for n, m in members.items():
         if m.isfile() and n.startswith(("usr/local/sbin/", "etc/")):
             check(b"\r\n" not in t.extractfile(n).read(), f"{n}: Unix-Zeilenenden")
-    unexpected = [n for n in members if not n.startswith(("opt/hivornet", "etc/hivornet", "etc/systemd/system/hivornet-", "usr/lib/sysusers.d/hivornet", "usr/local/sbin/hivornet-"))]
+    unexpected = [n for n in members if not n.startswith(("opt/hivornet", "etc/hivornet", "etc/systemd/system/hivornet-", "usr/lib/sysusers.d/hivornet", "usr/local/sbin/hivornet-", "etc/NetworkManager/conf.d/hivornet-"))]
     check(not unexpected, f"keine fremden Dateien im Paket {unexpected}")
 
 os.remove(boot)

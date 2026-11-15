@@ -19,6 +19,8 @@ Environment=HIVE_DIRECT_PORTS=1 HIVE_UPDATE_REQUEST=/var/lib/hivornet/update-req
 # Seite "Protokolle" (nur lesen, nur Admins): journalctl der Hivornet-Dienste, Installationsprotokoll
 # und Stand der Cowrie-Installation. Die Gruppe systemd-journal erlaubt das Lesen des Journals.
 Environment=HIVE_JOURNAL=1 HIVE_INSTALL_LOG=/var/log/hivornet-install.log HIVE_COWRIE_INSTALL_STATUS=/var/lib/hivornet-status/cowrie-install
+# Verwaltungsanschluss (USB-Adapter ins Heimnetz): Stand der Netzsperre von hivornet-firewall
+Environment=HIVE_FIREWALL_STATUS=/var/lib/hivornet-status/firewall
 SupplementaryGroups=systemd-journal
 ExecStart=/opt/hivornet/hive
 Restart=always

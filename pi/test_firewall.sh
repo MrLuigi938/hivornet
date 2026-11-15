@@ -30,12 +30,14 @@ EOF
     printf '#!/bin/sh\necho "nft $*" >>"%s"\n[ "$1" = -f ] && cat >>"%s"\nexit 0\n' "$t/log" "$t/log" >"$t/bin/nft"
   else
     # -D findet beim ersten Aufruf nichts (wie ohne alte Regeln), sonst Erfolg
-    printf '#!/bin/sh\necho "iptables $*" >>"%s"\n[ "$1" = -D ] && exit 1\nexit 0\n' "$t/log" >"$t/bin/iptables"
+    for ipt in iptables ip6tables; do
+      printf '#!/bin/sh\necho "%s $*" >>"%s"\n[ "$1" = -D ] && exit 1\nexit 0\n' "$ipt" "$t/log" >"$t/bin/$ipt"
+    done
   fi
   chmod +x "$t/bin/"*
 }
 
-run() { PATH="$t/bin:/usr/bin:/bin" sh "$fw" "$@" >"$t/out" 2>&1 || { cat "$t/out"; fail "hivornet-firewall $* (Exit-Code)"; }; }
+run() { HIVORNET_STATUS_DIR="$t/status" PATH="$t/bin:/usr/bin:/bin" sh "$fw" "$@" >"$t/out" 2>&1 || { cat "$t/out"; fail "hivornet-firewall $* (Exit-Code)"; }; }
 has() { grep -qF -- "$1" "$t/log" || { cat "$t/log"; fail "erwartet: $1"; }; }
 hasnt() { if grep -qF -- "$1" "$t/log"; then cat "$t/log"; fail "unerwartet: $1"; fi; }
 
@@ -45,7 +47,15 @@ for cow in 1 0; do
   has "meta skuid 990 drop"
   has "tcp dport 8089 accept"
   if [ "$cow" = 1 ]; then has "meta skuid 991 drop"; else hasnt "skuid 991"; fi
+  # Verwaltungsanschluss: Sprünge für USB-Adapter, aber nie für den eingebauten eth0
+  has 'iifname "eth1" jump mgmt_in'
+  has 'oifname "enx*" jump mgmt_out'
+  has 'iifname "eth9" drop'
+  has "tcp dport 8088 accept"
+  hasnt '"eth0"'
+  [ "$(head -n 1 "$t/status/firewall")" = ok ] || fail "Statusdatei nicht ok (nft)"
   run remove
+  [ ! -e "$t/status/firewall" ] || fail "Statusdatei nach remove noch da"
   run status
 
   # PATH ohne nft: iptables-Zweig
@@ -53,6 +63,11 @@ for cow in 1 0; do
   run apply
   has "--uid-owner hivornet-pot -j HIVORNET-POT"
   if [ "$cow" = 1 ]; then has "--uid-owner hivornet-cowrie -j HIVORNET-COW"; else hasnt "-N HIVORNET-COW"; fi
+  has "iptables -I INPUT 1 -i eth1 -j HIVORNET-MGMT-IN"
+  has "ip6tables -I OUTPUT 1 -o enx+ -j HIVORNET-MGMT-OUT"
+  has "iptables -A HIVORNET-MGMT-IN -p tcp --dport 8088 -j ACCEPT"
+  hasnt "-i eth0"
+  [ "$(head -n 1 "$t/status/firewall")" = ok ] || fail "Statusdatei nicht ok (iptables)"
   run remove
 done
 echo "hivornet-firewall: alle Prüfungen bestanden"

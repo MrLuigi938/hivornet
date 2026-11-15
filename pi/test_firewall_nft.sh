@@ -1,0 +1,45 @@
+#!/bin/sh
+# Prüft hivornet-firewall mit echtem nftables in einem eigenen Netz-Namensraum:
+# Ein "Heimnetz" hängt über eine veth-Leitung am Anschluss eth1 (Verwaltungsanschluss).
+#
+#   docker run --rm --privileged -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_firewall_nft.sh
+#
+# Erwartet: Port 8088 aus dem Heimnetz erreichbar, Honeypot-Port 2222 nicht, und der Pi
+# baut über eth1 keine eigene Verbindung ins Heimnetz auf.
+set -eu
+fail() { echo "FEHLER: $*" >&2; exit 1; }
+fw=/src/pi/rootfs/usr/local/sbin/hivornet-firewall
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq >/dev/null
+apt-get install -y -qq nftables iproute2 netcat-openbsd >/dev/null
+useradd -r -M hivornet-pot
+useradd -r -M hivornet-cowrie
+
+ip netns add home
+ip link add eth1 type veth peer name home0
+ip link set home0 netns home
+ip addr add 10.9.0.1/24 dev eth1
+ip link set eth1 up
+ip -n home addr add 10.9.0.2/24 dev home0
+ip -n home link set home0 up
+ip -n home link set lo up
+
+HIVORNET_STATUS_DIR=/tmp/status sh "$fw" apply
+nft list table inet hivornet >/dev/null || fail "Tabelle fehlt"
+[ "$(head -n 1 /tmp/status/firewall)" = ok ] || fail "Statusdatei: $(cat /tmp/status/firewall)"
+
+# Dienste auf dem "Pi": Web-UI und ein Honeypot-Port
+nc -lk -p 8088 >/dev/null 2>&1 &
+nc -lk -p 2222 >/dev/null 2>&1 &
+# Dienst im "Heimnetz"
+ip netns exec home nc -lk -p 9000 >/dev/null 2>&1 &
+sleep 1
+
+ip netns exec home nc -z -w 3 10.9.0.1 8088 || fail "Web-UI aus dem Heimnetz nicht erreichbar"
+if ip netns exec home nc -z -w 3 10.9.0.1 2222; then fail "Honeypot-Port 2222 aus dem Heimnetz erreichbar"; fi
+if nc -z -w 3 10.9.0.2 9000; then fail "Pi kann über eth1 ins Heimnetz verbinden"; fi
+
+HIVORNET_STATUS_DIR=/tmp/status sh "$fw" remove
+nc -z -w 3 10.9.0.2 9000 || fail "nach remove keine Verbindung (Testaufbau defekt?)"
+echo "hivornet-firewall (nftables, Verwaltungsanschluss): alle Prüfungen bestanden"

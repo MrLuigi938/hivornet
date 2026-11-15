@@ -160,15 +160,19 @@ func tailFile(p string, n int) (string, error) {
 	return strings.Join(lines, "\n"), nil
 }
 
-// cowrieInstall ist der Stand von hivornet-cowrie-install (Datei: Zustand, Unix-Zeit, Text).
-type cowrieInstall struct {
+// statusFile ist der Stand eines root-Skripts auf dem Pi (Datei: Zustand, Unix-Zeit, Text),
+// geschrieben von hivornet-cowrie-install und hivornet-firewall.
+type statusFile struct {
 	State string    `json:"state"` // running, ok, failed
 	Since time.Time `json:"since"`
 	Text  string    `json:"text"`
 }
 
-func cowrieInstallStatus() *cowrieInstall {
-	p := os.Getenv("HIVE_COWRIE_INSTALL_STATUS")
+func cowrieInstallStatus() *statusFile {
+	return readStatusFile(os.Getenv("HIVE_COWRIE_INSTALL_STATUS"))
+}
+
+func readStatusFile(p string) *statusFile {
 	if p == "" {
 		return nil
 	}
@@ -185,5 +189,5 @@ func cowrieInstallStatus() *cowrieInstall {
 		return nil
 	}
 	sec, _ := strconv.ParseInt(strings.TrimSpace(f[1]), 10, 64)
-	return &cowrieInstall{State: st, Since: time.Unix(sec, 0), Text: clip(f[2], 300)}
+	return &statusFile{State: st, Since: time.Unix(sec, 0), Text: clip(f[2], 300)}
 }

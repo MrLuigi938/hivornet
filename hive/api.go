@@ -647,6 +647,9 @@ func (h *Hive) warnings() []warning {
 	if free := diskFree(h.dbPath); free >= 0 && free < 1<<30 {
 		add("warn", "Nur noch %d MB frei auf dem Datenträger.", free>>20)
 	}
+	if t := piNetStatus().mgmtWarning(); t != "" {
+		add("critical", "%s", t)
+	}
 	if st, _ := h.geo.Status(); strings.HasPrefix(st, "Download fehlgeschlagen") {
 		add("warn", "GeoIP: %s", st)
 	}
@@ -709,6 +712,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 		"notify":  h.notifier.Status(),
 		"update":  h.updateStatus(),
 		"cowrie":  cow,
+		"network": piNetStatus(),
 		"sensors": h.sensors.All(),
 	})
 }

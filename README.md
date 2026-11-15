@@ -115,6 +115,18 @@ Die Regeln sperren alle **neuen** Verbindungen aus dem Docker-Netz `honeynet` (B
 
 Noch besser ist ein eigenes VLAN oder Gastnetz für die NAS bzw. den Pi.
 
+### Raspberry Pi im Gastnetz, Web-UI aus dem Heimnetz
+
+Im Gastnetz (bei der FRITZ!Box z. B. LAN 4 als Gastzugang) kommt ein übernommener Pi nicht an deine anderen Geräte. Dafür erreichst du aus dem Heimnetz auch die Web-UI nicht. Abhilfe schafft ein **USB-Netzwerkadapter als Verwaltungsanschluss** (Chip Realtek RTL8153 oder ASIX AX88179, funktionieren ohne Treiber):
+
+1. Eingebauten Anschluss des Pi ins **Gastnetz** stecken (Honeypot, Internet, Updates), den USB-Adapter ins **Heimnetz**.
+2. Im Router dem Adapter eine feste IP geben und die Web-UI unter `http://<IP-des-Adapters>:8088` öffnen.
+3. Portweiterleitungen auf die IP des Pi im **Gastnetz** einrichten.
+
+Der Pi erkennt den Adapter selbst (Namen `eth1` … `eth9` oder `enx…`); einrichten musst du nichts. Über ihn ist **nur Port 8088** erreichbar, Honeypot-Dienste und Cowrie nicht. Der Pi baut dort selbst keine Verbindung auf (erlaubt sind nur Antworten, DHCP, IPv6-Nachbarsuche und mDNS für `hivornet.local`), und zwischen den beiden Anschlüssen wird nichts weitergeleitet. Die Regeln gelten ab dem Start, bevor das Netzwerk hochkommt, auch für einen später eingesteckten Adapter. Unter **System → Netzwerk** siehst du den Adapter und ob die Sperre wirkt; wirkt sie nicht, erscheint eine rote Warnung.
+
+**Restrisiko:** Der Pi steckt damit wieder im Heimnetz, getrennt nur durch die Firewall auf dem Pi selbst. Ein Angreifer müsste die Emulation überwinden und zusätzlich root werden, um sie abzuschalten. Wer das ausschließen will, lässt den Adapter weg und öffnet die Web-UI über das Gast-WLAN. Der Verwaltungsanschluss braucht ein Image ab dieser Version; ein Update über die Web-UI tauscht nur die Programme.
+
 ## Router-Portweiterleitung
 
 Auf dem **Raspberry Pi** lauschen die Dienste direkt auf den echten Ports; im Router leitest du sie 1:1 weiter (extern 22 → Pi 22). Auf der **NAS** liegen sie absichtlich auf hohen Nummern, damit sie nicht mit SSH oder der Weboberfläche der NAS kollidieren:
