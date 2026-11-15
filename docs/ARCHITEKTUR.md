@@ -253,9 +253,12 @@ Betrieb ohne Docker: zwei systemd-Dienste statt Container, sonst dieselben Progr
 | `pi/rootfs/.../hivornet-firstboot` | erzeugt beim ersten Start das Token (Passwort kommt aus der UI-Ersteinrichtung) |
 | `pi/rootfs/.../hivornet-firewall` | Netzsperre nach Benutzer (nftables oder iptables, owner-Match) |
 | `pi/rootfs/.../hivornet-update{.path,.service,script}` | beobachtet die Update-Anforderung des Hive, lädt die Version von GitHub, prüft `SHA256SUMS`, tauscht die Programme, Rückfall auf die alte Version |
-| `pi/rootfs/etc/hivornet/honeypot.yml` | Startkonfiguration mit echten Ports, ohne Cowrie |
+| `pi/rootfs/etc/hivornet/honeypot.yml` | Startkonfiguration mit echten Ports; 22 und 23 gehören Cowrie |
+| `pi/rootfs/etc/hivornet/cowrie.cfg` | Cowrie-Einstellungen: absolute Pfade unter `/var/lib/hivornet-cowrie`, Ports 22/23, Download-Grenze |
+| `pi/rootfs/usr/local/sbin/hivornet-cowrie-install` | installiert Cowrie beim ersten Start mit Internet (Version und Prüfsumme fest), Wiederholung stündlich über `hivornet-cowrie-install.timer` |
+| `hivornet-cowrie.service`, `hivornet-cowrie-clean.timer` | Cowrie als Benutzer `hivornet-cowrie` mit `CAP_NET_BIND_SERVICE`; tägliches Aufräumen nach 14 Tagen |
 
-Updates landen über `release.yml` als `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie ist auf dem Pi nicht dabei (Python, RAM) – daher keine echte Fake-Shell und keine TTY-Mitschnitte.
+Updates landen über `release.yml` als `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie wird auf dem Pi beim ersten Start nachinstalliert (Python-Umgebung unter `/opt/hivornet/cowrie-env`); die Netzsperre gilt auch für den Benutzer `hivornet-cowrie`. Ein Update über die UI tauscht nur `hive` und `honeypot` aus, die Cowrie-Version ändert sich nur mit einem neuen Image.
 
 ## 8. Entwickeln und Prüfen
 

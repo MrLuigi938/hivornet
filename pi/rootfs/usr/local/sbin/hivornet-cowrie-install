@@ -1,0 +1,54 @@
+#!/bin/sh
+# Installiert Cowrie (SSH/Telnet-Honeypot mit gefälschter Shell) auf dem Raspberry Pi.
+#
+# Läuft als root über hivornet-cowrie-install.service: beim ersten Start und danach
+# stündlich (Timer), bis die Installation einmal geklappt hat. Braucht Internet für
+# Debian-Pakete, den Cowrie-Quelltext (Version und Prüfsumme fest) und die Python-Pakete.
+#
+# Ergebnis: /opt/hivornet/cowrie (Quelltext), /opt/hivornet/cowrie-env (Python-Umgebung),
+# Merker /opt/hivornet/cowrie-env/.hivornet-ok. Danach starten hivornet-cowrie.service
+# (Ports 22 und 23) und der tägliche Aufräum-Timer.
+# Protokoll: journalctl -u hivornet-cowrie-install
+set -eu
+
+VER=3.1.6
+SHA256=a23bba17c06b82de18fcd11a440549fdc2e8f527e0e87ab85c2ad1b337dec3f8
+URL="https://github.com/cowrie/cowrie/archive/refs/tags/v$VER.tar.gz"
+DEST=/opt/hivornet/cowrie
+VENV=/opt/hivornet/cowrie-env
+MARK="$VENV/.hivornet-ok"
+
+[ -f "$MARK" ] && exit 0
+echo "Installiere Cowrie $VER ..."
+
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -q
+# Build-Werkzeuge nur für den Fall, dass für ein Python-Paket kein fertiges Rad existiert
+apt-get install -y -q --no-install-recommends python3-venv python3-dev build-essential libffi-dev libssl-dev curl ca-certificates
+
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+curl -fsSL --max-time 300 -o "$tmp/cowrie.tar.gz" "$URL"
+echo "$SHA256  $tmp/cowrie.tar.gz" | sha256sum -c - >/dev/null || { echo "Prüfsumme des Cowrie-Quelltexts stimmt nicht" >&2; exit 1; }
+
+rm -rf "$DEST" "$VENV"
+mkdir -p "$DEST"
+tar -xzf "$tmp/cowrie.tar.gz" -C "$DEST" --strip-components=1 --no-same-owner
+python3 -m venv "$VENV"
+"$VENV/bin/pip" install -q --upgrade pip
+"$VENV/bin/pip" install -q -r "$DEST/requirements.txt"
+
+# Einstellungen von Hivornet (Pfade, Ports 22/23, Download-Grenze). Cowrie liest ./cowrie.cfg
+# im Arbeitsverzeichnis des Dienstes.
+ln -sf /etc/hivornet/cowrie.cfg "$DEST/cowrie.cfg"
+# Zur Laufzeit ist der Quelltext nur lesbar: Bytecode und den Plugin-Zwischenspeicher
+# von Twisted jetzt einmal erzeugen, damit Cowrie beim Start nichts schreiben muss.
+"$VENV/bin/python3" -m compileall -q "$DEST/src" || true
+PYTHONPATH="$DEST/src" "$VENV/bin/python3" -c "from twisted.plugin import IPlugin, getPlugins; list(getPlugins(IPlugin))" || true
+chown -R root:root "$DEST" "$VENV"
+chmod -R go-w "$DEST" "$VENV"
+
+touch "$MARK"
+systemctl daemon-reload
+systemctl enable --now hivornet-cowrie.service hivornet-cowrie-clean.timer
+echo "Cowrie $VER installiert und gestartet (SSH 22, Telnet 23)."

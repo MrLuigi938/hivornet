@@ -652,7 +652,7 @@ func (h *Hive) warnings() []warning {
 	}
 	if h.cowrie != nil {
 		if found, last := h.cowrie.Status(); !found && time.Since(h.started) > 2*time.Minute {
-			add("warn", "Cowrie-Log nicht gefunden. Läuft der Cowrie-Container (COMPOSE_PROFILES=cowrie)?")
+			add("warn", "Cowrie-Log nicht gefunden. Docker: Läuft der Cowrie-Container (COMPOSE_PROFILES=cowrie)? Raspberry Pi: Cowrie wird nach dem ersten Start mit Internet installiert (einige Minuten); Stand mit journalctl -u hivornet-cowrie-install.")
 		} else if found && !last.IsZero() && time.Since(last) > 48*time.Hour {
 			add("warn", "Seit %s kein Cowrie-Ereignis. Ist Port 22 im Router weitergeleitet?", time.Since(last).Round(time.Hour))
 		}

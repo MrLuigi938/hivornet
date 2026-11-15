@@ -80,6 +80,10 @@ with tarfile.open(fileobj=io.BytesIO(pl), mode="r:gz") as t:
         "etc/systemd/system/hivornet-hive.service": 0o644, "etc/systemd/system/hivornet-honeypot.service": 0o644,
         "etc/systemd/system/hivornet-firstboot.service": 0o644, "etc/systemd/system/hivornet-firewall.service": 0o644,
         "etc/systemd/system/hivornet-update.service": 0o644, "etc/systemd/system/hivornet-update.path": 0o644,
+        "etc/hivornet/cowrie.cfg": 0o644, "usr/local/sbin/hivornet-cowrie-install": 0o755,
+        "etc/systemd/system/hivornet-cowrie.service": 0o644, "etc/systemd/system/hivornet-cowrie-install.service": 0o644,
+        "etc/systemd/system/hivornet-cowrie-install.timer": 0o644, "etc/systemd/system/hivornet-cowrie-clean.service": 0o644,
+        "etc/systemd/system/hivornet-cowrie-clean.timer": 0o644,
     }
     for n, mode in expect.items():
         m = members.get(n)

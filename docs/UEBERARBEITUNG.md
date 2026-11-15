@@ -207,7 +207,7 @@ Das Image ist ein Raspberry Pi OS Lite, in das `pi/build-image.sh` Hivornet hine
 - **Erster Start** (`hivornet-firstboot`): erzeugt nur das gemeinsame Token. Das Admin-Passwort vergibt der Nutzer im Browser (P15). Kein Docker, keine Konsole – der Wunsch war „aufspielen, einstecken, im Browser einrichten".
 - **Netzsperre** (`hivornet-firewall`): sperrt neue ausgehende Verbindungen des Honeypot-Benutzers per nftables oder iptables (owner-Match), erlaubt nur Antworten und den Weg zum Hive auf 127.0.0.1:8089.
 - **Update über die UI** (`hivornet-update.path` + `hivornet-update`): Der Pfad-Unit bemerkt die vom Hive abgelegte Anforderung, der Updater lädt das Programmpaket der Version von GitHub, prüft `SHA256SUMS`, sichert die Datenbank, tauscht die Programme und startet neu – mit Rückfall auf die alte Version, wenn der Hive danach nicht läuft. Nur die beiden Programme werden ersetzt; Änderungen an systemd-Dateien brauchen ein neues Image.
-- **Cowrie ist nicht dabei** (Python, zu viel RAM). SSH/Telnet decken SSH-Tarpit und der Telnet-Honeypot ab; also keine echte Fake-Shell und keine TTY-Mitschnitte auf dem Pi.
+- **Cowrie** war in der ersten Fassung des Pi-Images nicht dabei. Seit dem Nachtrag nach 0.3.0 installiert der Pi Cowrie beim ersten Start nach (`hivornet-cowrie-install`); Ports 22 und 23 gehören dann Cowrie.
 
 Die Release-Pipeline (`release.yml`) baut je Tag: Docker-Images (wie bisher), Programmpakete `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` (für den Selbst-Update-Weg) und die Pi-Images, und legt alles in eine GitHub-Veröffentlichung. Das Pi-Image lässt sich über „Run workflow" auch ohne Tag zum Testen bauen.
 

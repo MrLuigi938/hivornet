@@ -1,0 +1,10 @@
+# Neuer Versuch der Cowrie-Installation, solange sie nicht geklappt hat (z. B. ohne Internet).
+[Unit]
+Description=Hivornet: Cowrie-Installation erneut versuchen
+
+[Timer]
+OnBootSec=5min
+OnUnitInactiveSec=1h
+
+[Install]
+WantedBy=timers.target

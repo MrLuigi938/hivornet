@@ -1,0 +1,16 @@
+# Installiert Cowrie beim ersten Start mit Internet (siehe hivornet-cowrie-install).
+# Klappt das nicht, versucht es hivornet-cowrie-install.timer stündlich erneut.
+[Unit]
+Description=Hivornet: Cowrie installieren
+After=network-online.target hivornet-firstboot.service
+Wants=network-online.target
+ConditionPathExists=!/opt/hivornet/cowrie-env/.hivornet-ok
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hivornet-cowrie-install
+TimeoutStartSec=3600
+Nice=10
+
+[Install]
+WantedBy=multi-user.target

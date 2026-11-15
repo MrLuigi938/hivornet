@@ -5,15 +5,13 @@
 # du deshalb Port für Port 1:1 an den Pi weiter (extern 22 -> Pi 22 usw.).
 # NIE weiterleiten: 8088 (Web-UI) und 8089. Den Pi nie als "Exposed Host" eintragen.
 #
-# Cowrie (SSH/Telnet mit gefälschter Shell) gibt es auf dem Pi-Image nicht. Port 22
-# übernimmt der SSH-Tarpit, Port 23 und 2323 der Telnet-Honeypot.
+# Port 22 (SSH) und 23 (Telnet) gehören Cowrie (gefälschte Shell, eigener Dienst
+# hivornet-cowrie). Der Go-Honeypot übernimmt 2222 (SSH-Tarpit) und 2323 (Telnet).
 
 hostname: nas-backup01
 
 listeners:
   - { service: ftp,        port: 21,   mode: emulate }
-  - { service: ssh-tarpit, port: 22,   mode: hybrid }
-  - { service: telnet,     port: 23,   mode: emulate }
   - { service: smtp,       port: 25,   mode: emulate }
   - { service: http,       port: 80,   mode: emulate }
   - { service: https,      port: 443,  mode: emulate }

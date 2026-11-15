@@ -1,0 +1,38 @@
+# Cowrie auf dem Raspberry Pi: SSH (22) und Telnet (23) mit gefälschter Shell.
+# Läuft als eigener Benutzer ohne Rechte; für die Ports unter 1024 genügt
+# CAP_NET_BIND_SERVICE. Ausgehende Verbindungen sperrt hivornet-firewall.service.
+# Der Hive liest /var/lib/hivornet-cowrie/log/cowrie.json mit.
+[Unit]
+Description=Hivornet Cowrie (SSH/Telnet-Honeypot)
+After=network-online.target hivornet-firewall.service
+Wants=network-online.target hivornet-firewall.service
+ConditionPathExists=/opt/hivornet/cowrie-env/.hivornet-ok
+
+[Service]
+User=hivornet-cowrie
+WorkingDirectory=/opt/hivornet/cowrie
+Environment=PYTHONPATH=/opt/hivornet/cowrie/src PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ExecStart=/opt/hivornet/cowrie-env/bin/twistd -n --umask=0022 --pidfile= --logger cowrie.python.logfile.stdoutLogger cowrie
+Restart=always
+RestartSec=10
+StateDirectory=hivornet-cowrie hivornet-cowrie/log hivornet-cowrie/lib
+StateDirectoryMode=0755
+MemoryMax=256M
+TasksMax=256
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+CapabilityBoundingSet=CAP_NET_BIND_SERVICE
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+RestrictNamespaces=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

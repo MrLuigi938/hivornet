@@ -5,7 +5,8 @@
 # und löscht sich danach dort selbst.
 #
 # Schritte: Paket entpacken, Systembenutzer anlegen, Token erzeugen, SSH abschalten
-# (Port 22 gehört dem Honeypot), Dienste einschalten und starten.
+# (Port 22 gehört Cowrie), Dienste einschalten und starten. Cowrie selbst installiert
+# danach hivornet-cowrie-install.service (braucht Internet, dauert einige Minuten).
 # Protokoll: /var/log/hivornet-install.log
 set -eu
 
@@ -29,7 +30,7 @@ chmod 755 /opt/hivornet /opt/hivornet/hive /opt/hivornet/honeypot /usr/local/sbi
 systemd-sysusers /usr/lib/sysusers.d/hivornet.conf
 /usr/local/sbin/hivornet-firstboot
 
-# Port 22 übernimmt der Honeypot; der echte SSH-Dienst bleibt dauerhaft aus.
+# Port 22 übernimmt Cowrie; der echte SSH-Dienst bleibt dauerhaft aus.
 systemctl disable --now ssh.service ssh.socket sshswitch.service 2>/dev/null || true
 systemctl mask ssh.service ssh.socket 2>/dev/null || true
 
@@ -41,9 +42,11 @@ systemctl restart avahi-daemon.service 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl enable hivornet-firstboot.service hivornet-firewall.service hivornet-hive.service \
-  hivornet-honeypot.service hivornet-update.path
+  hivornet-honeypot.service hivornet-update.path hivornet-cowrie-install.service hivornet-cowrie-install.timer
 systemctl start hivornet-firewall.service hivornet-hive.service hivornet-update.path
 systemctl start hivornet-honeypot.service
+# Cowrie im Hintergrund installieren; die übrigen Dienste laufen schon
+systemctl start --no-block hivornet-cowrie-install.service hivornet-cowrie-install.timer
 
 touch "$DONE"
 rm -rf "$SRC"

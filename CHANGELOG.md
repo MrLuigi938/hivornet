@@ -6,6 +6,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ### Geändert
 - **Neuer Name: Hivornet.** Umbenannt sind Programmname, Oberfläche, Umgebungsvariablen (`HIVORNET_TOKEN`, `HIVORNET_VERSION`), Docker-Projekt und Volumes (`hivornet_*`), Image- und Paketnamen, Pi-Dienste und -Pfade (`/opt/hivornet`, `/etc/hivornet`, `hivornet-*.service`), Firewall-Ketten (`HIVORNET-OUT`), die Docker-Bridge (`hv-honeynet`), Sitzungs-Cookie und Browser-Speicher. Bestehende Installationen von 0.3.0 werden nicht automatisch übernommen: Pi neu aufspielen, im Docker-Betrieb `.env` mit den neuen Variablennamen anlegen.
+- Raspberry Pi: **Cowrie** (SSH und Telnet mit gefälschter Shell, Terminal-Mitschnitte) wird jetzt beim ersten Start mit Internet nachinstalliert und lauscht auf Port 22 und 23; der SSH-Tarpit bleibt auf 2222, der Telnet-Honeypot auf 2323. Netzsperre und tägliches Aufräumen gelten auch für Cowrie.
+- README für die Veröffentlichung neu geordnet; Entwicklerthemen stehen jetzt in `docs/ENTWICKLUNG.md`.
 - Neues Logo: Sicherheits-Schild mit gestreiftem Stachel (`hive/web/favicon.svg`, `docs/logo.svg`).
 - Updates: Auf der System-Seite lässt sich der Kanal wählen (nur fertige Versionen oder auch Vorabversionen), und „Jetzt prüfen“ fragt sofort bei GitHub nach. Tags mit Bindestrich (`v0.4.0-beta.1`) werden als Pre-Release veröffentlicht.
 

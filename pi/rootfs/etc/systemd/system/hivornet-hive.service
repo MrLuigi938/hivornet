@@ -10,6 +10,8 @@ User=hivornet-hive
 EnvironmentFile=/etc/hivornet/env
 Environment=HIVE_DB=/var/lib/hivornet/hive.db HIVE_GEOIP_DIR=/var/lib/hivornet/geoip
 Environment=HIVE_LISTEN=:8088 HIVE_SENSOR_LISTEN=127.0.0.1:8089 SENSOR_NAME=pi
+# Cowrie (SSH/Telnet, Ports 22 und 23) schreibt hierhin; der Hive liest nur mit
+Environment=HIVE_COWRIE_LOG=/var/lib/hivornet-cowrie/log/cowrie.json HIVE_COWRIE_LIB=/var/lib/hivornet-cowrie/lib
 # SD-Karte schonen: alle 5 s gebündelt schreiben; Datenbank höchstens 1 GB
 Environment=HIVE_FLUSH_MS=5000 HIVE_MAX_DB_MB=1024 HIVE_MIN_FREE_MB=512
 # Der Honeypot lauscht direkt auf den echten Ports; Updates per Knopf in der UI

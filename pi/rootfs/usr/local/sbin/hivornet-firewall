@@ -1,9 +1,9 @@
 #!/bin/sh
 # Hivornet Netzsperre auf dem Raspberry Pi (Betrieb ohne Docker).
 #
-# Der Honeypot läuft als Benutzer hivornet-pot. Diesem Benutzer wird jede NEUE
-# ausgehende Verbindung verboten; erlaubt bleiben Antworten an Angreifer und die
-# Sensor-API des Hive auf 127.0.0.1:8089. Wird der Honeypot übernommen, kommt der
+# Der Honeypot läuft als Benutzer hivornet-pot, Cowrie als hivornet-cowrie. Beiden
+# wird jede NEUE ausgehende Verbindung verboten; erlaubt bleiben Antworten an Angreifer
+# und (nur für den Honeypot) die Sensor-API des Hive auf 127.0.0.1:8089. Wird der Honeypot übernommen, kommt der
 # Angreifer von dort weder ins Heimnetz noch ins Internet noch an die Web-UI.
 #
 #   hivornet-firewall apply | remove | status
@@ -21,6 +21,9 @@ remove() {
   fi
   if command -v iptables >/dev/null 2>&1; then
     while iptables -D OUTPUT -m owner --uid-owner "$POT" -j HIVORNET-POT 2>/dev/null; do :; done
+    while iptables -D OUTPUT -m owner --uid-owner "$COW" -j HIVORNET-COW 2>/dev/null; do :; done
+    iptables -F HIVORNET-COW 2>/dev/null || true
+    iptables -X HIVORNET-COW 2>/dev/null || true
     iptables -F HIVORNET-POT 2>/dev/null || true
     iptables -X HIVORNET-POT 2>/dev/null || true
   fi
@@ -39,6 +42,10 @@ table inet hivornet {
   }
 }
 EOF
+    if [ -n "$COW_UID" ]; then
+      nft add rule inet hivornet output meta skuid "$COW_UID" ct state established,related accept
+      nft add rule inet hivornet output meta skuid "$COW_UID" drop
+    fi
     echo "Netzsperre aktiv (nftables)."
   elif command -v iptables >/dev/null 2>&1; then
     iptables -N HIVORNET-POT
@@ -46,6 +53,12 @@ EOF
     iptables -A HIVORNET-POT -o lo -d 127.0.0.1 -p tcp --dport 8089 -j RETURN
     iptables -A HIVORNET-POT -j DROP
     iptables -I OUTPUT 1 -m owner --uid-owner "$POT" -j HIVORNET-POT
+    if [ -n "$COW_UID" ]; then
+      iptables -N HIVORNET-COW
+      iptables -A HIVORNET-COW -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+      iptables -A HIVORNET-COW -j DROP
+      iptables -I OUTPUT 1 -m owner --uid-owner "$COW" -j HIVORNET-COW
+    fi
     echo "Netzsperre aktiv (iptables)."
   else
     die "weder nft noch iptables vorhanden; die Netzsperre fehlt"

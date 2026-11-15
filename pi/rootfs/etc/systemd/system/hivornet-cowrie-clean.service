@@ -1,0 +1,15 @@
+# Räumt alte Cowrie-Logs, Terminal-Mitschnitte und Downloads auf (älter als 14 Tage).
+[Unit]
+Description=Hivornet: alte Cowrie-Dateien löschen
+ConditionPathExists=/var/lib/hivornet-cowrie
+
+[Service]
+Type=oneshot
+User=hivornet-cowrie
+ExecStart=/usr/bin/find /var/lib/hivornet-cowrie/log -type f -name cowrie.*.* -mtime +14 -delete
+ExecStart=/usr/bin/find /var/lib/hivornet-cowrie/lib/tty /var/lib/hivornet-cowrie/lib/downloads -type f -mtime +14 -delete
+SuccessExitStatus=1
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/hivornet-cowrie
+PrivateNetwork=yes
