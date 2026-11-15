@@ -204,6 +204,39 @@ func TestAskAI(t *testing.T) {
 	}
 }
 
+func TestParseAIResponse(t *testing.T) {
+	ok := []struct{ name, in, want string }{
+		{"normal", `{"choices":[{"message":{"content":" Hallo "}}]}`, "Hallo"},
+		{"Teile", `{"choices":[{"message":{"content":[{"type":"text","text":"A"},{"type":"text","text":"B"}]}}]}`, "AB"},
+		{"think", `{"choices":[{"message":{"content":"<think>hmm\nlang</think>\n\nAntwort"}}]}`, "Antwort"},
+		{"reasoning-Feld", `{"choices":[{"message":{"content":"Antwort","reasoning_content":"hmm"}}]}`, "Antwort"},
+		{"SSE", "data: {\"choices\":[{\"delta\":{\"content\":\"Hal\"}}]}\n\ndata: {\"choices\":[{\"delta\":{\"content\":\"lo\"}}]}\n\ndata: [DONE]\n", "Hallo"},
+		{"Ollama", `{"message":{"role":"assistant","content":"Hallo"}}`, "Hallo"},
+		{"completion", `{"choices":[{"text":"Hallo"}]}`, "Hallo"},
+	}
+	for _, c := range ok {
+		got, err := parseAIResponse([]byte(c.in))
+		if err != nil || got != c.want {
+			t.Errorf("%s: %q %v", c.name, got, err)
+		}
+	}
+	bad := []struct{ name, in, want string }{
+		{"Denkgrenze", `{"choices":[{"message":{"content":"","reasoning":"..."},"finish_reason":"length"}]}`, "nur zum Nachdenken"},
+		{"Denkgrenze think", `{"choices":[{"message":{"content":"<think>endlos"},"finish_reason":"length"}]}`, "nur zum Nachdenken"},
+		{"Fehlerobjekt", `{"error":{"message":"model not found","code":404}}`, "model not found"},
+		{"HTML", `<!doctype html><html>`, "/v1"},
+		{"leer", ``, "leere Antwort"},
+		{"null content", `{"choices":[{"message":{"content":null},"finish_reason":"stop"}]}`, "kein Antworttext"},
+		{"Filter", `{"choices":[{"message":{"content":""},"finish_reason":"content_filter"}]}`, "Inhaltsfilter"},
+	}
+	for _, c := range bad {
+		_, err := parseAIResponse([]byte(c.in))
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: %v", c.name, err)
+		}
+	}
+}
+
 func TestReportAIStoresResult(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, `{"choices":[{"message":{"content":"Auswertung"}}]}`)

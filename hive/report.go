@@ -113,8 +113,9 @@ var aiHTTP = &http.Client{Timeout: 5 * time.Minute}
 
 // askAI schickt den Berichtstext an das eingestellte Modell und liefert die Antwort.
 func askAI(ctx context.Context, c AIConfig, text string) (string, error) {
+	// max_tokens lässt Platz für Denkmodelle; die eigentliche Antwort ist kurz.
 	body, _ := json.Marshal(map[string]any{
-		"model": c.Model, "temperature": 0.2, "max_tokens": 900, "stream": false,
+		"model": c.Model, "temperature": 0.2, "max_tokens": 4096, "stream": false,
 		"messages": []map[string]string{{"role": "system", "content": aiSystemPrompt}, {"role": "user", "content": text}},
 	})
 	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
@@ -134,17 +135,157 @@ func askAI(ctx context.Context, c AIConfig, text string) (string, error) {
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("KI antwortet %s: %s", resp.Status, clip(string(raw), 200))
 	}
-	var out struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
+	txt, err := parseAIResponse(raw)
+	if err != nil {
+		return "", err
 	}
-	if err := json.Unmarshal(raw, &out); err != nil || len(out.Choices) == 0 || strings.TrimSpace(out.Choices[0].Message.Content) == "" {
-		return "", fmt.Errorf("KI-Antwort nicht lesbar")
+	return clip(txt, 8000), nil
+}
+
+// aiContent nimmt "content" als Text oder als Liste von Teilen ({"type":"text","text":...}).
+func aiContent(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
 	}
-	return clip(strings.TrimSpace(out.Choices[0].Message.Content), 8000), nil
+	var parts []struct {
+		Type, Text string
+	}
+	if json.Unmarshal(raw, &parts) == nil {
+		var b strings.Builder
+		for _, p := range parts {
+			if p.Type == "" || p.Type == "text" || p.Type == "output_text" {
+				b.WriteString(p.Text)
+			}
+		}
+		return b.String()
+	}
+	return ""
+}
+
+// stripThink entfernt <think>…</think>-Blöcke, die Denkmodelle vor die Antwort setzen.
+func stripThink(s string) string {
+	for {
+		i := strings.Index(s, "<think>")
+		if i < 0 {
+			break
+		}
+		j := strings.Index(s[i:], "</think>")
+		if j < 0 {
+			s = s[:i] // Denkblock nicht beendet: nur der Teil davor zählt
+			break
+		}
+		s = s[:i] + s[i+j+len("</think>"):]
+	}
+	return strings.TrimSpace(s)
+}
+
+type aiChoice struct {
+	Message struct {
+		Content          json.RawMessage `json:"content"`
+		Reasoning        string          `json:"reasoning"`
+		ReasoningContent string          `json:"reasoning_content"`
+	} `json:"message"`
+	Delta struct {
+		Content          json.RawMessage `json:"content"`
+		Reasoning        string          `json:"reasoning"`
+		ReasoningContent string          `json:"reasoning_content"`
+	} `json:"delta"`
+	Text         string `json:"text"`
+	FinishReason string `json:"finish_reason"`
+}
+
+type aiResponse struct {
+	Choices []aiChoice      `json:"choices"`
+	Error   json.RawMessage `json:"error"`
+	Message struct {        // Ollama-eigenes Format (/api/chat)
+		Content string `json:"content"`
+	} `json:"message"`
+}
+
+// parseAIResponse liest die Antwort einer OpenAI-kompatiblen Schnittstelle. Sie verträgt
+// auch gestreamte Antworten (SSE), "content" als Liste, Denkmodelle und Ollamas eigenes
+// Format, und nennt bei Fehlern den Grund statt nur "nicht lesbar".
+func parseAIResponse(raw []byte) (string, error) {
+	body := bytes.TrimSpace(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")))
+	if len(body) == 0 {
+		return "", fmt.Errorf("KI-Antwort nicht lesbar: leere Antwort")
+	}
+	var msgs []aiResponse
+	if bytes.HasPrefix(body, []byte("data:")) { // Server hat trotz "stream": false gestreamt
+		for _, line := range strings.Split(string(body), "\n") {
+			line = strings.TrimSpace(line)
+			d, ok := strings.CutPrefix(line, "data:")
+			if !ok || strings.TrimSpace(d) == "[DONE]" {
+				continue
+			}
+			var m aiResponse
+			if json.Unmarshal([]byte(strings.TrimSpace(d)), &m) == nil {
+				msgs = append(msgs, m)
+			}
+		}
+	} else {
+		var m aiResponse
+		if err := json.Unmarshal(body, &m); err != nil {
+			if body[0] == '<' {
+				return "", fmt.Errorf("KI-Antwort nicht lesbar: Die Adresse liefert eine Webseite statt einer API-Antwort. Stimmt die Basis-Adresse (meist mit /v1 am Ende, z. B. http://host:11434/v1)?")
+			}
+			return "", fmt.Errorf("KI-Antwort nicht lesbar: kein JSON (%s)", clip(string(body), 200))
+		}
+		msgs = append(msgs, m)
+	}
+	if len(msgs) == 0 {
+		return "", fmt.Errorf("KI-Antwort nicht lesbar: %s", clip(string(body), 200))
+	}
+	var text strings.Builder
+	var reasoning bool
+	var finish string
+	for _, m := range msgs {
+		if len(m.Error) > 0 && string(m.Error) != "null" {
+			var e struct{ Message string }
+			var es string
+			switch {
+			case json.Unmarshal(m.Error, &e) == nil && e.Message != "":
+				return "", fmt.Errorf("KI meldet einen Fehler: %s", clip(e.Message, 300))
+			case json.Unmarshal(m.Error, &es) == nil && es != "":
+				return "", fmt.Errorf("KI meldet einen Fehler: %s", clip(es, 300))
+			default:
+				return "", fmt.Errorf("KI meldet einen Fehler: %s", clip(string(m.Error), 300))
+			}
+		}
+		if len(m.Choices) == 0 {
+			text.WriteString(m.Message.Content)
+			continue
+		}
+		c := m.Choices[0]
+		text.WriteString(aiContent(c.Message.Content))
+		text.WriteString(aiContent(c.Delta.Content))
+		text.WriteString(c.Text)
+		if c.Message.Reasoning != "" || c.Message.ReasoningContent != "" || c.Delta.Reasoning != "" || c.Delta.ReasoningContent != "" {
+			reasoning = true
+		}
+		if c.FinishReason != "" {
+			finish = c.FinishReason
+		}
+	}
+	full := text.String()
+	if strings.Contains(full, "<think>") {
+		reasoning = true
+	}
+	if out := stripThink(full); out != "" {
+		return out, nil
+	}
+	switch {
+	case reasoning && finish == "length":
+		return "", fmt.Errorf("KI-Antwort leer: Das Modell hat seine Token-Grenze nur zum Nachdenken verbraucht. Ein Modell ohne Denkmodus wählen oder den Denkmodus abschalten")
+	case reasoning:
+		return "", fmt.Errorf("KI-Antwort leer: Das Modell hat nur nachgedacht und keine Antwort geschrieben")
+	case finish == "length":
+		return "", fmt.Errorf("KI-Antwort leer: Token-Grenze erreicht, bevor Text kam")
+	case finish == "content_filter":
+		return "", fmt.Errorf("KI-Antwort leer: vom Inhaltsfilter des Anbieters blockiert")
+	}
+	return "", fmt.Errorf("KI-Antwort nicht lesbar: kein Antworttext (%s)", clip(string(body), 200))
 }
 
 func (h *Hive) reportAI(w http.ResponseWriter, r *http.Request) {
