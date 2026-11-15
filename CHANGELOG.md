@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.4.0-beta.4] – 2026-11-15
 
 ### Neu
 - Raspberry Pi: Seite **Protokolle** in der Web-UI (nur Admins, nur lesen). Zeigt die Systemprotokolle der Hivornet-Dienste (Cowrie, Cowrie-Installation, Honeypot, Hive, Netzsperre, Updates) und das Installationsprotokoll des ersten Starts, auf Wunsch alle 5 Sekunden aktualisiert. Ein Bildschirm am Pi ist zur Fehlersuche nicht mehr nötig.
