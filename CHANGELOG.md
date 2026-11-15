@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.5.1-beta.1] – 2026-11-15
 
 ### Neu
 - **Erlaubte Hostnamen in der Web-UI.** Unter Einstellungen → Zugriff über Reverse-Proxy trägst du die Domain ein, unter der du die Web-UI über einen Reverse-Proxy aufrufst. Bisher ging das nur mit `HIVE_ALLOWED_HOSTS`, auf dem Raspberry Pi also gar nicht. Die Liste ergänzt `HIVE_ALLOWED_HOSTS` und gilt sofort; IP-Adressen und Heimnetz-Namen bleiben immer erlaubt.

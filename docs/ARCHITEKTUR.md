@@ -1,6 +1,6 @@
 # Hivornet – Architektur
 
-Stand: Version 0.5.0-beta.1, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
+Stand: Version 0.5.1-beta.1, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
 
 Zwei Betriebsarten mit denselben Programmen: **Docker** (NAS, Server; Abschnitte 1 bis 6) und **Raspberry Pi ohne Docker** (systemd-Dienste; Abschnitt 7a).
 
