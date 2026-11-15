@@ -165,14 +165,14 @@ func (e *Emitter) Emit(ev Event) {
 	if ev.TS.IsZero() {
 		ev.TS = time.Now().UTC()
 	}
-	b, err := json.Marshal(ev)
+	b, err := marshalEvent(ev)
 	if err != nil {
 		e.dropped.Add(1)
 		return
 	}
 	if len(b) > maxEventBytes { // sollte durch die Budgets nie passieren; dann Inhalt kürzen
 		ev.Data = map[string]any{"truncated": true}
-		if b, err = json.Marshal(ev); err != nil || len(b) > maxEventBytes {
+		if b, err = marshalEvent(ev); err != nil || len(b) > maxEventBytes {
 			e.dropped.Add(1)
 			return
 		}
@@ -278,4 +278,17 @@ func (e *Emitter) Run(stop <-chan struct{}) {
 			return
 		}
 	}
+}
+
+// marshalEvent kodiert ein Ereignis als JSON ohne HTML-Maskierung. Go schreibt sonst
+// &, < und > als & usw. (sechs Zeichen statt einem); Angreiferdaten voller "&"
+// würden so das Größenbudget sprengen. Der Hive fügt Text nie als HTML ein.
+func marshalEvent(ev Event) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(ev); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
 }

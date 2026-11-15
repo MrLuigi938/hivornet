@@ -4,6 +4,10 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [0.4.0-beta.1] – 2026-11-15
 
+### Sicherheit
+- Telnet-Honeypot: Maskierte 0xFF-Bytes (`IAC IAC`) zählten nicht zur Zeilenlänge; eine Zeile ohne Zeilenende konnte unbegrenzt wachsen. Gefunden vom Fuzzing in der CI.
+- Ereignisse werden ohne HTML-Maskierung kodiert (`&` statt `&`). Angreiferdaten voller `&`, `<` oder `>` sprengten sonst das Größenbudget und gingen verloren.
+
 ### Geändert
 - **Neuer Name: Hivornet.** Umbenannt sind Programmname, Oberfläche, Umgebungsvariablen (`HIVORNET_TOKEN`, `HIVORNET_VERSION`), Docker-Projekt und Volumes (`hivornet_*`), Image- und Paketnamen, Pi-Dienste und -Pfade (`/opt/hivornet`, `/etc/hivornet`, `hivornet-*.service`), Firewall-Ketten (`HIVORNET-OUT`), die Docker-Bridge (`hv-honeynet`), Sitzungs-Cookie und Browser-Speicher. Bestehende Installationen von 0.3.0 werden nicht automatisch übernommen: Pi neu aufspielen, im Docker-Betrieb `.env` mit den neuen Variablennamen anlegen.
 - Raspberry Pi: **Cowrie** (SSH und Telnet mit gefälschter Shell, Terminal-Mitschnitte) wird jetzt beim ersten Start mit Internet nachinstalliert und lauscht auf Port 22 und 23; der SSH-Tarpit bleibt auf 2222, der Telnet-Honeypot auf 2323. Netzsperre und tägliches Aufräumen gelten auch für Cowrie.

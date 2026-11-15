@@ -46,7 +46,7 @@ Tags mit Bindestrich werden als **Pre-Release** veröffentlicht und nur Installa
 Das Skript ändert nur die Bootpartition eines offiziellen Raspberry Pi OS Lite und braucht weder Linux noch Root, nur Python 3 und openssl:
 
 ```bash
-pip install pyfatfs==1.1.0
+pip install "setuptools<80" pyfatfs==1.1.0   # pyfatfs braucht pkg_resources
 cd hive && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dist/arm64/hive . && cd ..
 cd honeypot && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dist/arm64/honeypot . && cd ..
 python3 pi/build_image.py --arch arm64 --version v0.4.0 --bin dist/arm64 --out dist

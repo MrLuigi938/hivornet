@@ -7,7 +7,7 @@ pi/install.sh. Beim ersten Start installiert cloud-init daraus alles von selbst.
 Die Linux-Partition wird nicht angefasst; deshalb braucht der Bau weder Linux noch
 Root-Rechte noch Emulation. Läuft unter Windows, macOS und Linux.
 
-Voraussetzung: Python 3.9+ und  pip install pyfatfs==1.1.0
+Voraussetzung: Python 3.9+ und  pip install "setuptools<80" pyfatfs==1.1.0
 
   python3 pi/build_image.py --arch arm64 --version v0.3.0 --bin <ordner mit hive und honeypot>
 

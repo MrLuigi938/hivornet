@@ -110,7 +110,8 @@ jobs:
         run: |
           tag="${GITHUB_REF_NAME}"
           case "$tag" in v*) ;; *) tag="v0.0.0-test" ;; esac
-          pip install pyfatfs==1.1.0
+          # pyfatfs braucht pkg_resources; das fehlt in setuptools in neueren Versionen
+          pip install "setuptools<80" pyfatfs==1.1.0
           # baut ohne Root: nur die FAT-Bootpartition wird geändert (pi/build_image.py)
           python3 pi/build_image.py --arch "${{ matrix.arch }}" --version "$tag" --bin "dist/${{ matrix.arch }}" --out .
           python3 pi/verify_image.py "hivornet-pi-${{ matrix.arch }}-$tag.img.xz" "$tag" "${{ matrix.arch }}"

@@ -121,8 +121,11 @@ func telnetReadLine(br *bufio.Reader, max int) (string, error) {
 				return "", err
 			}
 			switch {
-			case cmd == 255: // maskiertes 0xFF
+			case cmd == 255: // maskiertes 0xFF zählt wie jedes andere Zeichen zur Länge
 				sb.WriteByte(255)
+				if sb.Len() > max {
+					return "", errLineTooLong
+				}
 			case cmd >= 251 && cmd <= 254: // WILL, WONT, DO, DONT + Option
 				if _, err := br.ReadByte(); err != nil {
 					return "", err

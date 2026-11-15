@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"net"
 	"strings"
@@ -111,7 +110,7 @@ func FuzzUDPParsers(f *testing.F) {
 	f.Add(crlf("REGISTER sip:x SIP/2.0\n\n"))
 	f.Fuzz(func(t *testing.T, b []byte) {
 		for _, p := range udpHandlers {
-			if out, _ := json.Marshal(p(b)); len(out) > maxEventBytes {
+			if out, _ := marshalEvent(p(b)); len(out) > maxEventBytes {
 				t.Fatalf("Ereignis zu groß: %d", len(out))
 			}
 		}

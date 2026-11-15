@@ -366,3 +366,13 @@ func TestShippedConfigsLoad(t *testing.T) {
 		}
 	}
 }
+
+// Fund des Fuzzers: Maskierte 0xFF-Bytes (IAC IAC) zählten nicht zur Zeilenlänge;
+// eine Zeile konnte die Grenze überschreiten und ohne Zeilenende unbegrenzt wachsen.
+func TestTelnetReadLineEscapedIACLimit(t *testing.T) {
+	in := bytes.Repeat([]byte{255, 255}, 10000)
+	_, err := telnetReadLine(bufio.NewReaderSize(bytes.NewReader(in), 16), 64)
+	if err != errLineTooLong {
+		t.Fatalf("erwartet errLineTooLong, bekam %v", err)
+	}
+}
