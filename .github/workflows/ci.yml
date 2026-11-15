@@ -49,7 +49,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/rootfs/usr/local/sbin/*
+        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/rootfs/usr/local/sbin/*
+      - name: Netzsperre des Pi-Images (mit Ersatzbefehlen)
+        run: sh pi/test_firewall.sh
       - name: hadolint
         run: |
           for f in hive/Dockerfile honeypot/Dockerfile; do

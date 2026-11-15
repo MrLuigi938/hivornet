@@ -2,6 +2,14 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.4.0-beta.2] – 2026-11-15
+
+### Sicherheit
+- Raspberry Pi: Die Netzsperre (`hivornet-firewall`) brach beim Start ab, weil der Cowrie-Benutzer im Skript nicht gesetzt war. Dadurch scheiterte die Erstinstallation: Honeypot und Cowrie wurden nicht eingerichtet, und nach einem Neustart wäre der Honeypot ohne Sperre gestartet. Behoben; Honeypot und Cowrie starten jetzt grundsätzlich nur, wenn die Netzsperre aktiv ist (`Requires=`). Ein neuer CI-Test führt das Skript mit Ersatzbefehlen für nft und iptables aus.
+
+### Behoben
+- Release-Workflow: Die Veröffentlichung lädt nur noch die eigenen Artefakte (die Build-Protokolle von Docker ließen den Download scheitern).
+
 ## [0.4.0-beta.1] – 2026-11-15
 
 ### Sicherheit

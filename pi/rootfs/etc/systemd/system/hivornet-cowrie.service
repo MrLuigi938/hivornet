@@ -5,7 +5,9 @@
 [Unit]
 Description=Hivornet Cowrie (SSH/Telnet-Honeypot)
 After=network-online.target hivornet-firewall.service
-Wants=network-online.target hivornet-firewall.service
+Wants=network-online.target
+# Ohne Netzsperre startet Cowrie nicht.
+Requires=hivornet-firewall.service
 ConditionPathExists=/opt/hivornet/cowrie-env/.hivornet-ok
 
 [Service]

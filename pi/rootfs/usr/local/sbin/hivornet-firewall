@@ -14,6 +14,9 @@ POT=hivornet-pot
 die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
 id "$POT" >/dev/null 2>&1 || die "Benutzer $POT fehlt"
 POT_UID=$(id -u "$POT")
+# Cowrie ist optional (wird erst nach dem ersten Start installiert); ohne Benutzer keine Regel.
+COW=hivornet-cowrie
+COW_UID=$(id -u "$COW" 2>/dev/null || true)
 
 remove() {
   if command -v nft >/dev/null 2>&1; then

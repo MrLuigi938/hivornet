@@ -4,8 +4,9 @@
 [Unit]
 Description=Hivornet Honeypot
 After=network-online.target hivornet-firewall.service hivornet-hive.service
-Wants=network-online.target hivornet-firewall.service
-Requires=hivornet-firstboot.service
+Wants=network-online.target
+# Ohne Netzsperre startet der Honeypot nicht.
+Requires=hivornet-firstboot.service hivornet-firewall.service
 
 [Service]
 User=hivornet-pot
