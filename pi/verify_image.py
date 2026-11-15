@@ -91,7 +91,7 @@ with tarfile.open(fileobj=io.BytesIO(pl), mode="r:gz") as t:
     for n in ("opt/hivornet/hive", "opt/hivornet/honeypot"):
         b = t.extractfile(n).read(64)
         machine = struct.unpack("<H", b[18:20])[0]
-        check(b[:4] == b"\x7fELF" and machine == 0xB7, f"{n}: Linux-Programm für AArch64 (arm64)")
+        check(b[:4] == b"\x7fELF" and machine == ELF_MACHINE, f"{n}: Linux-Programm für {arch}")
     check(t.extractfile("opt/hivornet/VERSION").read().decode().strip() == version, f"VERSION = {version}")
     for n, m in members.items():
         if m.isfile() and n.startswith(("usr/local/sbin/", "etc/")):
