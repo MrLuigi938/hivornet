@@ -5,7 +5,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 ## [0.4.0-beta.5] – 2026-11-15
 
 ### Neu
-- Raspberry Pi: **Verwaltungsanschluss.** Ein USB-Netzwerkadapter (`eth1` … `eth9`, `enx…`) im Heimnetz macht die Web-UI von dort erreichbar, während der eingebaute Anschluss im Gastnetz steckt. `hivornet-firewall` lässt über den Adapter nur Port 8088 herein, sperrt dort alle neuen Verbindungen des Pi (außer DHCP, IPv6-Nachbarsuche und mDNS) und jede Weiterleitung zwischen den Anschlüssen. Die Netzsperre startet jetzt vor dem Netzwerk. Eine NetworkManager-Einstellung gibt der Route des Adapters niedrigeren Rang, damit Internet und Updates über das Gastnetz laufen. Die Web-UI zeigt unter System → Netzwerk den Adapter und den Stand der Sperre und warnt, wenn ein Adapter verbunden, aber nicht geschützt ist (auch auf älteren Images). Braucht ein neues Image.
+- Raspberry Pi: **Verwaltungsanschluss.** Ein USB-Netzwerkadapter (`eth1` … `eth9`, `enx…`) im Heimnetz macht die Web-UI von dort erreichbar, während der eingebaute Anschluss in einem eigenen Netz steckt (VLAN/DMZ; das FRITZ!Box-Gastnetz erlaubt keine Portfreigaben). `hivornet-firewall` lässt über den Adapter nur Port 8088 herein, sperrt dort alle neuen Verbindungen des Pi (außer DHCP, IPv6-Nachbarsuche und mDNS) und jede Weiterleitung zwischen den Anschlüssen. Die Netzsperre startet jetzt vor dem Netzwerk. Eine NetworkManager-Einstellung gibt der Route des Adapters niedrigeren Rang, damit Internet und Updates über das Gastnetz laufen. Die Web-UI zeigt unter System → Netzwerk den Adapter und den Stand der Sperre und warnt, wenn ein Adapter verbunden, aber nicht geschützt ist (auch auf älteren Images). Braucht ein neues Image.
 
 ## [0.4.0-beta.4] – 2026-11-15
 

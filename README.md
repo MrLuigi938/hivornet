@@ -7,7 +7,7 @@
 >
 > - **Updates:** Updates können ein Neuaufspielen oder eine neue `.env` erfordern; das steht dann im [CHANGELOG](CHANGELOG.md).
 > - **Getestet:** Raspberry Pi und Docker-Betrieb auf NAS sind bisher nur in kleinem Umfang erprobt.
-> - **Netz:** Am besten in einem eigenen Netz (VLAN/Gastnetz) und immer mit Netzsperre betreiben.
+> - **Netz:** Am besten in einem eigenen Netz (VLAN/DMZ; bei der FRITZ!Box nicht das Gastnetz, siehe Netzsperre) und immer mit Netzsperre betreiben.
 > - **Fehler melden:** Rückmeldungen und Fehlerberichte gerne als Issue; Sicherheitslücken wie in [SECURITY.md](SECURITY.md) beschrieben.
 
 Hivornet ist ein leichtgewichtiges Honeypot-System für zu Hause und kleine Netze. Es lockt Angreifer aus dem Internet auf gefälschte Dienste, zeichnet auf, was sie versuchen, und bremst sie auf Wunsch aus. Alles läuft mit **unter 512 MB RAM** auf einer NAS, einem Raspberry Pi oder einem kleinen Server.
@@ -113,19 +113,19 @@ Die Regeln sperren alle **neuen** Verbindungen aus dem Docker-Netz `honeynet` (B
 
 **Kontrolle:** Die Web-UI prüft alle 10 Minuten, ob der Honeypot ins Internet kommt. Unter **System** steht dann „Internet aus dem Container: gesperrt“. Fehlt die Sperre, erscheint eine rote Warnung auf dem Dashboard.
 
-Noch besser ist ein eigenes VLAN oder Gastnetz für die NAS bzw. den Pi.
+Noch besser ist ein eigenes Netz (VLAN oder DMZ) für die NAS bzw. den Pi, sofern der Router dorthin Portweiterleitungen erlaubt. **Die FRITZ!Box erlaubt keine Portfreigaben an Geräte im Gastnetz** („Ziel nicht im Heimnetz“); dort gehört der Honeypot ins Heimnetz und wird durch die Netzsperre abgesichert.
 
-### Raspberry Pi im Gastnetz, Web-UI aus dem Heimnetz
+### Raspberry Pi in eigenem Netz, Web-UI aus dem Heimnetz
 
-Im Gastnetz (bei der FRITZ!Box z. B. LAN 4 als Gastzugang) kommt ein übernommener Pi nicht an deine anderen Geräte. Dafür erreichst du aus dem Heimnetz auch die Web-UI nicht. Abhilfe schafft ein **USB-Netzwerkadapter als Verwaltungsanschluss** (Chip Realtek RTL8153 oder ASIX AX88179, funktionieren ohne Treiber):
+In einem eigenen Netz (VLAN oder DMZ, z. B. hinter einem zweiten Router mit OpenWrt) kommt ein übernommener Pi nicht an deine anderen Geräte. Voraussetzung ist, dass der Router Portweiterleitungen in dieses Netz erlaubt; **mit dem Gastnetz der FRITZ!Box geht das nicht**, sie lehnt Freigaben an Gastgeräte ab. Dafür erreichst du aus dem Heimnetz auch die Web-UI nicht. Abhilfe schafft ein **USB-Netzwerkadapter als Verwaltungsanschluss** (Chip Realtek RTL8153 oder ASIX AX88179, funktionieren ohne Treiber):
 
-1. Eingebauten Anschluss des Pi ins **Gastnetz** stecken (Honeypot, Internet, Updates), den USB-Adapter ins **Heimnetz**.
+1. Eingebauten Anschluss des Pi ins **eigene Netz** stecken (Honeypot, Internet, Updates), den USB-Adapter ins **Heimnetz**.
 2. Im Router dem Adapter eine feste IP geben und die Web-UI unter `http://<IP-des-Adapters>:8088` öffnen.
-3. Portweiterleitungen auf die IP des Pi im **Gastnetz** einrichten.
+3. Portweiterleitungen auf die IP des Pi im **eigenen Netz** einrichten.
 
 Der Pi erkennt den Adapter selbst (Namen `eth1` … `eth9` oder `enx…`); einrichten musst du nichts. Über ihn ist **nur Port 8088** erreichbar, Honeypot-Dienste und Cowrie nicht. Der Pi baut dort selbst keine Verbindung auf (erlaubt sind nur Antworten, DHCP, IPv6-Nachbarsuche und mDNS für `hivornet.local`), und zwischen den beiden Anschlüssen wird nichts weitergeleitet. Die Regeln gelten ab dem Start, bevor das Netzwerk hochkommt, auch für einen später eingesteckten Adapter. Unter **System → Netzwerk** siehst du den Adapter und ob die Sperre wirkt; wirkt sie nicht, erscheint eine rote Warnung.
 
-**Restrisiko:** Der Pi steckt damit wieder im Heimnetz, getrennt nur durch die Firewall auf dem Pi selbst. Ein Angreifer müsste die Emulation überwinden und zusätzlich root werden, um sie abzuschalten. Wer das ausschließen will, lässt den Adapter weg und öffnet die Web-UI über das Gast-WLAN. Der Verwaltungsanschluss braucht ein Image ab dieser Version; ein Update über die Web-UI tauscht nur die Programme.
+**Restrisiko:** Der Pi steckt damit wieder im Heimnetz, getrennt nur durch die Firewall auf dem Pi selbst. Ein Angreifer müsste die Emulation überwinden und zusätzlich root werden, um sie abzuschalten. Wer das ausschließen will, lässt den Adapter weg und öffnet die Web-UI aus dem eigenen Netz heraus. Der Verwaltungsanschluss braucht ein Image ab dieser Version; ein Update über die Web-UI tauscht nur die Programme.
 
 ## Router-Portweiterleitung
 
