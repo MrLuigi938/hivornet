@@ -127,8 +127,15 @@ jobs:
     runs-on: ubuntu-latest
     needs: [binaries, pi-image]
     steps:
+      # Nur die eigenen Artefakte laden: docker/build-push-action legt zusätzlich
+      # *.dockerbuild-Protokolle ab, deren Download hier scheitert.
       - uses: actions/download-artifact@v4
         with:
+          name: programme
+          path: all/programme
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: pi-image-*
           path: all
       - name: Veröffentlichung anlegen
         env:
