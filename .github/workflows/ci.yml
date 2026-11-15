@@ -49,7 +49,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck
-        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/rootfs/usr/local/sbin/*
+        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/test_cowrie_install.sh pi/rootfs/usr/local/sbin/*
       - name: Netzsperre des Pi-Images (mit Ersatzbefehlen)
         run: sh pi/test_firewall.sh
       - name: hadolint
@@ -61,6 +61,15 @@ jobs:
         env:
           HIVORNET_TOKEN: ci-test-token
         run: docker compose --profile cowrie config --quiet
+
+  cowrie-pi:
+    name: Cowrie-Installation (Pi, Debian 13)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - name: Installieren und starten wie auf dem Pi
+        run: docker run --rm -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_cowrie_install.sh
 
   docker:
     name: Docker-Build (amd64, arm64, armv7)

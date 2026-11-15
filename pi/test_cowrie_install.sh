@@ -1,0 +1,84 @@
+#!/bin/sh
+# Testet die Cowrie-Installation des Pi-Images in einem Debian-13-Container (wie
+# Raspberry Pi OS "trixie"), ohne systemd:
+#
+#   docker run --rm -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_cowrie_install.sh
+#
+# 1. hivornet-cowrie-install läuft durch, der Stand lautet "ok".
+# 2. Cowrie startet mit genau dem Befehl und der Umgebung aus hivornet-cowrie.service,
+#    als Benutzer ohne Rechte und mit nur lesbarem Quelltext.
+# 3. SSH (22) und Telnet (23) antworten, cowrie.json enthält die Verbindungen.
+set -eu
+SRC=${SRC:-/src}
+UNIT="$SRC/pi/rootfs/etc/systemd/system/hivornet-cowrie.service"
+fail() { echo "FEHLER: $*" >&2; [ -f /tmp/cowrie.out ] && tail -40 /tmp/cowrie.out >&2; exit 1; }
+
+# Dateien wie im Paket des Images ablegen
+mkdir -p /etc/hivornet /usr/local/sbin /usr/local/bin
+cp "$SRC/pi/rootfs/etc/hivornet/cowrie.cfg" /etc/hivornet/
+cp "$SRC/pi/rootfs/usr/local/sbin/hivornet-cowrie-install" /usr/local/sbin/
+chmod 755 /usr/local/sbin/hivornet-cowrie-install
+# systemctl gibt es im Container nicht: Aufrufe nur mitschreiben
+cat >/usr/local/bin/systemctl <<'EOF'
+#!/bin/sh
+echo "systemctl $*" >>/tmp/systemctl.log
+EOF
+chmod 755 /usr/local/bin/systemctl
+
+echo "== Installation"
+/usr/local/sbin/hivornet-cowrie-install || fail "Installation gescheitert: $(cat /var/lib/hivornet-status/cowrie-install 2>/dev/null)"
+[ "$(head -n 1 /var/lib/hivornet-status/cowrie-install)" = ok ] || fail "Stand nicht ok: $(cat /var/lib/hivornet-status/cowrie-install)"
+grep -q "enable --now hivornet-cowrie.service" /tmp/systemctl.log || fail "Dienst wurde nicht eingeschaltet"
+# Zweiter Lauf: erkennt die fertige Installation
+/usr/local/sbin/hivornet-cowrie-install || fail "zweiter Lauf"
+
+echo "== Start wie hivornet-cowrie.service"
+useradd --system --no-create-home --shell /usr/sbin/nologin hivornet-cowrie
+mkdir -p /var/lib/hivornet-cowrie/log /var/lib/hivornet-cowrie/lib
+chown -R hivornet-cowrie /var/lib/hivornet-cowrie
+workdir=$(sed -n 's/^WorkingDirectory=//p' "$UNIT")
+envs=$(sed -n 's/^Environment=//p' "$UNIT")
+cmd=$(sed -n 's/^ExecStart=//p' "$UNIT")
+[ -n "$workdir" ] && [ -n "$cmd" ] || fail "WorkingDirectory/ExecStart nicht in $UNIT"
+cd "$workdir"
+# shellcheck disable=SC2086 # Umgebung und Befehl bewusst an Leerzeichen trennen (wie systemd)
+runuser -u hivornet-cowrie -- env $envs $cmd >/tmp/cowrie.out 2>&1 &
+pid=$!
+
+# banner PORT TEXT: wartet bis zu 90 s, bis der Port TEXT sendet
+banner() {
+  python3 - "$1" "$2" <<'EOF'
+import socket, sys, time
+port, want = int(sys.argv[1]), sys.argv[2].encode()
+end = time.time() + 90
+while time.time() < end:
+    try:
+        s = socket.create_connection(("127.0.0.1", port), timeout=5)
+        data = b""
+        while want not in data and len(data) < 4096:
+            b = s.recv(1024)
+            if not b:
+                break
+            data += b
+        s.close()
+        if want in data:
+            sys.exit(0)
+    except OSError:
+        pass
+    time.sleep(2)
+sys.exit(1)
+EOF
+}
+banner 22 "SSH-2.0-" || fail "SSH auf Port 22 antwortet nicht"
+banner 23 "login:" || fail "Telnet auf Port 23 antwortet nicht"
+kill -0 "$pid" 2>/dev/null || fail "Cowrie läuft nicht mehr"
+
+log=/var/lib/hivornet-cowrie/log/cowrie.json
+for _ in $(seq 1 15); do
+  grep -q '"eventid": *"cowrie.session.connect"' "$log" 2>/dev/null && break
+  sleep 1
+done
+grep -q '"eventid": *"cowrie.session.connect"' "$log" 2>/dev/null || fail "$log fehlt oder enthält keine Verbindung"
+[ "$(stat -c %a "$log")" = 644 ] || fail "$log ist für den Hive nicht lesbar ($(stat -c %a "$log"))"
+kill "$pid"
+echo "Cowrie-Installation: alle Prüfungen bestanden"

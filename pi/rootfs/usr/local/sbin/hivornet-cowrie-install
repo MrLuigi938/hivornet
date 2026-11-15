@@ -8,7 +8,9 @@
 # Ergebnis: /opt/hivornet/cowrie (Quelltext), /opt/hivornet/cowrie-env (Python-Umgebung),
 # Merker /opt/hivornet/cowrie-env/.hivornet-ok. Danach starten hivornet-cowrie.service
 # (Ports 22 und 23) und der tägliche Aufräum-Timer.
-# Protokoll: journalctl -u hivornet-cowrie-install
+# Protokoll: journalctl -u hivornet-cowrie-install (in der Web-UI unter Protokolle).
+# Den Stand (läuft, fertig, gescheitert bei Schritt X) schreibt es nach
+# /var/lib/hivornet-status/cowrie-install; die Web-UI zeigt ihn unter System.
 set -eu
 
 VER=3.1.6
@@ -18,28 +20,59 @@ DEST=/opt/hivornet/cowrie
 VENV=/opt/hivornet/cowrie-env
 MARK="$VENV/.hivornet-ok"
 
-[ -f "$MARK" ] && exit 0
+STATUS_DIR=${HIVORNET_STATUS_DIR:-/var/lib/hivornet-status}
+mkdir -p "$STATUS_DIR"
+chmod 755 "$STATUS_DIR"
+# status ZUSTAND TEXT: Zeile 1 running|ok|failed, Zeile 2 Unix-Zeit, Zeile 3 Text
+status() {
+  printf '%s\n%s\n%s\n' "$1" "$(date +%s)" "$2" >"$STATUS_DIR/cowrie-install.neu"
+  chmod 644 "$STATUS_DIR/cowrie-install.neu"
+  mv "$STATUS_DIR/cowrie-install.neu" "$STATUS_DIR/cowrie-install"
+}
+STEP="Start"
+step() { STEP=$1; echo "== $1"; status running "$1"; }
+tmp=""
+done_ok=0
+finish() {
+  rc=$?
+  [ -n "$tmp" ] && rm -rf "$tmp"
+  if [ "$done_ok" != 1 ]; then
+    status failed "Schritt „$STEP“ fehlgeschlagen (Exit-Code $rc). Neuer Versuch stündlich; Details unter Protokolle."
+  fi
+}
+trap finish EXIT
+
+if [ -f "$MARK" ]; then
+  status ok "Cowrie $VER installiert"
+  done_ok=1
+  exit 0
+fi
 echo "Installiere Cowrie $VER ..."
 
 export DEBIAN_FRONTEND=noninteractive
+step "Paketlisten laden (apt-get update)"
 apt-get update -q
+step "Werkzeuge installieren (apt-get install)"
 # Build-Werkzeuge nur für den Fall, dass für ein Python-Paket kein fertiges Rad existiert
 apt-get install -y -q --no-install-recommends python3-venv python3-dev build-essential libffi-dev libssl-dev curl ca-certificates
 
+step "Cowrie $VER herunterladen"
 tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
 curl -fsSL --max-time 300 -o "$tmp/cowrie.tar.gz" "$URL"
 echo "$SHA256  $tmp/cowrie.tar.gz" | sha256sum -c - >/dev/null || { echo "Prüfsumme des Cowrie-Quelltexts stimmt nicht" >&2; exit 1; }
 
+step "Cowrie entpacken"
 rm -rf "$DEST" "$VENV"
 mkdir -p "$DEST"
 tar -xzf "$tmp/cowrie.tar.gz" -C "$DEST" --strip-components=1 --no-same-owner
+step "Python-Pakete installieren (dauert auf dem Pi einige Minuten)"
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q -r "$DEST/requirements.txt"
 
 # Einstellungen von Hivornet (Pfade, Ports 22/23, Download-Grenze). Cowrie liest ./cowrie.cfg
 # im Arbeitsverzeichnis des Dienstes.
+step "Cowrie einrichten"
 ln -sf /etc/hivornet/cowrie.cfg "$DEST/cowrie.cfg"
 # Zur Laufzeit ist der Quelltext nur lesbar: Bytecode und den Plugin-Zwischenspeicher
 # von Twisted jetzt einmal erzeugen, damit Cowrie beim Start nichts schreiben muss.
@@ -49,6 +82,9 @@ chown -R root:root "$DEST" "$VENV"
 chmod -R go-w "$DEST" "$VENV"
 
 touch "$MARK"
+step "Cowrie starten"
 systemctl daemon-reload
 systemctl enable --now hivornet-cowrie.service hivornet-cowrie-clean.timer
+status ok "Cowrie $VER installiert"
+done_ok=1
 echo "Cowrie $VER installiert und gestartet (SSH 22, Telnet 23)."
