@@ -57,7 +57,9 @@ hostname: hivornet
 manage_etc_hosts: true
 ssh_pwauth: false
 runcmd:
-  - [sh, /boot/firmware/hivornet/install.sh]
+  # Hat vendor-data den Installer schon ausgeführt (er löscht sich danach), ist die
+  # Datei weg: dann nur prüfen, dass die Installation fertig ist, statt zu scheitern.
+  - [sh, -c, "if [ -f /boot/firmware/hivornet/install.sh ]; then sh /boot/firmware/hivornet/install.sh; else test -e /var/lib/hivornet-installed; fi"]
 """
 VENDOR_DATA = """#!/bin/sh
 # Hivornet: zweiter Anstoß des Installers (falls user-data ersetzt wurde)

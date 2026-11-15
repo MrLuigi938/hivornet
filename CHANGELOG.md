@@ -2,6 +2,11 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben
+- Raspberry Pi: Beim ersten Start meldete `cloud-final.service` einen Fehler, obwohl die Installation geklappt hatte. vendor-data hatte den Installer schon ausgeführt (er löscht sich danach), und der zweite Anstoß aus user-data fand die Datei nicht mehr. Jetzt prüft der zweite Anstoß nur, ob die Installation fertig ist.
+
 ## [0.4.0-beta.3] – 2026-11-15
 
 ### Behoben
