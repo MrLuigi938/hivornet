@@ -182,7 +182,7 @@ Regeln für die UI:
 | `HIVE_ADMIN_USER`, `HIVE_ADMIN_PASSWORD`, `HIVE_RESET_ADMIN` | `admin`, leer, `0` | Admin-Konto beim ersten Start bzw. Zurücksetzen |
 | `HIVE_LISTEN`, `HIVE_SENSOR_LISTEN` | `:8088`, leer | UI-Port; Sensor-Port. Ohne Sensor-Port liegen die Sensor-Routen mit auf dem UI-Port (nur Entwicklung) |
 | `HIVE_INGEST_SUBNET` | leer | aus diesem Netz lehnt die UI Anfragen ab |
-| `HIVE_ALLOWED_HOSTS`, `HIVE_COOKIE_SECURE` | leer, `0` | Host-Prüfung, Cookie nur über HTTPS |
+| `HIVE_ALLOWED_HOSTS`, `HIVE_COOKIE_SECURE` | leer, `0` | Host-Prüfung (ergänzt um die Liste aus der Web-UI), Cookie immer nur über HTTPS (sonst automatisch bei HTTPS-Anmeldung) |
 | `HIVE_DB`, `HIVE_GEOIP_DIR`, `HIVE_GEOIP` | `/data/hive.db`, `/data/geoip`, `on` | Speicherorte; `off` schaltet den GeoIP-Download ab |
 | `HIVE_RETENTION_DAYS`, `HIVE_MAX_DB_MB`, `HIVE_MIN_FREE_MB` | 30, 2048, 1024 | Aufbewahrung |
 | `HIVE_FLUSH_MS` | 300 | Schreibintervall des Writers (100–60000). Größer schont SD-Karten |

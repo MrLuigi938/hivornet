@@ -733,6 +733,7 @@ async function viewSettings(el) {
     mount(el, card("Noch keine Sensor-Konfiguration",
       h("p", null, "Der Honeypot hat sich noch nicht beim Hive gemeldet. Sobald er läuft (ca. 10 Sekunden nach dem Start), erscheint hier seine Konfiguration."),
       h("button", { class: "btn", onclick: route }, "Neu laden")), extras,
+      state.user.role === "admin" ? accessCard(s) : null,
       state.user.role === "admin" ? backupCard() : null); // Import auch auf einem frisch installierten Gerät
     return;
   }
@@ -810,7 +811,36 @@ async function viewSettings(el) {
       h("form", { onsubmit: changePw },
         row("Aktuelles Passwort", pwCur), row("Neues Passwort", pwNew, "10 bis 72 Zeichen. Andere angemeldete Geräte werden abgemeldet."),
         h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg)),
+    state.user.role === "admin" ? accessCard(s) : null,
     state.user.role === "admin" ? backupCard() : null));
+}
+
+// ---------- Zugriff über einen Reverse-Proxy (erlaubte Hostnamen) ----------
+
+function accessCard(s) {
+  const msg = h("div", { class: "msg", hidden: true });
+  const show = (text, cls) => { msg.className = "msg " + cls; msg.textContent = text; msg.hidden = false; };
+  const area = h("textarea", { rows: 3, maxlength: 4000, spellcheck: false, autocomplete: "off",
+    placeholder: "hivornet.example.de", style: { width: "100%", fontFamily: "var(--mono, monospace)" } });
+  area.value = (s.allowed_hosts || []).join("\n");
+  const env = s.allowed_hosts_env || [];
+  async function save(e) {
+    e.preventDefault();
+    const list = area.value.split(/[\s,]+/).filter(Boolean);
+    try {
+      const r = await api("settings", { method: "PUT", body: { allowed_hosts: list } });
+      area.value = r.allowed_hosts.join("\n");
+      show(r.allowed_hosts.length ? "Gespeichert. Die Namen gelten sofort." : "Gespeichert. Es sind nur noch IP-Adressen und Heimnetz-Namen erlaubt.", "ok");
+    } catch (ex) { show(ex.message, "err"); }
+  }
+  return card("Zugriff über Reverse-Proxy",
+    h("p", { class: "sub" }, "Die Web-UI antwortet nur auf IP-Adressen und Heimnetz-Namen (z. B. .local, .lan, .fritz.box). Das schützt vor DNS-Rebinding. Rufst du sie über einen Reverse-Proxy unter eigener Domain auf, trage diese hier ein, einen Namen pro Zeile. Ein Punkt am Anfang (.example.de) erlaubt alle Unterdomänen."),
+    h("form", { onsubmit: save },
+      h("div", { class: "form-row" }, h("label", null, "Erlaubte Hostnamen"), area,
+        h("div", { class: "help" }, "Nur den Namen, ohne https:// und Port. Über die IP-Adresse bleibt die Web-UI immer erreichbar.")),
+      env.length ? h("p", { class: "muted" }, "Zusätzlich aus der Konfiguration (HIVE_ALLOWED_HOSTS): " + env.join(", ")) : null,
+      h("button", { class: "btn", type: "submit" }, "Hostnamen speichern"), msg),
+    h("p", { class: "muted" }, "Das Anmelde-Cookie ist automatisch nur über HTTPS gültig, wenn du dich über HTTPS anmeldest (der Proxy muss dafür X-Forwarded-Proto: https mitschicken). Gib die Web-UI nie ohne zusätzliche Anmeldung am Proxy oder VPN ins Internet frei."));
 }
 
 // ---------- Sicherung (Export und Import aller Daten, verschlüsselt) ----------

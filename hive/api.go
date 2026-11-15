@@ -563,7 +563,8 @@ func (h *Hive) getSettings(w http.ResponseWriter, r *http.Request) {
 		"sensor": sensor, "sensors": names, "own_config": own,
 		"sensor_config": cfg, "retention_days": h.retentionDays(), "published": pub, "direct_ports": direct,
 		"services": knownServices, "modes": knownModes, "max_tarpit_conns": maxTarpitConns,
-		"cowrie": map[string]string{"ssh": os.Getenv("PORT_SSH"), "telnet": os.Getenv("PORT_TELNET")},
+		"cowrie":        map[string]string{"ssh": os.Getenv("PORT_SSH"), "telnet": os.Getenv("PORT_TELNET")},
+		"allowed_hosts": nonNil(h.uiAllowedHosts()), "allowed_hosts_env": nonNil(h.hosts.env),
 	})
 }
 
@@ -573,12 +574,24 @@ func (h *Hive) putSettings(w http.ResponseWriter, r *http.Request) {
 		SensorConfig  *SensorConfig `json:"sensor_config"`
 		ResetOwn      bool          `json:"reset_own"`
 		RetentionDays int           `json:"retention_days"`
+		AllowedHosts  *[]string     `json:"allowed_hosts"`
 	}
 	if err := readJSON(w, r, &req); err != nil {
 		httpErr(w, 400, "ungültige Anfrage")
 		return
 	}
 	req.Sensor = clip(req.Sensor, 64)
+	if req.AllowedHosts != nil {
+		hosts, err := normalizeHosts(*req.AllowedHosts)
+		if err != nil {
+			httpErr(w, 400, err.Error())
+			return
+		}
+		h.st.SetKV(kvAllowedHosts, strings.Join(hosts, "\n"))
+		h.reloadHosts()
+		writeJSON(w, map[string]any{"ok": true, "allowed_hosts": nonNil(hosts)})
+		return
+	}
 	switch {
 	case req.ResetOwn && req.Sensor != "":
 		h.st.DelKV(configKey(req.Sensor))

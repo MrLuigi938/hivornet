@@ -90,7 +90,7 @@ func (h *Hive) setupRun(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("Ersteinrichtung abgeschlossen, Admin-Konto %q angelegt", user)
 	h.auth.success(clientIP(r))
-	if err := h.auth.startSession(w, user); err != nil {
+	if err := h.auth.startSession(w, r, user); err != nil {
 		httpErr(w, 500, "Konto angelegt, aber die Anmeldung schlug fehl. Bitte anmelden.")
 		return
 	}

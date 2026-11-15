@@ -55,6 +55,7 @@ type Hive struct {
 	aiSem    chan struct{} // höchstens eine KI-Auswertung gleichzeitig
 	upd      updater       // Update-Prüfung (setup.go)
 	restart  chan struct{} // Neustart nach einer Wiederherstellung (backup.go)
+	hosts    hostList      // erlaubte Hostnamen der Web-UI (hosts.go)
 }
 
 func env(k, def string) string {
@@ -324,10 +325,8 @@ func main() {
 			log.Printf("HIVE_INGEST_SUBNET ungültig: %v", err)
 		}
 	}
-	var allowedHosts []string
-	if v := os.Getenv("HIVE_ALLOWED_HOSTS"); v != "" {
-		allowedHosts = strings.Split(v, ",")
-	}
+	h.hosts.env = envAllowedHosts()
+	h.reloadHosts()
 
 	sensorAddr := os.Getenv("HIVE_SENSOR_LISTEN")
 	sub, _ := fs.Sub(webFS, "web")
@@ -342,7 +341,7 @@ func main() {
 		return &http.Server{Addr: addr, Handler: hd, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 120 * time.Second,
 			MaxHeaderBytes: 64 << 10, BaseContext: func(net.Listener) context.Context { return baseCtx }}
 	}
-	servers := []*http.Server{mkServer(env("HIVE_LISTEN", ":8088"), securityHeaders(uiGuard(ui, ingestNet, allowedHosts)))}
+	servers := []*http.Server{mkServer(env("HIVE_LISTEN", ":8088"), securityHeaders(uiGuard(ui, ingestNet, h.allowedHosts)))}
 	if sensorAddr != "" {
 		servers = append(servers, mkServer(sensorAddr, sensorMux))
 	}

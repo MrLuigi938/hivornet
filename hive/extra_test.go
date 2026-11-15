@@ -755,7 +755,7 @@ func TestViewerRole(t *testing.T) {
 	ui, _ := h.routes(false, "", http.NotFoundHandler())
 	cookie := func(user string) *http.Cookie {
 		rec := httptest.NewRecorder()
-		if err := h.auth.startSession(rec, user); err != nil {
+		if err := h.auth.startSession(rec, httptest.NewRequest("GET", "/", nil), user); err != nil {
 			t.Fatal(err)
 		}
 		return rec.Result().Cookies()[0]

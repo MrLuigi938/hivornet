@@ -82,7 +82,7 @@ func TestBackupExportImport(t *testing.T) {
 	h.auth.EnsureAdmin("admin", "adminpasswort1")
 	ui, _ := h.routes(false, "", http.NotFoundHandler())
 	rec := httptest.NewRecorder()
-	if err := h.auth.startSession(rec, "admin"); err != nil {
+	if err := h.auth.startSession(rec, httptest.NewRequest("GET", "/", nil), "admin"); err != nil {
 		t.Fatal(err)
 	}
 	cookie := rec.Result().Cookies()[0]

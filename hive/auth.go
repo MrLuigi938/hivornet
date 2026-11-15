@@ -199,22 +199,30 @@ func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	a.success(ip)
-	if err := a.startSession(w, req.Username); err != nil {
+	if err := a.startSession(w, r, req.Username); err != nil {
 		httpErr(w, 500, "Sitzung konnte nicht angelegt werden")
 		return
 	}
 	writeJSON(w, map[string]string{"username": req.Username})
 }
 
+// viaHTTPS: Die Anfrage kam verschlüsselt an, direkt oder über einen Reverse-Proxy, der
+// "X-Forwarded-Proto: https" setzt. Dann bekommt das Sitzungs-Cookie das Secure-Flag, auch
+// ohne HIVE_COOKIE_SECURE. Ein gefälschter Header schadet nur dem, der ihn schickt: Sein
+// Browser schickt das Cookie dann nicht mehr über HTTP.
+func viaHTTPS(r *http.Request) bool {
+	return r.TLS != nil || strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
+}
+
 // startSession legt eine Sitzung an und setzt das Cookie (Anmeldung, Ersteinrichtung).
-func (a *Auth) startSession(w http.ResponseWriter, user string) error {
+func (a *Auth) startSession(w http.ResponseWriter, r *http.Request, user string) error {
 	tok := randToken(32)
 	exp := time.Now().Add(7 * 24 * time.Hour)
 	if _, err := a.st.db.Exec(`INSERT INTO auth_sessions(token,username,expires) VALUES(?,?,?)`, tokenHash(tok), user, exp.Unix()); err != nil {
 		return err
 	}
 	http.SetCookie(w, &http.Cookie{Name: cookieName, Value: tok, Path: "/", Expires: exp, HttpOnly: true,
-		Secure: a.secureCookie, SameSite: http.SameSiteStrictMode})
+		Secure: a.secureCookie || viaHTTPS(r), SameSite: http.SameSiteStrictMode})
 	return nil
 }
 
@@ -336,7 +344,7 @@ func hostAllowed(host string, extra []string) bool {
 	return !strings.Contains(h, ".") // einfacher Rechnername ohne Domain, z. B. "nas"
 }
 
-func uiGuard(next http.Handler, ingest *net.IPNet, allowed []string) http.Handler {
+func uiGuard(next http.Handler, ingest *net.IPNet, allowed func() []string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ingest != nil {
 			if ip := net.ParseIP(clientIP(r)); ip != nil && ingest.Contains(ip) {
@@ -344,8 +352,8 @@ func uiGuard(next http.Handler, ingest *net.IPNet, allowed []string) http.Handle
 				return
 			}
 		}
-		if !hostAllowed(r.Host, allowed) {
-			httpErr(w, 421, "unbekannter Hostname; in HIVE_ALLOWED_HOSTS eintragen")
+		if !hostAllowed(r.Host, allowed()) {
+			httpErr(w, 421, "unbekannter Hostname: über die IP-Adresse öffnen und unter Einstellungen → Zugriff eintragen (oder HIVE_ALLOWED_HOSTS)")
 			return
 		}
 		next.ServeHTTP(w, r)

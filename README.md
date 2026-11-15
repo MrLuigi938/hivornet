@@ -265,7 +265,10 @@ docker compose restart hive          # der Hive übernimmt restore.db beim Start
 **UI mit HTTPS (optional):** Die UI spricht nur HTTP und ist für das Heimnetz gedacht. Für HTTPS einen Reverse-Proxy davorsetzen, z. B. den der Synology:
 1. Systemsteuerung → Anmeldeportal → Erweitert → Reverse Proxy.
 2. Quelle `https://hivornet.nas.lan:8443`, Ziel `http://localhost:8088`.
-3. In `.env` setzen: `HIVE_BIND=127.0.0.1`, `HIVE_COOKIE_SECURE=1`, `HIVE_ALLOWED_HOSTS=hivornet.nas.lan`.
+3. In `.env` setzen: `HIVE_BIND=127.0.0.1`, `HIVE_COOKIE_SECURE=1`.
+4. Den Namen (`hivornet.nas.lan`) unter **Einstellungen → Zugriff über Reverse-Proxy** eintragen. Das geht auch auf dem Raspberry Pi; alternativ `HIVE_ALLOWED_HOSTS` in der `.env`.
+
+Kommt die Anmeldung über HTTPS (der Proxy schickt `X-Forwarded-Proto: https`), ist das Cookie auch ohne `HIVE_COOKIE_SECURE` nur über HTTPS gültig. Aus dem Internet erreichbar machen solltest du die Web-UI nur mit einer zusätzlichen Anmeldung am Proxy oder über ein VPN (z. B. WireGuard der FRITZ!Box).
 
 ## Testen
 
@@ -336,7 +339,7 @@ Kein Ersatz für Rechtsberatung, aber das solltest du wissen:
 | Warnung „Netzsperre fehlt“ | `sudo sh tools/firewall.sh`; bleibt die Warnung nach 10 Minuten, `sudo sh tools/firewall.sh status` prüfen |
 | Docker: Cowrie-Log „fehlt“ | `COMPOSE_PROFILES=cowrie` in `.env`? Logs prüfen: `docker compose logs cowrie`. |
 | GeoIP „Download fehlgeschlagen“ | Hivornet braucht Internet für `download.db-ip.com` und versucht es täglich neu. |
-| UI meldet „unbekannter Hostname“ | Den Namen, unter dem du das Gerät aufrufst, in `HIVE_ALLOWED_HOSTS` eintragen |
+| UI meldet „unbekannter Hostname“ | Die Web-UI über die IP-Adresse öffnen und den Namen unter Einstellungen → Zugriff über Reverse-Proxy eintragen (oder in `HIVE_ALLOWED_HOSTS`) |
 | „Jetzt prüfen“ meldet „Repository nicht öffentlich“ | GitHub ist nicht erreichbar oder das Repository nicht öffentlich. Später erneut versuchen. |
 | Passwort vergessen (Docker) | In `.env` `HIVE_ADMIN_PASSWORD` neu setzen und `HIVE_RESET_ADMIN=1`, dann `docker compose up -d hive`. Danach `HIVE_RESET_ADMIN=0` und das Passwort aus `.env` entfernen, noch einmal `docker compose up -d hive`. |
 
