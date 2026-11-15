@@ -155,9 +155,9 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 6px; overfl
 .map svg { overflow: hidden; }
 .map .country { fill: var(--land); stroke: var(--page); stroke-width: 0.18; stroke-linejoin: round; transition: fill 0.12s; }
 .map .country:hover { fill: color-mix(in srgb, var(--accent) 38%, var(--land)); }
-.map .pt { fill: var(--accent); fill-opacity: 0.55; stroke: var(--surface); stroke-width: 0.25; }
-.map .pt:hover { fill-opacity: 0.9; }
-.map .pulse { fill: none; stroke: var(--live); stroke-width: 0.6; animation: pulse 2.2s ease-out forwards; transform-box: fill-box; transform-origin: center; }
+.map .pt { fill: var(--accent); fill-opacity: 0.7; stroke: var(--surface); stroke-width: 0.12; }
+.map .pt:hover { fill-opacity: 1; stroke: var(--text); stroke-width: 0.2; }
+.map .pulse { fill: none; stroke: var(--live); stroke-width: 0.4; animation: pulse 2.2s ease-out forwards; transform-box: fill-box; transform-origin: center; }
 .map .pulse-core { fill: var(--live); animation: fade 2.2s ease-out forwards; }
 @keyframes pulse { from { transform: scale(0.3); opacity: 1; } to { transform: scale(3); opacity: 0; } }
 @keyframes fade { from { opacity: 1; } to { opacity: 0; } }

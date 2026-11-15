@@ -47,7 +47,7 @@ export function worldMap(points, { home = null, large = false } = {}) {
   const dots = s("g");
   const sorted = [...points].sort((a, b) => b.n - a.n); // kleine Punkte oben
   for (const p of sorted) {
-    const r = 0.8 + 4.2 * Math.sqrt(p.n / max);
+    const r = 0.45 + 1.6 * Math.sqrt(p.n / max); // in Grad: klein genug, dass Land und Ort erkennbar bleiben
     const c = s("circle", { class: "pt", cx: (p.lon + 180).toFixed(2), cy: (90 - p.lat).toFixed(2), r: r.toFixed(2) });
     hoverTip(c, () => [
       [flag(p.country), " ", [p.city, countryName(p.country)].filter(Boolean).join(", ")],
@@ -71,7 +71,7 @@ export function worldMap(points, { home = null, large = false } = {}) {
     if (!lat && !lon) return;
     if (live.childNodes.length > 120) live.firstChild.remove();
     const x = px(lon).toFixed(2), y = py(lat).toFixed(2);
-    const g = s("g", null, s("circle", { class: "pulse", cx: x, cy: y, r: 3 }), s("circle", { class: "pulse-core", cx: x, cy: y, r: 1.1 }));
+    const g = s("g", null, s("circle", { class: "pulse", cx: x, cy: y, r: 2 }), s("circle", { class: "pulse-core", cx: x, cy: y, r: 0.7 }));
     live.append(g);
     setTimeout(() => g.remove(), 2300);
   };

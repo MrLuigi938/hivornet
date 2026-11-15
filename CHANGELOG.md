@@ -4,6 +4,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unveröffentlicht]
 
+### Geändert
+- Weltkarte: Die Punkte der Angriffsherkunft sind deutlich kleiner (größter Punkt etwa 2 statt 5 Grad Radius), ebenso die Live-Pulse. Nahe Orte lassen sich unterscheiden und das Land darunter bleibt sichtbar.
+
 ### Behoben
 - KI-Auswertung: „KI-Antwort nicht lesbar“ bei Antworten, die vom einfachsten Format abweichen. Gelesen werden jetzt auch Denkmodelle (`<think>`-Blöcke, `reasoning`-Felder), `content` als Liste, gestreamte Antworten und Ollamas eigenes Format. Die Token-Grenze steigt von 900 auf 4096, damit Denkmodelle nach dem Nachdenken noch antworten. Bleibt die Antwort leer oder unlesbar, nennt die Meldung den Grund: Fehlermeldung des Anbieters, Token-Grenze beim Nachdenken verbraucht, Webseite statt API (falsche Basis-Adresse) oder Inhaltsfilter.
 
