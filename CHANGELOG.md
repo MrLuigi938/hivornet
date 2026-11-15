@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.4.0-beta.3] – 2026-11-15
 
 ### Behoben
 - Update-Prüfung: Vorabversionen gleicher Nummer wurden nicht verglichen; 0.4.0-beta.2 galt auf 0.4.0-beta.1 nicht als neuer („Du hast die neueste Version“). Vergleich jetzt nach Semantic Versioning (beta.2 < beta.11 < rc.1 < fertig).
