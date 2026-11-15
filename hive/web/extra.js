@@ -284,7 +284,7 @@ export async function extrasCards() {
   });
 
   const body = () => ({
-    home: x.home, abuseipdb_key: secrets.abuseipdb_key || "",
+    home: x.home, abuseipdb_key: secrets.abuseipdb_key || "", greynoise_key: secrets.greynoise_key || "",
     notify: { ...x.notify, ntfy_token: secrets.ntfy_token || "", telegram_token: secrets.telegram_token || "" },
     ai: { ...x.ai, api_key: secrets.ai_api_key || "" },
   });

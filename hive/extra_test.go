@@ -575,6 +575,29 @@ func TestNewestRelease(t *testing.T) {
 	if !parseSemver("1.2.3").newer(parseSemver("1.2.3-rc.1")) || parseSemver("dev").ok {
 		t.Fatal("Versionsvergleich falsch")
 	}
+	// Vorabversionen gleicher Nummer: 0.4.0-beta.2 muss auf 0.4.0-beta.1 als Update erscheinen
+	if r, _ := newestRelease(context.Background(), "0.4.0-alpha.3", true); r == nil || r.Version != "0.4.0-beta.1" {
+		t.Fatalf("alpha -> beta: %+v", r)
+	}
+	if r, _ := newestRelease(context.Background(), "0.4.0-beta.1", true); r != nil {
+		t.Fatalf("gleiche Vorabversion, aber Hinweis: %+v", r)
+	}
+}
+
+func TestSemverPrerelease(t *testing.T) {
+	order := []string{"1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2",
+		"1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"} // Reihenfolge aus semver.org, Abschnitt 11
+	for i := range order {
+		for j := range order {
+			got := parseSemver(order[i]).newer(parseSemver(order[j]))
+			if got != (i > j) {
+				t.Errorf("%s neuer als %s: %v", order[i], order[j], got)
+			}
+		}
+	}
+	if !parseSemver("v0.4.0-beta.2").newer(parseSemver("0.4.0-beta.1")) {
+		t.Fatal("beta.2 nicht neuer als beta.1")
+	}
 }
 
 func TestUpdateRequestFile(t *testing.T) {
@@ -768,5 +791,45 @@ func TestUpdateChannelAndCheckNow(t *testing.T) {
 	h.updateCheckNow(rec, httptest.NewRequest("POST", "/api/update/check", nil))
 	if rec.Code != 400 || !strings.Contains(rec.Body.String(), "Entwicklungsversion") {
 		t.Fatalf("Jetzt prüfen in dev: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Jedes Geheimnis aus secretFields muss die Einstellungsseite beim Speichern mitschicken
+// (der GreyNoise-Schlüssel fehlte dort und ging so beim Speichern verloren).
+func TestExtrasSecretsSentByUI(t *testing.T) {
+	js, err := os.ReadFile("web/extra.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var x Extras
+	for name := range x.secretFields() {
+		if !strings.Contains(string(js), "secrets."+name+" ||") {
+			t.Errorf("web/extra.js schickt %s beim Speichern nicht mit", name)
+		}
+	}
+}
+
+// Webhook: "content" für Discord, und bei Ablehnung steht der Grund des Empfängers im Fehler.
+func TestWebhookDiscordAndErrorDetail(t *testing.T) {
+	var body map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["content"]; !ok || r.URL.Path == "/nein" {
+			w.WriteHeader(400)
+			io.WriteString(w, `{"message": "Cannot send an empty message",`+"\n"+` "code": 50006}`)
+		}
+	}))
+	defer srv.Close()
+	n := NewNotifier(func() NotifyConfig { return NotifyConfig{} })
+	nt := notice{Kind: "login", Title: "Titel", Text: "Text", IP: "203.0.113.9", Time: time.Now()}
+	if err := n.Send(NotifyConfig{WebhookURL: srv.URL + "/hook"}, nt); err != nil {
+		t.Fatalf("Discord-Format abgelehnt: %v", err)
+	}
+	if body["content"] != "Titel\nText" || body["title"] != "Titel" || body["ip"] != "203.0.113.9" {
+		t.Fatalf("Webhook-Inhalt: %v", body)
+	}
+	err := n.Send(NotifyConfig{WebhookURL: srv.URL + "/nein"}, nt)
+	if err == nil || !strings.Contains(err.Error(), "400 Bad Request: {\"message\": \"Cannot send an empty message\", \"code\": 50006}") {
+		t.Fatalf("Fehlertext ohne Grund: %v", err)
 	}
 }

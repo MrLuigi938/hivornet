@@ -1,6 +1,7 @@
 package main
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -200,14 +201,46 @@ func parseSemver(s string) semver {
 	return v
 }
 
-// newer: a ist neuer als b. Eine Vorabversion ist älter als die fertige gleicher Nummer.
+// newer: a ist neuer als b. Eine Vorabversion ist älter als die fertige gleicher Nummer;
+// Vorabversionen untereinander vergleicht comparePre (beta.2 ist neuer als beta.1).
 func (a semver) newer(b semver) bool {
 	for i := range a.n {
 		if a.n[i] != b.n[i] {
 			return a.n[i] > b.n[i]
 		}
 	}
-	return a.pre == "" && b.pre != ""
+	switch {
+	case a.pre == "" || b.pre == "":
+		return a.pre == "" && b.pre != ""
+	default:
+		return comparePre(a.pre, b.pre) > 0
+	}
+}
+
+// comparePre vergleicht Vorabkennungen nach Semantic Versioning (Abschnitt 11):
+// Teile zwischen Punkten einzeln, Zahlen numerisch und vor Text, bei gleichem
+// Anfang ist die kürzere Kennung älter (beta < beta.1 < beta.2 < beta.10 < rc.1).
+func comparePre(a, b string) int {
+	as, bs := strings.Split(a, "."), strings.Split(b, ".")
+	for i := 0; i < len(as) && i < len(bs); i++ {
+		an, aerr := strconv.Atoi(as[i])
+		bn, berr := strconv.Atoi(bs[i])
+		switch {
+		case aerr == nil && berr == nil:
+			if an != bn {
+				return cmp.Compare(an, bn)
+			}
+		case aerr == nil:
+			return -1
+		case berr == nil:
+			return 1
+		default:
+			if c := strings.Compare(as[i], bs[i]); c != 0 {
+				return c
+			}
+		}
+	}
+	return cmp.Compare(len(as), len(bs))
 }
 
 // Update-Kanal: "stable" sieht nur fertige Veröffentlichungen, "pre" zusätzlich

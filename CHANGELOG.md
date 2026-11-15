@@ -2,6 +2,13 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben
+- Update-Prüfung: Vorabversionen gleicher Nummer wurden nicht verglichen; 0.4.0-beta.2 galt auf 0.4.0-beta.1 nicht als neuer („Du hast die neueste Version“). Vergleich jetzt nach Semantic Versioning (beta.2 < beta.11 < rc.1 < fertig).
+- Einstellungen: Der GreyNoise-Schlüssel wurde beim Speichern nicht mitgeschickt und ging verloren.
+- Webhook: Die Meldung enthält zusätzlich das Feld `content`, damit Discord-Webhooks sie annehmen (vorher „400 Bad Request“). Lehnt ein Ziel ab, zeigt die Fehlermeldung einen Auszug seiner Antwort.
+
 ## [0.4.0-beta.2] – 2026-11-15
 
 ### Sicherheit

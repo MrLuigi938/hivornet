@@ -215,10 +215,14 @@ func (n *Notifier) Send(c NotifyConfig, nt notice) error {
 		if err == nil {
 			var resp *http.Response
 			if resp, err = n.http.Do(req); err == nil {
-				io.Copy(io.Discard, io.LimitReader(resp.Body, 1<<16))
+				b, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<16))
 				resp.Body.Close()
 				if resp.StatusCode >= 300 {
+					// Ein Auszug der Antwort zeigt, was der Empfänger bemängelt (z. B. fehlendes Feld).
 					err = fmt.Errorf("Antwort %s", resp.Status)
+					if detail := clip(strings.Join(strings.Fields(string(b)), " "), 200); detail != "" {
+						err = fmt.Errorf("Antwort %s: %s", resp.Status, detail)
+					}
 				}
 			}
 		}
@@ -255,7 +259,7 @@ func (n *Notifier) Send(c NotifyConfig, nt notice) error {
 		try("Telegram", req, err)
 	}
 	if c.WebhookURL != "" {
-		body, _ := json.Marshal(nt)
+		body, _ := json.Marshal(webhookBody(nt))
 		req, err := http.NewRequest("POST", c.WebhookURL, bytes.NewReader(body))
 		if err == nil {
 			req.Header.Set("Content-Type", "application/json")
@@ -269,6 +273,18 @@ func (n *Notifier) Send(c NotifyConfig, nt notice) error {
 		return fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil
+}
+
+// webhookBody: die Felder der Meldung (title, text, kind, ip, time) und zusätzlich
+// "content" mit Titel und Text, damit Discord-Webhooks die Meldung annehmen (Discord
+// verlangt dieses Feld, höchstens 2000 Zeichen; Slack und Mattermost lesen "text").
+func webhookBody(nt notice) map[string]any {
+	m := map[string]any{"kind": nt.Kind, "title": nt.Title, "text": nt.Text, "time": nt.Time,
+		"content": clip(nt.Title+"\n"+nt.Text, 1900)}
+	if nt.IP != "" {
+		m["ip"] = nt.IP
+	}
+	return m
 }
 
 // asciiHeader ersetzt Umlaute und entfernt alles außerhalb von ASCII (HTTP-Kopfzeile).
