@@ -2,6 +2,14 @@
 
 # Hivornet
 
+> [!WARNING]
+> **Hivornet ist derzeit eine Beta.** Die Software läuft und wird getestet, aber Funktionen, Konfiguration und Datenformat können sich noch ändern, und Fehler sind möglich.
+>
+> - **Updates:** Updates können ein Neuaufspielen oder eine neue `.env` erfordern; das steht dann im [CHANGELOG](CHANGELOG.md).
+> - **Getestet:** Raspberry Pi und Docker-Betrieb auf NAS sind bisher nur in kleinem Umfang erprobt.
+> - **Netz:** Am besten in einem eigenen Netz (VLAN/Gastnetz) und immer mit Netzsperre betreiben.
+> - **Fehler melden:** Rückmeldungen und Fehlerberichte gerne als Issue; Sicherheitslücken wie in [SECURITY.md](SECURITY.md) beschrieben.
+
 Ein leichtgewichtiges Honeypot-System als Alternative zu T-Pot: viele Protokolle, Angreifer ausbremsen (Tarpit) und Auswertung im Browser. Es läuft mit **3 Containern unter 512 MB RAM** auf einer NAS, einem Raspberry Pi oder einem kleinen Server.
 
 | Container | Aufgabe | RAM (gemessen / Limit) |
