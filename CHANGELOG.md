@@ -6,6 +6,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ### Neu
 - **Erlaubte Hostnamen in der Web-UI.** Unter Einstellungen → Zugriff über Reverse-Proxy trägst du die Domain ein, unter der du die Web-UI über einen Reverse-Proxy aufrufst. Bisher ging das nur mit `HIVE_ALLOWED_HOSTS`, auf dem Raspberry Pi also gar nicht. Die Liste ergänzt `HIVE_ALLOWED_HOSTS` und gilt sofort; IP-Adressen und Heimnetz-Namen bleiben immer erlaubt.
+- **Sitzungen** stehen jetzt unter Angriffe (dritter Umschalter neben „Gebündelt“ und „Einzelne Ereignisse“) statt im Benutzermenü.
 - **Anmelde-Cookie automatisch nur über HTTPS**, wenn die Anmeldung über HTTPS kommt (direkt oder über einen Proxy mit `X-Forwarded-Proto: https`). `HIVE_COOKIE_SECURE=1` erzwingt es weiterhin immer.
 
 ## [0.5.0-beta.1] – 2026-11-15

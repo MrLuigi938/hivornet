@@ -204,7 +204,6 @@ function renderShell() {
   const menu = h("div", { class: "menu", hidden: true },
     h("div", { class: "info" }, "Angemeldet als ", h("b", null, state.user.username), state.user.role === "viewer" ? " (nur ansehen)" : ""),
     isAdmin ? h("a", { href: "#/settings" }, "Einstellungen") : null,
-    h("a", { href: "#/sessions" }, "Sitzungen"),
     state.user.logs ? h("a", { href: "#/logs" }, "Protokolle") : null,
     h("hr"),
     h("label", { class: "row" }, "Darstellung", theme),
@@ -575,11 +574,11 @@ async function viewFeed(el, ctx) {
 // ---------- Sitzungen ----------
 
 async function viewSessions(el) {
-  header("Sitzungen", { range: true });
+  header("Angriffe", { range: true, extra: viewSwitch("sitzungen") });
   const rows = await api("sessions?range=" + state.range);
   const yes = (n, cls = "") => (n ? h("span", { class: "badge " + cls }, fmtNum(n)) : h("span", { class: "muted" }, "–"));
   mount(el, h("div", { class: "stack" },
-    h("p", { class: "sub" }, "Verbindungen mit Login-Versuchen, Befehlen oder Downloads. Klick öffnet den Ablauf."),
+    h("p", { class: "sub" }, "Einzelne Verbindungen, in denen sich ein Angreifer angemeldet, Befehle getippt oder Dateien geladen hat. Klick öffnet den Ablauf mit Angriffsbericht und, bei Cowrie, dem Terminal-Mitschnitt."),
     card(null, rows.length ? h("div", { class: "tablewrap" }, h("table", null,
       h("thead", null, h("tr", null, ["Start", "Dienst", "Quelle", "Dauer", "Logins", "Befehle", "Downloads", "Status"].map((t) => h("th", null, t)))),
       h("tbody", null, rows.map((r) => h("tr", { class: "click", onclick: (e) => { if (!e.target.closest("a")) location.hash = "#/session/" + encodeURIComponent(r.session); } },

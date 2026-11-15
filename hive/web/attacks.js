@@ -292,10 +292,10 @@ export async function viewAttacks(el, ctx, query = "") {
   ctx.every(30000, () => { if (!f.paused && !document.hidden) renderSide(); });
 }
 
-// Umschalter "Gebündelt / Einzelne Ereignisse" (zwei Routen)
+// Umschalter der Seite "Angriffe": gebündelt, einzelne Ereignisse, Sitzungen (drei Routen)
 export function viewSwitch(cur) {
   return h("div", { class: "seg", role: "group", "aria-label": "Ansicht" },
-    h("button", { class: cur === "gruppen" ? "on" : "", onclick: () => { location.hash = "#/attacks"; } }, "Gebündelt"),
-    h("button", { class: cur === "einzeln" ? "on" : "", onclick: () => { location.hash = "#/feed"; } }, "Einzelne Ereignisse"));
+    [["gruppen", "#/attacks", "Gebündelt"], ["einzeln", "#/feed", "Einzelne Ereignisse"], ["sitzungen", "#/sessions", "Sitzungen"]].map(([k, href, label]) =>
+      h("button", { class: cur === k ? "on" : "", "aria-pressed": String(cur === k), onclick: () => { location.hash = href; } }, label)));
 }
 
