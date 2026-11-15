@@ -15,7 +15,7 @@ Hivornet ist ein leichtgewichtiges Honeypot-System für zu Hause und kleine Netz
 - **Viele Dienste:** SSH und Telnet mit gefälschter Shell (Cowrie), FTP, HTTP/HTTPS, Docker-API, MySQL, Redis, SMTP, RDP, VNC und weitere. SIP, SNMP und DNS laufen über UDP und zeichnen nur auf.
 - **Ausbremsen (Tarpit):** Pro Port wählbar: Angreifer bekommen endlos winzige Datenstücke, und ihr Scanner hängt fest.
 - **Auswertung im Browser:**
-  - Lagezentrale mit Kennzahlen, zoombarer Weltkarte und den gerade aktiven Angreifern;
+  - Dashboard mit Kennzahlen, zoombarer Weltkarte und den gerade aktiven Angreifern;
   - Angriffe statt Einzelereignissen: alles einer IP gebündelt, mit Stufe, vermuteter Art und Zusammenfassung;
   - Sitzungen mit Terminal-Mitschnitt, Angriffsberichte;
   - erkannte Angriffsmuster, Zugangsdaten und Befehle.
@@ -112,7 +112,7 @@ Die Regeln sperren alle **neuen** Verbindungen aus dem Docker-Netz `honeynet` (B
 - **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Ausgelöste Aufgabe → Benutzerdefiniertes Skript, Ereignis „Hochfahren“, Benutzer `root`, Befehl: `sh /volume1/docker/hivornet/tools/firewall.sh`. Da Docker eventuell erst danach startet, zusätzlich eine geplante Aufgabe alle 15 Minuten mit demselben Befehl anlegen; das Skript ist idempotent.
 - **Linux mit systemd:** `tools/hivornet-firewall.service` nach `/etc/systemd/system/` kopieren, Pfad anpassen, `sudo systemctl enable --now hivornet-firewall`.
 
-**Kontrolle:** Die Web-UI prüft alle 10 Minuten, ob der Honeypot ins Internet kommt. Unter **System** steht dann „Internet aus dem Container: gesperrt“. Fehlt die Sperre, erscheint eine rote Warnung auf der Seite Lage.
+**Kontrolle:** Die Web-UI prüft alle 10 Minuten, ob der Honeypot ins Internet kommt. Unter **System** steht dann „Internet aus dem Container: gesperrt“. Fehlt die Sperre, erscheint eine rote Warnung auf dem Dashboard.
 
 Noch besser ist ein eigenes Netz (VLAN oder DMZ) für die NAS bzw. den Pi, sofern der Router dorthin Portweiterleitungen erlaubt. **Die FRITZ!Box erlaubt keine Portfreigaben an Geräte im Gastnetz** („Ziel nicht im Heimnetz“); dort gehört der Honeypot ins Heimnetz und wird durch die Netzsperre abgesichert.
 
@@ -162,7 +162,7 @@ Du musst nicht alle weiterleiten. Für den Anfang genügen 22, 23, 80, 443 und 3
 
 | Ansicht | Inhalt |
 |---|---|
-| Lage | Warnungen; Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor; Weltkarte (Länder nach Anzahl eingefärbt, Orte, Zoom, Regionen, Live-Angriffe); **Gerade aktiv**: Angreifer der letzten 15 Minuten, nach IP gebündelt; Verlauf nach Dienst und Top-Listen |
+| Dashboard | Warnungen; Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor; Weltkarte (Länder nach Anzahl eingefärbt, Orte, Zoom, Regionen, Live-Angriffe); **Gerade aktiv**: Angreifer der letzten 15 Minuten, nach IP gebündelt; Verlauf nach Dienst und Top-Listen |
 | Angriffe | **gebündelt:** eine Karte je Angriff (Ereignisse einer IP mit weniger als 15 Minuten Pause) mit Stufe (Abtasten → Versuche → Login angenommen → Befehle → Datei nachgeladen), vermuteter Art (z. B. „SSH-Brute-Force“, „Web-Scanner“), Zugangsdaten, Pfaden, Befehlen, erkannten Mustern und Zeitstreifen; Filter nach Stufe und Dienst, Suche. **Einzelne Ereignisse:** alle Ereignisse in Echtzeit, Wiederholungen als eine Zeile mit Zähler (×10); Export als CSV/JSON, Blockliste und STIX 2.1 (für MISP, OpenCTI) |
 | Live-Karte | große Karte: Jede neue Verbindung zeichnet eine Linie vom Ursprung zum Honeypot; Laufliste, Angriffe pro Minute |
 | Analyse | erkannte Angriffsmuster (Klick zeigt die passenden Angriffe), benutzte und installierte Programme, Scanner, Nachlade-Adressen |
@@ -253,7 +253,7 @@ docker compose restart hive          # der Hive übernimmt restore.db beim Start
 
 **Überwachung:**
 - **Healthchecks:** für Hive, Honeypot und Cowrie; `docker compose ps` zeigt `healthy`.
-- **Warnungen in der UI** (Lage und System), z. B.:
+- **Warnungen in der UI** (Dashboard und System), z. B.:
   - ein Sensor meldet sich nicht;
   - die Netzsperre fehlt;
   - Ereignisse wurden verworfen;

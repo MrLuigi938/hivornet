@@ -13,7 +13,7 @@ const state = { user: null, range: store("range") || "24h", es: null, liveFns: n
 
 // Navigation in der Kopfleiste; Einstellungen, System und Protokolle stehen im Benutzermenü.
 const NAV = [
-  ["#/", "Lage"], ["#/attacks", "Angriffe"], ["#/live", "Live-Karte"], ["#/analysis", "Analyse"],
+  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/live", "Live-Karte"], ["#/analysis", "Analyse"],
   ["#/creds", "Zugangsdaten"], ["#/tarpit", "Tarpit"], ["#/system", "System"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
@@ -27,7 +27,7 @@ const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mys
 const MODE_NAME = { emulate: "Aufzeichnen", tarpit: "Tarpit", hybrid: "Hybrid" };
 
 // ---------- Theme ----------
-// Standard ist dunkel ("Lagezentrale"); "system" folgt der Einstellung des Betriebssystems.
+// Standard ist dunkel; "system" folgt der Einstellung des Betriebssystems.
 function applyTheme(t) {
   document.documentElement.dataset.theme = t === "light" || t === "system" ? t : "dark";
 }
@@ -372,7 +372,7 @@ function warningsBox(list, link) {
 // ---------- Dashboard ----------
 
 async function viewDashboard(el, ctx) {
-  header("Lage", { range: true });
+  header("Dashboard", { range: true });
   const r = state.range;
   const q = (p) => api(p + (p.includes("?") ? "&" : "?") + "range=" + r);
   const [ser, tl, mp, countries, ports, ips, asns, creds, cmds, act, sys] = await Promise.all([

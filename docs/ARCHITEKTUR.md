@@ -1,6 +1,6 @@
 # Hivornet – Architektur
 
-Stand: Version 0.4.0-beta.4, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
+Stand: Version 0.5.0-beta.1, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
 
 Zwei Betriebsarten mit denselben Programmen: **Docker** (NAS, Server; Abschnitte 1 bis 6) und **Raspberry Pi ohne Docker** (systemd-Dienste; Abschnitt 7a).
 
@@ -162,7 +162,7 @@ Reines JavaScript in ES-Modulen, kein Build-Schritt, per `go:embed` im Binary (i
 | `charts.js` | `worldMap` (Länder nach Anzahl eingefärbt, Orte als Punkte, Zoom per Mausrad, Verschieben, `REGIONS`, Umschalter Länder/Orte/Beides in `controls`; Hover mit Flagge, Name und Angriffen; `attack()` zeichnet die Angriffslinie), `sparkline`, `timeline`, `toplist`, `svcName`, `svcColor` |
 | `attacks.js` | Seite „Angriffe“ (`viewAttacks`), Karte je Angriff (`attackCard`), Zeile für „Gerade aktiv“ (`attackRow`), `liveAttacks` (sammelt IPs aus dem Live-Strom und holt alle 2 s deren Angriffe), Umschalter zur Einzelansicht |
 | `world.js` | Landumrisse (`COUNTRIES`) und deutsche Ländernamen (`COUNTRY_NAMES`), erzeugt von `tools/build_world.py`; Länder über der Datumsgrenze sind abgewickelt |
-| `app.js` | Anmeldung, Live-Stream, Kopfleiste mit Navigation und Benutzermenü, Router (`routes`, `route()`), Ansichten Lage (`viewDashboard`), Einzelne Ereignisse (`viewFeed`, fasst Wiederholungen zusammen), Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
+| `app.js` | Anmeldung, Live-Stream, Kopfleiste mit Navigation und Benutzermenü, Router (`routes`, `route()`), Ansichten Dashboard (`viewDashboard`), Einzelne Ereignisse (`viewFeed`, fasst Wiederholungen zusammen), Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
 | `extra.js` | Ansichten Live-Karte und Analyse; Bausteine `reportCard`, `ttyCard`, `intelCard`, `extrasCards` |
 
 Regeln für die UI:

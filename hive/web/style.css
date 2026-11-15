@@ -9,7 +9,7 @@
 .flag { font-family: "Twemoji Country Flags", "Segoe UI Emoji", sans-serif; font-style: normal; }
 #tip .t .flag { font-size: 15px; vertical-align: -1px; }
 
-/* Hivornet UI ("Lagezentrale"). Standard ist dunkel; Hell über data-theme="light"
+/* Hivornet UI. Standard ist dunkel; Hell über data-theme="light"
    oder data-theme="system" bei hellem System. Farben nach Rollen:
    --sev0..4 = Stufe eines Angriffs (Abtasten, Versuche, Login ok, Befehle, Download),
    --s1..8 = Dienste, --heat = Länder auf der Karte, --dot = Orte. */
@@ -232,7 +232,7 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 8px; overfl
   .map .home-ring, .map .pulse, .livepill.on i { animation: none; }
 }
 
-/* ---------- Dashboard ("Lagezentrale") ---------- */
+/* ---------- Dashboard ---------- */
 .lage { display: grid; gap: 14px; grid-template-columns: minmax(0, 1fr) 400px; grid-template-areas: "warn warn" "kpi kpi" "map act" "low act" "more act"; align-items: start; }
 .lage > .warnings { grid-area: warn; }
 .lage > .kpis { grid-area: kpi; }
