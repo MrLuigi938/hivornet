@@ -12,7 +12,7 @@ fail() { echo "FEHLER: $*" >&2; exit 1; }
 
 # setup BACKEND COWRIE: BACKEND nft|iptables, COWRIE 1 = Benutzer hivornet-cowrie existiert
 setup() {
-  rm -rf "$t/bin" "$t/log"
+  rm -rf "${t:?}/bin" "${t:?}/log"
   mkdir "$t/bin"
   : >"$t/log"
   cat >"$t/bin/id" <<EOF
