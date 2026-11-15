@@ -1,5 +1,7 @@
 # Hivornet – unabhängiges Audit
 
+> **Historischer Bericht** zu Version 0.1.0. Die Funde wurden danach behoben (siehe [CHANGELOG](../CHANGELOG.md)); den aktuellen Aufbau beschreibt [ARCHITEKTUR.md](ARCHITEKTUR.md).
+
 Stand: 14.11.2026, Version 0.1.0 (Honeypot und Hive). Geprüft wurde der gesamte Code in `honeypot/`, `hive/` (inkl. `web/`), `docker-compose.yml`, beide Dockerfiles, die drei Shell-Skripte, `config/honeypot.yml`, `.env.example` und die README. Am Projekt wurde nichts geändert; nur dieser Bericht ist neu.
 
 ## 1. Kurzfazit

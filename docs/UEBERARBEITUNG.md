@@ -1,6 +1,8 @@
 # Hivornet – Überarbeitung nach 0.2.0
 
-Branch: `claude/fable-ueberarbeitung-c18ccc`, Ausgangspunkt `main` @ `60bc36b` (Version 0.2.0). Nicht gepusht, nicht gemergt.
+> **Historisches Dokument.** Diese Überarbeitung wurde mit Version 0.3.0 nach `main` übernommen; der Branch existiert nicht mehr. Den aktuellen Aufbau beschreibt [ARCHITEKTUR.md](ARCHITEKTUR.md), die Änderungen je Version das [CHANGELOG](../CHANGELOG.md). Hinweise auf den Branch weiter unten gelten nur für den damaligen Stand.
+
+Branch damals: `claude/fable-ueberarbeitung-c18ccc`, Ausgangspunkt `main` @ `60bc36b` (Version 0.2.0).
 
 Dieses Dokument ist Plan und Protokoll zugleich und richtet sich an die Sitzung, die an dem Branch weiterarbeitet. Den Aufbau des Systems, das Datenbankschema und die Schritt-für-Schritt-Anleitungen für Erweiterungen beschreibt [ARCHITEKTUR.md](ARCHITEKTUR.md).
 

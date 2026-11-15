@@ -23,6 +23,8 @@ Aufbau des Systems und wie man ein Protokoll, ein Angriffsmuster oder eine Ansic
 - `go vet`, `gofmt`, `staticcheck`, `govulncheck`;
 - `go test -race` und kurzes Fuzzing;
 - `shellcheck` und `hadolint`;
+- die Netzsperre des Pi mit Ersatzbefehlen für nft und iptables (`pi/test_firewall.sh`);
+- die Cowrie-Installation des Pi in einem Debian-13-Container, inklusive Start mit der Befehlszeile aus `hivornet-cowrie.service` (`pi/test_cowrie_install.sh`);
 - den Docker-Build für amd64, arm64 und armv7.
 
 ## Veröffentlichen
@@ -55,4 +57,4 @@ python3 pi/verify_image.py dist/hivornet-pi-arm64-v0.4.0.img.xz v0.4.0 arm64
 
 Das Basis-Image (Raspberry Pi OS Lite „trixie“ vom 06.10.2026) wird geladen und an der Prüfsumme erkannt; ein neueres trägt man in `BASE` in `pi/build_image.py` ein. In der CI passiert dasselbe bei jedem Tag, von Hand auch über „Run workflow“.
 
-Auf dem Pi läuft Hivornet ohne Docker als systemd-Dienste (`pi/rootfs`). Cowrie wird beim ersten Start mit Internet installiert (`hivornet-cowrie-install`, Version und Prüfsumme fest im Skript). Ein Update über die UI tauscht nur `hive` und `honeypot` aus; Änderungen an Diensten, Skripten oder der Cowrie-Version brauchen ein neues Image.
+Auf dem Pi läuft Hivornet ohne Docker als systemd-Dienste (`pi/rootfs`). Cowrie wird beim ersten Start mit Internet installiert (`hivornet-cowrie-install`, Version und Prüfsumme fest im Skript). Ein Update über die UI tauscht nur `hive` und `honeypot` aus (damit auch die Web-UI); Änderungen an Diensten, Skripten oder der Cowrie-Version brauchen ein neues Image. Zur Fehlersuche zeigt die Web-UI unter **Protokolle** die Systemprotokolle der Hivornet-Dienste; die Konsolen-Anmeldung am Pi ist gesperrt.

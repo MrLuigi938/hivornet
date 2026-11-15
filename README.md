@@ -37,7 +37,7 @@ Kein Docker, keine Konsole: aufspielen, einstecken, im Browser einrichten. Geeig
 4. Am Rechner im selben Netz **`http://hivornet.local:8088`** öffnen. Beim ersten Aufruf vergibst du dein Passwort und den Standort für die Karte, danach bist du angemeldet. Findet dein Rechner `hivornet.local` nicht, sieh die IP-Adresse des Pi im Router nach und öffne `http://<IP>:8088`.
 5. Im Router die Honeypot-Ports **1:1** an den Pi weiterleiten (extern 22 → Pi 22 usw., siehe [Router-Portweiterleitung](#router-portweiterleitung)).
 
-**Cowrie (SSH und Telnet mit gefälschter Shell)** installiert der Pi nach dem ersten Start im Hintergrund nach. Das braucht Internet und dauert auf einem Pi 3 etwa 10 bis 20 Minuten; die übrigen Dienste laufen schon vorher. Klappt es nicht (z. B. ohne Internet), versucht der Pi es stündlich erneut. Bis dahin zeigt die Seite **System** einen Hinweis.
+**Cowrie (SSH und Telnet mit gefälschter Shell)** installiert der Pi nach dem ersten Start im Hintergrund nach. Das braucht Internet und dauert auf einem Pi 3 etwa 10 bis 20 Minuten; die übrigen Dienste laufen schon vorher. Klappt es nicht (z. B. ohne Internet), versucht der Pi es stündlich erneut. Den Stand (aktueller Schritt, fertig oder gescheitert) zeigt die Seite **System**, die Einzelheiten die Seite **Protokolle**.
 
 Auf dem Pi gehören die Ports 22 und 23 Cowrie, 2222 dem SSH-Tarpit und 2323 dem Telnet-Honeypot. Die Netzsperre ist auf dem Pi schon eingerichtet. Die Datenbank ist auf 1 GB begrenzt, und der Pi schreibt gebündelt, um die SD-Karte zu schonen.
 
@@ -315,7 +315,7 @@ Kein Ersatz für Rechtsberatung, aber das solltest du wissen:
 | Problem | Lösung |
 |---|---|
 | Pi: Web-UI nach 10 Minuten nicht erreichbar | Bildschirm an den Pi anschließen: Nach der Installation steht dort die Adresse. Das Installationsprotokoll liegt auf dem Pi unter `/var/log/hivornet-install.log`. Eine Konsolen-Anmeldung und SSH sind absichtlich aus (Port 22 gehört Cowrie). Ist die Web-UI erreichbar, zeigt die Seite **Protokolle** alle Hivornet-Protokolle. |
-| Pi: System meldet „Cowrie-Log nicht gefunden“ | Cowrie wird nach dem ersten Start installiert; das braucht Internet und dauert etwa 10 bis 20 Minuten. Ohne Internet versucht es der Pi stündlich erneut. |
+| Pi: Hinweis „Cowrie wird gerade installiert“ oder „Cowrie-Installation gescheitert“ | Die Installation braucht Internet und dauert etwa 10 bis 20 Minuten; ohne Internet versucht es der Pi stündlich erneut. Woran es hängt, zeigt die Seite **Protokolle** (Quelle „Cowrie-Installation“). |
 | Alle Angreifer erscheinen mit einer 172.x-IP und „LAN“; Warnung „aus dem eigenen Docker-Netz“ | Docker leitet die Ports über den Userland-Proxy statt per NAT weiter, dabei geht die echte IP verloren. In der Docker-Konfiguration (`/etc/docker/daemon.json`) `"userland-proxy": false` setzen und Docker neu starten. |
 | „Port is already allocated“ | Port in `.env` ändern und `docker compose up -d` |
 | Warnung „Netzsperre fehlt“ | `sudo sh tools/firewall.sh`; bleibt die Warnung nach 10 Minuten, `sudo sh tools/firewall.sh status` prüfen |

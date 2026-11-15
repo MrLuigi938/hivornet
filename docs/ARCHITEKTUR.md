@@ -1,6 +1,8 @@
 # Hivornet – Architektur
 
-Stand: Branch `claude/fable-ueberarbeitung-c18ccc` (nach 0.2.0). Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Was sich gegenüber 0.2.0 geändert hat und warum, steht in [UEBERARBEITUNG.md](UEBERARBEITUNG.md); das Ereignisformat in [events.md](events.md).
+Stand: Version 0.4.0-beta.3, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
+
+Zwei Betriebsarten mit denselben Programmen: **Docker** (NAS, Server; Abschnitte 1 bis 6) und **Raspberry Pi ohne Docker** (systemd-Dienste; Abschnitt 7a).
 
 ## 1. Komponenten
 
@@ -11,7 +13,7 @@ Stand: Branch `claude/fable-ueberarbeitung-c18ccc` (nach 0.2.0). Dieses Dokument
 | `hive` | Go, ein Binary, distroless | Nimmt Ereignisse an, ergänzt GeoIP, speichert in SQLite, liefert API und Web-UI, analysiert und benachrichtigt | `admin`, `ingest` | 384 MB |
 | `janitor` | BusyBox | Löscht alte Cowrie-Dateien | keines | 16 MB |
 
-Die Limits sind Obergrenzen für den Notfall. Gemessen liegt alles zusammen unter 512 MB (README, Tabelle oben). Die Zusatzfunktionen dieser Überarbeitung belegen keinen nennenswerten Speicher: Die Regeln sind beim Start kompilierte reguläre Ausdrücke, Benachrichtigungen haben eine Warteschlange mit 64 Plätzen, Berichte entstehen auf Abruf aus höchstens 5.000 Ereignissen.
+Die Limits sind Obergrenzen für den Notfall. Gemessen liegt alles zusammen unter 512 MB. Die Zusatzfunktionen (Analyse, Benachrichtigungen, Berichte) belegen keinen nennenswerten Speicher: Die Regeln sind beim Start kompilierte reguläre Ausdrücke, Benachrichtigungen haben eine Warteschlange mit 64 Plätzen, Berichte entstehen auf Abruf aus höchstens 5.000 Ereignissen.
 
 ```
 Angreifer ──> honeypot ──POST /api/ingest (Netz ingest, Port 8089)──┐
@@ -23,15 +25,15 @@ Angreifer ──> cowrie ──cowrie.json, tty/ (Volumes, für den Hive nur les
                        │                      ├─> Broker (SSE)  ──> Browser     │
                        │                      └─> Notifier ──> ntfy/Telegram/Webhook
                        │ API (8088): Statistik, Bericht, Einstellungen          │
-                       │   auf Abruf ──> KI-Schnittstelle, AbuseIPDB            │
+                       │   auf Abruf ──> KI-Schnittstelle, AbuseIPDB, GreyNoise │
                        └────────────────────────────────────────────────────────┘
 honeypot <── GET /api/sensor/config (alle 15 s) ── hive      honeypot ── Heartbeat (alle 10 s) ──> hive
 ```
 
 Ausgehende Verbindungen:
 
-- `honeypot` und `cowrie`: keine (Netzsperre `tools/firewall.sh`); der Honeypot prüft das selbst (`HONEYPOT_EGRESS_PROBE`).
-- `hive`: GeoIP-Download (`download.db-ip.com`) sowie, nur wenn eingerichtet, Benachrichtigungen, KI-Schnittstelle und AbuseIPDB.
+- `honeypot` und `cowrie`: keine (Netzsperre `tools/firewall.sh`, auf dem Pi `hivornet-firewall`); der Honeypot prüft das selbst (`HONEYPOT_EGRESS_PROBE`).
+- `hive`: GeoIP-Download (`download.db-ip.com`), Update-Prüfung (`api.github.com`, abschaltbar) sowie, nur wenn eingerichtet oder auf Knopfdruck, Benachrichtigungen, KI-Schnittstelle, AbuseIPDB und GreyNoise.
 
 ## 2. Honeypot (`honeypot/`)
 
@@ -42,15 +44,15 @@ Ausgehende Verbindungen:
 | `manager.go` | `Manager.Apply` startet/stoppt Listener; **`handlers`** ist das Register aller Dienste; `handle` baut die `Session`, setzt Limits, schreibt `connect`/`disconnect` |
 | `session.go` | `Session` mit `Emit`, `Login`, `Command`, `Write`, `Tarpit`; Hilfen `clip`, `printable`, `readLine`, `capReader`; Budgets `budgetText` usw.; `selfSignedTLS` |
 | `limits.go` | `Limits` (Verbindungen gesamt, je IP, je Port, Tarpit-Plätze), `RateLimiter` (10 Ereignisse/s je IP, Burst 300) |
-| `hive.go` | `Event`, `HiveClient` (Senden, Konfiguration, Heartbeat), `Emitter` (Warteschlange nach Bytes, Blöcke ≤ 200/1 MB, 4xx verwerfen, 5xx wiederholen) |
+| `hive.go` | `Event`, `HiveClient` (Senden, Konfiguration, Heartbeat), `Emitter` (Warteschlange nach Bytes, Blöcke ≤ 200/1 MB, 4xx verwerfen, 5xx wiederholen), `marshalEvent` (JSON ohne HTML-Maskierung, damit `&` das Größenbudget nicht sprengt) |
 | `proto_http.go` | `http`, `https`, `dockerapi` |
 | `proto_other.go` | `ftp`, `redis`, `mysql`, `ssh-tarpit`, `raw` |
-| `proto_telnet.go` | `telnet`: Login, Schein-Shell (`telnetReply`), `telnetReadLine` entfernt IAC-Folgen |
+| `proto_telnet.go` | `telnet`: Login, Schein-Shell (`telnetReply`), `telnetReadLine` entfernt IAC-Folgen (maskiertes 0xFF zählt zur Zeilenlänge) |
 | `proto_smtp.go` | `smtp`: AUTH PLAIN/LOGIN, MAIL/RCPT/DATA; `smtpReadData` begrenzt die Mail |
 | `proto_vnc.go` | `vnc`: RFB-Handshake bis zur Challenge/Response |
 | `proto_rdp.go` | `rdp`: `readTPKT`, `parseRDPRequest` (Cookie, Protokolle), `rdpConfirm`, `rdpClientInfo` |
 | `proto_udp.go` | UDP-Dienste `sip`, `snmp`, `dns`: **`udpHandlers`** (Register der UDP-Dienste, je ein Parser `[]byte -> Event`), `serveUDP` (Empfang, Drossel, nie eine Antwort), `berTLV` für SNMP |
-| `honeypot_test.go`, `proto_new_test.go` | Tests, Fuzz-Ziele, Vertragstests (`TestEventSizeContract`, `TestNewProtocolsSizeBudget`, `TestServiceListsInSync`) |
+| `honeypot_test.go`, `proto_new_test.go`, `proto_udp_test.go`, `proxy_test.go` | Tests, Fuzz-Ziele, Vertragstests (`TestEventSizeContract`, `TestNewProtocolsSizeBudget`, `TestServiceListsInSync`); gefundene Fuzz-Eingaben liegen als Regressionstests in `testdata/fuzz/` |
 
 Jeder Handler hat die Form `func(*Session)` und kennt drei Modi (`s.Mode`): `emulate` (nachspielen), `tarpit` (sofort `s.Tarpit(...)`), `hybrid` (erst aufzeichnen, dann `s.Tarpit(...)`). Der Handler läuft unter `recover`; Lesefristen setzt er selbst mit `s.ReadDeadline`.
 
@@ -66,7 +68,7 @@ Regeln, die jeder Handler einhalten muss:
 |---|---|
 | `main.go` | Start, `Hive`-Struktur, `routes()` (alle HTTP-Routen), Server, sauberes Beenden, Unterbefehle `healthcheck`, `backup`, `version` |
 | `store.go` | `Event`, `Sanitize`, `migrations`, `OpenStore`, `Writer` (ein Schreiber, Sammeltransaktionen, Duplikaterkennung über `eid`), `topKeys` (Zähltabelle), `Retention`, `Backup` |
-| `api.go` | Sensor-Endpunkte (`ingest`, `heartbeat`, `sensorConfig`), Statistik, Ereignisliste (`eventFilter`), Export, Einstellungen des Sensors, `warnings`, `system`, `metrics` |
+| `api.go` | Sensor-Endpunkte (`ingest`, `heartbeat`, `sensorConfig`), Statistik (auch `countryStats` für den Karten-Hover), Ereignisliste (`eventFilter`), Export, Einstellungen des Sensors, `warnings`, `system`, `metrics` |
 | `auth.go` | Admin-Konto, Login-Bremse, Sitzungen (nur Hash gespeichert), `Require` (Cookie + CSRF-Header), `RequireSensor` (Token), `uiGuard` (Sensor-Netz aussperren, Host-Prüfung) |
 | `sensors.go` | `SensorConfig.Validate`, `knownServices`, Konfiguration je Sensor, `Heartbeat`, `Sensors` |
 | `cowrie.go` | `CowrieTail`: liest `cowrie.json` mit Rotation und Wiederaufnahme; `handle` übersetzt Cowrie-Ereignisse |
@@ -74,14 +76,15 @@ Regeln, die jeder Handler einhalten muss:
 | `sse.go` | `Broker`: Live-Ereignisse an Browser |
 | `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `Report.Text` |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
-| `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `watchWarnings`, Testnachricht |
-| `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB), Geheimnis-Behandlung, Tabelle `lookups` |
+| `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `webhookBody` (Felder der Meldung plus `content` für Discord), `watchWarnings`, Testnachricht |
+| `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB, GreyNoise), Geheimnis-Behandlung (`secretFields`), Tabelle `lookups` |
 | `tty.go` | `parseTTYLog`, `ttyClean`, `/api/sessions/{id}/tty` |
 | `users.go` | Benutzerverwaltung (`usersList`, `usersCreate`, `usersDelete`); Rollen `admin` und `viewer`, Regeln in `viewerAllowed` (auth.go) |
 | `intel2.go` | GreyNoise-Abfrage (`greynoise`), STIX-2.1-Export (`exportSTIX`, `stixID`, `stixString`) |
-| `setup.go` | Ersteinrichtung (`setupStatus`, `setupRun`), einmalige Port-Anpassung (`upgradeSensorConfigs`), Update-Prüfung gegen GitHub (`checkUpdates`, `newestRelease`, `parseSemver`), Update-Auslösung (`updateRun`), Muster-Nachzählen (`backfillPatterns`) |
+| `setup.go` | Ersteinrichtung (`setupStatus`, `setupRun`), einmalige Port-Anpassung (`upgradeSensorConfigs`), Update-Prüfung gegen GitHub (`checkUpdates` zweimal täglich, `runUpdateCheck`, `newestRelease`; Versionsvergleich `parseSemver`/`newer`/`comparePre` nach Semantic Versioning), Update-Kanal (`updateChannel`, `updateSetChannel`: `stable` oder `pre`), „Jetzt prüfen“ (`updateCheckNow`, höchstens alle 10 s), Update-Auslösung (`updateRun`), Muster-Nachzählen (`backfillPatterns`) |
+| `pilogs.go` | Nur Raspberry Pi: Seite Protokolle (`logsList`, `logsGet`: `journalctl` für eine feste Liste von Diensten, Installationsprotokoll als Datei) und Stand der Cowrie-Installation (`cowrieInstallStatus`) |
 | `disk_linux.go`, `disk_other.go` | freier Speicher |
-| `hive_test.go`, `extra_test.go` | Tests |
+| `hive_test.go`, `extra_test.go`, `pilogs_test.go` | Tests |
 
 ### Weg eines Ereignisses
 
@@ -104,7 +107,9 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET/POST /api/setup` | Ersteinrichtung, ohne Anmeldung, nur solange kein Konto existiert |
 | `GET/POST /api/users`, `DELETE /api/users/{name}` | Benutzerverwaltung (nur Admin) |
 | `POST /api/update` | Update anstoßen (nur wo `HIVE_UPDATE_REQUEST` gesetzt ist) |
-| `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map` | Kennzahlen; `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
+| `POST /api/update/check`, `PUT /api/update/channel` | sofort bei GitHub prüfen; Update-Kanal setzen (`stable`, `pre`) |
+| `GET /api/logs`, `GET /api/logs/{id}?lines=…` | Protokoll-Quellen und Inhalt (nur Pi mit `HIVE_JOURNAL=1`, nur Admin) |
+| `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map`, `/countries?today_from=…` | Kennzahlen (`countries`: Angriffe je Land heute und gesamt); `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
 | `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `q`, `range`, `hide_noise`, `before`, `limit` |
 | `GET /api/export/events`, `/api/export/blocklist`, `/api/export/stix` | Export (CSV/JSON, Blockliste, STIX 2.1) |
 | `GET /api/stream` | Live-Ereignisse (SSE) |
@@ -134,8 +139,8 @@ SQLite über `modernc.org/sqlite` (ohne cgo), WAL, `auto_vacuum=INCREMENTAL`, h�
 | `hourly` | Stunde, Dienst, Typ, Land | Anzahl, Tarpit-Zeit; ohne IPs | 400 Tage |
 | `top_hourly` | Stunde, `field`, `key` | Zähler für Top-Listen und Karte; `label` ist die Beschriftung | Frist |
 | `attackers` | `ip` | erste/letzte Sichtung, Zähler, Herkunft | Frist |
-| `lookups` | `subject`, `source` | `subject` = `ip:<IP>` oder `session:<ID>`; `source` = `abuseipdb` oder `ai`; `data` = JSON bzw. Text | Frist |
-| `kv` | `k` | `sensor_config`, `sensor_config:<name>`, `retention_days`, `cowrie_state`, `extras` | bleibt |
+| `lookups` | `subject`, `source` | `subject` = `ip:<IP>` oder `session:<ID>`; `source` = `abuseipdb`, `greynoise` oder `ai`; `data` = JSON bzw. Text | Frist |
+| `kv` | `k` | `sensor_config`, `sensor_config:<name>`, `retention_days`, `cowrie_state`, `cowrie_offset`, `extras`, `update_channel`, `config_level`, `patterns_backfilled` | bleibt |
 | `users`, `auth_sessions` | | Konten mit Rolle (bcrypt), Sitzungen (SHA-256 des Tokens). Sitzungen gelöschter Benutzer gelten nicht mehr (JOIN in `Auth.Who`) | Sitzungen 7 Tage |
 
 `top_hourly.field`: `country`, `port`, `ip`, `asn`, `service`, `geo` (Karte, Schlüssel „Breite,Länge“), `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag` (Muster-ID, `label` = Name), `tool`, `url`.
@@ -146,11 +151,12 @@ Reines JavaScript in ES-Modulen, kein Build-Schritt, per `go:embed` im Binary (i
 
 | Datei | Inhalt |
 |---|---|
-| `index.html`, `style.css`, `favicon.svg` | Rahmen; Farben als CSS-Variablen für Hell und Dunkel |
-| `dom.js` | `h()` baut Elemente und fügt Texte **immer als Textknoten** ein (`safeText` ersetzt Steuerzeichen); `api()`, Formatierung, Tooltip, `store()` |
-| `charts.js` | `worldMap` (Punkte, Standort, `attack()` zeichnet die Angriffslinie), `timeline`, `toplist`, `svcName`, `svcColor` |
-| `world.js` | Landumrisse (erzeugt von `tools/build_world.py`) |
-| `app.js` | Anmeldung, Live-Stream, Router (`routes`, `route()`), Ansichten Dashboard, Live-Feed, Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System |
+| `index.html`, `style.css`, `favicon.svg` | Rahmen; Farben als CSS-Variablen für Hell und Dunkel; Logo (Schild mit Stachel) |
+| `flags.woff2` | Schrift „Twemoji Country Flags“, damit Flaggen-Emojis auch unter Windows erscheinen |
+| `dom.js` | `h()` baut Elemente und fügt Texte **immer als Textknoten** ein (`safeText` ersetzt Steuerzeichen); `api()`, Formatierung, Tooltip (`hideTip`), `flag(cc)`, `store()` (Präfix `hv.`) |
+| `charts.js` | `worldMap` (Länder mit Grenzen, Hover mit Flagge, Name und Angriffen heute/gesamt; Punkte, Standort, `attack()` zeichnet die Angriffslinie), `timeline`, `toplist`, `svcName`, `svcColor` |
+| `world.js` | Landumrisse (`COUNTRIES`) und deutsche Ländernamen (`COUNTRY_NAMES`), erzeugt von `tools/build_world.py`; Länder über der Datumsgrenze sind abgewickelt |
+| `app.js` | Anmeldung, Live-Stream, Router (`routes`, `route()`), Ansichten Dashboard, Live-Feed, Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
 | `extra.js` | Ansichten Live-Karte und Analyse; Bausteine `reportCard`, `ttyCard`, `intelCard`, `extrasCards` |
 
 Regeln für die UI:
@@ -175,16 +181,18 @@ Regeln für die UI:
 | `HIVE_RETENTION_DAYS`, `HIVE_MAX_DB_MB`, `HIVE_MIN_FREE_MB` | 30, 2048, 1024 | Aufbewahrung |
 | `HIVE_FLUSH_MS` | 300 | Schreibintervall des Writers (100–60000). Größer schont SD-Karten |
 | `HIVE_COWRIE_LOG`, `HIVE_COWRIE_LIB` | leer | Pfad zu `cowrie.json`; Ordner mit `tty/` und `downloads/` |
+| `HIVE_COWRIE_INSTALL_STATUS` | leer | Stand der Cowrie-Installation (Pi, von `hivornet-cowrie-install` geschrieben) |
+| `HIVE_JOURNAL`, `HIVE_INSTALL_LOG` | leer | `1` schaltet die Seite Protokolle frei (Pi; braucht die Gruppe `systemd-journal`); Pfad zum Installationsprotokoll des ersten Starts |
 | `SENSOR_NAME`, `COWRIE_SENSOR_NAME` | `sensor-1` | Sensorname für Cowrie-Ereignisse |
 | `HIVE_METRICS_TOKEN` | leer | schaltet `/metrics` frei |
-| `HIVE_UPDATE_CHECK` | `on` | `off` schaltet die Prüfung auf neue Versionen bei GitHub ab |
+| `HIVE_UPDATE_CHECK` | `on` | `off` schaltet die Prüfung auf neue Versionen bei GitHub ab (Entwicklungsversionen ohne Versionsnummer prüfen nie) |
 | `HIVE_UPDATE_REQUEST` | leer | Datei, in die der Hive eine Update-Anforderung legt; nur gesetzt, wo ein Updater läuft (Pi-Image). Fehlt sie, gibt es keinen Update-Knopf |
 | `HIVE_UPDATE_STATUS` | leer | Datei, aus der das Ergebnis des letzten Updates gelesen wird (vom Updater geschrieben) |
 | `HIVE_DIRECT_PORTS` | leer | `1`: Honeypot lauscht ohne Docker direkt auf den echten Ports; die Einstellungen zeigen „direkt am Gerät" statt der NAS-Portzuordnung |
 | `HIVE_WEB_DIR` | leer | UI vom Datenträger statt aus dem Binary (Entwicklung) |
 | `PORT_*` | | nur zur Anzeige „Öffentlich“ in den Einstellungen (`publishedPorts` in `api.go`) |
 
-In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, **Zusatzfunktionen** (`extras`: Standort, Benachrichtigungen, KI, AbuseIPDB-Schlüssel), sowie die Merker `config_level` (Port-Anpassung lief) und `patterns_backfilled` (Muster nachgezählt). Geheimnisse darin liefert die API nie zurück.
+In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, Update-Kanal, **Zusatzfunktionen** (`extras`: Standort, Benachrichtigungen, KI, Schlüssel für AbuseIPDB und GreyNoise), sowie die Merker `config_level` (Port-Anpassung lief) und `patterns_backfilled` (Muster nachgezählt). Geheimnisse darin liefert die API nie zurück.
 
 **Ersteinrichtung:** Ist kein Admin-Konto vorhanden und keines per `HIVE_ADMIN_PASSWORD` vorgegeben, legt `EnsureAdmin` keins an; die UI zeigt den Assistenten (`GET/POST /api/setup`, `setup.go`). Wer ihn zuerst ausfüllt, setzt das Passwort – darum gehört die UI nie ins Internet.
 
@@ -234,7 +242,7 @@ In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, **Zusa
 
 ### Neues Benachrichtigungsziel
 
-In `Notifier.Send` (`hive/notify.go`) einen weiteren Block nach dem Muster von ntfy anlegen, Felder in `NotifyConfig` (`extras.go`) ergänzen, Geheimnisse in `secretFields` eintragen, Eingabefelder in `extrasCards` (`extra.js`).
+In `Notifier.Send` (`hive/notify.go`) einen weiteren Block nach dem Muster von ntfy anlegen, Felder in `NotifyConfig` (`extras.go`) ergänzen, Geheimnisse in `secretFields` eintragen, Eingabefelder in `extrasCards` (`extra.js`) und das Geheimnis in deren `body()` mitschicken (`TestExtrasSecretsSentByUI` prüft das).
 
 ### Schemaänderung
 
@@ -247,18 +255,21 @@ Betrieb ohne Docker: zwei systemd-Dienste statt Container, sonst dieselben Progr
 | Datei | Zweck |
 |---|---|
 | `pi/build_image.py` | baut das Image: lädt das festgelegte Raspberry Pi OS Lite (Adresse und Prüfsumme in `BASE`), packt Programme und `pi/rootfs/` als `payload.tar.gz` (Rechte root, Skripte 0755) und schreibt es mit `user-data`, `vendor-data`, `userconf.txt` und `install.sh` in die **FAT-Bootpartition** (pyfatfs). Die Linux-Partition bleibt unberührt; deshalb kein Root und kein Linux nötig |
-| `pi/install.sh` | läuft beim ersten Start über cloud-init (`runcmd`, zusätzlich `vendor-data`), genau einmal (`flock`, Merker `/var/lib/hivornet-installed`): Paket prüfen und entpacken, Benutzer anlegen, Token, SSH maskieren, Hostname `hivornet`, Dienste starten, Paket von der Bootpartition löschen. Protokoll `/var/log/hivornet-install.log` |
-| `pi/rootfs/etc/systemd/system/hivornet-hive.service` | Hive als Benutzer `hivornet-hive`, gehärtet, `HIVE_DIRECT_PORTS=1`, SD-schonend |
-| `pi/rootfs/etc/systemd/system/hivornet-honeypot.service` | Honeypot als Benutzer `hivornet-pot`, nur `CAP_NET_BIND_SERVICE`, lauscht direkt auf den echten Ports |
+| `pi/install.sh` | läuft beim ersten Start über cloud-init (`vendor-data` und `runcmd`; der zweite Anstoß prüft nur noch den Merker), genau einmal (`flock`, Merker `/var/lib/hivornet-installed`): Paket prüfen und entpacken, Benutzer anlegen, Token, SSH maskieren, Hostname `hivornet`, Dienste starten, Paket von der Bootpartition löschen. Protokoll `/var/log/hivornet-install.log` |
+| `pi/rootfs/etc/systemd/system/hivornet-hive.service` | Hive als Benutzer `hivornet-hive`, gehärtet, `HIVE_DIRECT_PORTS=1`, SD-schonend; Gruppe `systemd-journal` nur zum Lesen der Protokolle (`HIVE_JOURNAL=1`) |
+| `pi/rootfs/etc/systemd/system/hivornet-honeypot.service` | Honeypot als Benutzer `hivornet-pot`, nur `CAP_NET_BIND_SERVICE`, lauscht direkt auf den echten Ports; startet nur mit aktiver Netzsperre (`Requires=hivornet-firewall.service`) |
 | `pi/rootfs/.../hivornet-firstboot` | erzeugt beim ersten Start das Token (Passwort kommt aus der UI-Ersteinrichtung) |
-| `pi/rootfs/.../hivornet-firewall` | Netzsperre nach Benutzer (nftables oder iptables, owner-Match) |
+| `pi/rootfs/.../hivornet-firewall` | Netzsperre nach Benutzer für `hivornet-pot` und `hivornet-cowrie` (nftables oder iptables, owner-Match); getestet mit Ersatzbefehlen in `pi/test_firewall.sh` |
 | `pi/rootfs/.../hivornet-update{.path,.service,script}` | beobachtet die Update-Anforderung des Hive, lädt die Version von GitHub, prüft `SHA256SUMS`, tauscht die Programme, Rückfall auf die alte Version |
 | `pi/rootfs/etc/hivornet/honeypot.yml` | Startkonfiguration mit echten Ports; 22 und 23 gehören Cowrie |
 | `pi/rootfs/etc/hivornet/cowrie.cfg` | Cowrie-Einstellungen: absolute Pfade unter `/var/lib/hivornet-cowrie`, Ports 22/23, Download-Grenze |
-| `pi/rootfs/usr/local/sbin/hivornet-cowrie-install` | installiert Cowrie beim ersten Start mit Internet (Version und Prüfsumme fest), Wiederholung stündlich über `hivornet-cowrie-install.timer` |
-| `hivornet-cowrie.service`, `hivornet-cowrie-clean.timer` | Cowrie als Benutzer `hivornet-cowrie` mit `CAP_NET_BIND_SERVICE`; tägliches Aufräumen nach 14 Tagen |
+| `pi/rootfs/usr/local/sbin/hivornet-cowrie-install` | installiert Cowrie beim ersten Start mit Internet (Version und Prüfsumme fest), Wiederholung stündlich über `hivornet-cowrie-install.timer`; schreibt seinen Stand nach `/var/lib/hivornet-status/cowrie-install` (Zeile 1 `running`/`ok`/`failed`, Zeile 2 Unix-Zeit, Zeile 3 Schritt bzw. Fehler). In der CI getestet mit `pi/test_cowrie_install.sh` (Debian 13) |
+| `hivornet-cowrie.service`, `hivornet-cowrie-clean.timer` | Cowrie als Benutzer `hivornet-cowrie` mit `CAP_NET_BIND_SERVICE`, nur mit aktiver Netzsperre; tägliches Aufräumen nach 14 Tagen |
+| `pi/verify_image.py` | prüft ein fertiges Image (Bootpartition, Paketinhalt, Rechte, Prozessortyp je Architektur); läuft im Release-Workflow |
 
-Updates landen über `release.yml` als `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie wird auf dem Pi beim ersten Start nachinstalliert (Python-Umgebung unter `/opt/hivornet/cowrie-env`); die Netzsperre gilt auch für den Benutzer `hivornet-cowrie`. Ein Update über die UI tauscht nur `hive` und `honeypot` aus, die Cowrie-Version ändert sich nur mit einem neuen Image.
+Updates landen über `release.yml` als `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie wird auf dem Pi beim ersten Start nachinstalliert (Python-Umgebung unter `/opt/hivornet/cowrie-env`); die Netzsperre gilt auch für den Benutzer `hivornet-cowrie`. Ein Update über die UI tauscht nur `hive` und `honeypot` aus, damit auch die eingebettete Web-UI. Änderungen an systemd-Dateien, Skripten unter `pi/rootfs/`, `/etc/hivornet` oder der Cowrie-Version brauchen ein neues Image.
+
+Auf dem Pi ist die Konsolen-Anmeldung gesperrt (zufälliges Passwort in `userconf.txt`) und SSH aus. Zur Fehlersuche dient die Seite **Protokolle** der Web-UI.
 
 ## 8. Entwickeln und Prüfen
 
@@ -276,4 +287,4 @@ cd hive && go build -o hive . && HIVE_DB=./data/hive.db HIVORNET_TOKEN=test HIVE
 
 Danach `http://127.0.0.1:8088` öffnen. Testdaten: `python3 tools/attack_sim.py --no-attacks --demo 300 --hive http://127.0.0.1:8088 --token test`. Ohne GeoIP-Datenbank haben Ereignisse keine Koordinaten; die Karte bleibt dann leer.
 
-Was nur die CI prüft: `staticcheck`, `govulncheck`, Race-Detector, `shellcheck`, `hadolint`, Docker-Build. Auf dem Windows-Entwicklungsrechner gibt es kein Docker.
+Was nur die CI prüft: `staticcheck`, `govulncheck`, Race-Detector, `shellcheck`, `hadolint`, Docker-Build, die Netzsperre des Pi (`pi/test_firewall.sh`) und die Cowrie-Installation des Pi in Debian 13 (`pi/test_cowrie_install.sh`). Auf dem Windows-Entwicklungsrechner gibt es kein Docker; die Web-UI hat keinen eigenen Syntax-Check und wird im Browser geprüft.
