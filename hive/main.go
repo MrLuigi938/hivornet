@@ -180,6 +180,8 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
 	ui.HandleFunc("POST /api/password", a.Require(h.changePassword))
 	ui.HandleFunc("GET /api/system", a.Require(h.system))
+	ui.HandleFunc("GET /api/logs", a.Require(h.logsList))
+	ui.HandleFunc("GET /api/logs/{id}", a.Require(h.logsGet))
 	ui.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		if err := h.st.db.PingContext(r.Context()); err != nil {
 			http.Error(w, "db", http.StatusServiceUnavailable)

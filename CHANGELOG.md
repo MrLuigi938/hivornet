@@ -4,6 +4,11 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unveröffentlicht]
 
+### Neu
+- Raspberry Pi: Seite **Protokolle** in der Web-UI (nur Admins, nur lesen). Zeigt die Systemprotokolle der Hivornet-Dienste (Cowrie, Cowrie-Installation, Honeypot, Hive, Netzsperre, Updates) und das Installationsprotokoll des ersten Starts, auf Wunsch alle 5 Sekunden aktualisiert. Ein Bildschirm am Pi ist zur Fehlersuche nicht mehr nötig.
+- Raspberry Pi: Die Cowrie-Installation meldet ihren Stand (läuft mit aktuellem Schritt, fertig, gescheitert bei Schritt X). Die Web-UI zeigt ihn unter System und im Hinweis auf dem Dashboard statt der allgemeinen Meldung „Cowrie-Log nicht gefunden“.
+- CI: Neuer Test installiert Cowrie mit dem Skript des Pi-Images in Debian 13 und startet es mit der Befehlszeile aus `hivornet-cowrie.service`; SSH, Telnet und `cowrie.json` werden geprüft.
+
 ### Behoben
 - Raspberry Pi: Beim ersten Start meldete `cloud-final.service` einen Fehler, obwohl die Installation geklappt hatte. vendor-data hatte den Installer schon ausgeführt (er löscht sich danach), und der zweite Anstoß aus user-data fand die Datei nicht mehr. Jetzt prüft der zweite Anstoß nur, ob die Installation fertig ist.
 

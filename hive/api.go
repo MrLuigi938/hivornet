@@ -196,7 +196,7 @@ func (h *Hive) me(w http.ResponseWriter, r *http.Request) {
 	}
 	_, role := h.auth.Who(r)
 	writeJSON(w, map[string]any{"username": u, "role": role, "version": version, "update": h.newerRelease(),
-		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != ""})
+		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != "", "logs": logsEnabled() && role == "admin"})
 }
 
 func (h *Hive) summary(w http.ResponseWriter, r *http.Request) {
@@ -651,9 +651,23 @@ func (h *Hive) warnings() []warning {
 		add("warn", "GeoIP: %s", st)
 	}
 	if h.cowrie != nil {
-		if found, last := h.cowrie.Status(); !found && time.Since(h.started) > 2*time.Minute {
-			add("warn", "Cowrie-Log nicht gefunden. Docker: Läuft der Cowrie-Container (COMPOSE_PROFILES=cowrie)? Raspberry Pi: Cowrie wird nach dem ersten Start mit Internet installiert (einige Minuten); Stand mit journalctl -u hivornet-cowrie-install.")
-		} else if found && !last.IsZero() && time.Since(last) > 48*time.Hour {
+		found, last := h.cowrie.Status()
+		ci := cowrieInstallStatus()
+		switch {
+		case found:
+		case ci != nil && ci.State == "running":
+			add("warn", "Cowrie wird gerade installiert: %s (seit %d Min.). Auf dem Raspberry Pi dauert das 10 bis 20 Minuten.", ci.Text, int(time.Since(ci.Since).Minutes()))
+		case ci != nil && ci.State == "failed":
+			add("warn", "Cowrie-Installation gescheitert: %s", ci.Text)
+		case time.Since(h.started) < 2*time.Minute:
+		case ci != nil && ci.State == "ok":
+			add("warn", "Cowrie ist installiert, schreibt aber kein Log. Den Grund zeigt die Seite Protokolle (Quelle Cowrie).")
+		case logsEnabled():
+			add("warn", "Cowrie-Log nicht gefunden. Cowrie wird nach dem ersten Start mit Internet installiert; den Stand zeigt die Seite Protokolle.")
+		default:
+			add("warn", "Cowrie-Log nicht gefunden. Läuft der Cowrie-Container (COMPOSE_PROFILES=cowrie)?")
+		}
+		if found && !last.IsZero() && time.Since(last) > 48*time.Hour {
 			add("warn", "Seit %s kein Cowrie-Ereignis. Ist Port 22 im Router weitergeleitet?", time.Since(last).Round(time.Hour))
 		}
 	}
@@ -676,6 +690,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 		found, last := h.cowrie.Status()
 		cow["found"], cow["last_event"] = found, last
 		cow["volumes"] = h.cowrieVolumes()
+		cow["install"] = cowrieInstallStatus()
 	}
 	evStored := int64(0)
 	if evMax.Valid {

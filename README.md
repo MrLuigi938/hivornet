@@ -314,7 +314,7 @@ Kein Ersatz für Rechtsberatung, aber das solltest du wissen:
 
 | Problem | Lösung |
 |---|---|
-| Pi: Web-UI nach 10 Minuten nicht erreichbar | Bildschirm an den Pi anschließen: Nach der Installation steht dort die Adresse. Das Installationsprotokoll liegt auf dem Pi unter `/var/log/hivornet-install.log`. Eine Konsolen-Anmeldung und SSH sind absichtlich aus (Port 22 gehört Cowrie). |
+| Pi: Web-UI nach 10 Minuten nicht erreichbar | Bildschirm an den Pi anschließen: Nach der Installation steht dort die Adresse. Das Installationsprotokoll liegt auf dem Pi unter `/var/log/hivornet-install.log`. Eine Konsolen-Anmeldung und SSH sind absichtlich aus (Port 22 gehört Cowrie). Ist die Web-UI erreichbar, zeigt die Seite **Protokolle** alle Hivornet-Protokolle. |
 | Pi: System meldet „Cowrie-Log nicht gefunden“ | Cowrie wird nach dem ersten Start installiert; das braucht Internet und dauert etwa 10 bis 20 Minuten. Ohne Internet versucht es der Pi stündlich erneut. |
 | Alle Angreifer erscheinen mit einer 172.x-IP und „LAN“; Warnung „aus dem eigenen Docker-Netz“ | Docker leitet die Ports über den Userland-Proxy statt per NAT weiter, dabei geht die echte IP verloren. In der Docker-Konfiguration (`/etc/docker/daemon.json`) `"userland-proxy": false` setzen und Docker neu starten. |
 | „Port is already allocated“ | Port in `.env` ändern und `docker compose up -d` |

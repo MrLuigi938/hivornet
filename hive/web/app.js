@@ -12,7 +12,7 @@ const state = { user: null, range: store("range") || "24h", es: null, liveFns: n
 const NAV = [
   ["#/", "Dashboard"], ["#/live", "Live-Karte"], ["#/feed", "Live-Feed"], ["#/sessions", "Sitzungen"],
   ["#/analysis", "Analyse"], ["#/creds", "Zugangsdaten"],
-  ["#/tarpit", "Tarpit"], ["#/settings", "Einstellungen"], ["#/system", "System"],
+  ["#/tarpit", "Tarpit"], ["#/settings", "Einstellungen"], ["#/system", "System"], ["#/logs", "Protokolle"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
 const TYPE_NAME = {
@@ -191,7 +191,7 @@ function renderShell() {
   mount(app, h("div", { class: "shell" },
     h("aside", { class: "side" },
       h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Hivornet"),
-      h("nav", { class: "nav" }, NAV.filter(([href]) => state.user.role !== "viewer" || href !== "#/settings").map(([href, label]) => h("a", { href }, label))),
+      h("nav", { class: "nav" }, NAV.filter(([href]) => (state.user.role !== "viewer" || href !== "#/settings") && (state.user.logs || href !== "#/logs")).map(([href, label]) => h("a", { href }, label))),
       h("div", { class: "grow" }),
       h("div", { class: "foot" },
         h("span", { id: "live", class: "live-dot" }, h("i"), h("span", null, "verbinde …")),
@@ -215,7 +215,7 @@ const routes = [
   [/^#?\/?$/, viewDashboard], [/^#\/feed$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings$/, viewSettings], [/^#\/system$/, viewSystem],
-  [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis],
+  [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/logs(\?.*)?$/, viewLogs],
 ];
 
 async function route() {
@@ -772,7 +772,8 @@ async function viewSystem(el, ctx) {
         ["Log-Datei", d.cowrie.found ? h("span", { class: "badge ok" }, "gefunden") : h("span", { class: "badge err" }, "fehlt")],
         ["Letztes Ereignis", relTime(d.cowrie.last_event)],
         vols.log !== undefined ? ["Logs", fmtBytes(vols.log)] : null,
-        vols.lib !== undefined ? ["Downloads und Mitschnitte", fmtBytes(vols.lib)] : null] : [["Status", "nicht eingerichtet"]]))),
+        vols.lib !== undefined ? ["Downloads und Mitschnitte", fmtBytes(vols.lib)] : null,
+        d.cowrie.install ? ["Installation", installBadge(d.cowrie.install)] : null] : [["Status", "nicht eingerichtet"]]))),
     d.sensors.length ? d.sensors.map((s) => card("Sensor " + s.sensor,
       h("div", { class: "grid three" },
         kv([["Status", sensorOk(s) ? h("span", { class: "badge ok" }, "verbunden") : h("span", { class: "badge err" }, "keine Meldung")],
@@ -791,6 +792,59 @@ async function viewSystem(el, ctx) {
           h("td", { class: "num" }, fmtNum(l.active)), h("td", { class: "num" }, fmtNum(l.total)), h("td", { class: "num" }, fmtNum(l.rejected || 0)))))))))
       : card("Sensoren", h("div", { class: "empty" }, "Noch kein Sensor hat sich gemeldet."))));
   ctx.every(15000, () => { if (!document.hidden && location.hash === "#/system" && ctx.current()) route(); });
+}
+
+// Stand der Cowrie-Installation auf dem Pi (Datei von hivornet-cowrie-install)
+function installBadge(ci) {
+  const cls = ci.state === "ok" ? "ok" : ci.state === "failed" ? "err" : "";
+  const label = ci.state === "ok" ? "fertig" : ci.state === "failed" ? "gescheitert" : "läuft";
+  return h("span", null, h("span", { class: "badge " + cls }, label), " ", ci.text, " · ", relTime(ci.since),
+    state.user.logs ? h("span", null, " · ", h("a", { href: "#/logs?cowrie-install" }, "Protokoll")) : null);
+}
+
+// ---------- Protokolle (nur Raspberry Pi, nur Admins) ----------
+
+const ANSI = /\x1b\[[0-9;?]*[A-Za-z]/g;
+
+async function viewLogs(el, ctx) {
+  header("Protokolle");
+  const d = await api("logs");
+  if (!d.enabled) {
+    mount(el, card("Protokolle", h("div", { class: "empty" }, "Protokolle gibt es nur auf dem Raspberry Pi. Im Docker-Betrieb: docker compose logs.")));
+    return;
+  }
+  const want = (location.hash.split("?")[1] || store("logsrc") || "cowrie-install");
+  const src = h("select", { "aria-label": "Quelle" }, d.sources.map((s) => h("option", { value: s.id, selected: s.id === want }, s.label)));
+  const lines = h("select", { "aria-label": "Zeilen" }, [100, 200, 500, 1000, 2000].map((n) => h("option", { value: n, selected: n === 200 }, n + " Zeilen")));
+  const follow = h("input", { type: "checkbox", checked: true });
+  const out = h("pre", { class: "log" }, "Lade …");
+  const info = h("span", { class: "muted" });
+  let busy = false;
+  async function load() {
+    if (busy) return;
+    busy = true;
+    store("logsrc", src.value);
+    const atEnd = out.scrollTop + out.clientHeight >= out.scrollHeight - 30;
+    try {
+      const r = await api("logs/" + encodeURIComponent(src.value) + "?lines=" + lines.value);
+      out.textContent = r.text.replace(ANSI, "");
+      info.textContent = "Stand " + new Date().toLocaleTimeString("de-DE");
+      if (atEnd || out.dataset.first !== "0") { out.scrollTop = out.scrollHeight; out.dataset.first = "0"; }
+    } catch (e) {
+      out.textContent = "Fehler: " + e.message;
+    } finally { busy = false; }
+  }
+  src.onchange = () => { out.dataset.first = "1"; load(); };
+  lines.onchange = load;
+  mount(el, h("div", { class: "stack" },
+    card("Systemprotokolle",
+      h("p", { class: "sub" }, "Nur lesen. Neueste Einträge unten. Die Anmeldung am Pi selbst ist absichtlich gesperrt; hier steht, was die Hivornet-Dienste melden."),
+      h("div", { class: "filters" }, src, lines,
+        h("label", { class: "inline" }, follow, "alle 5 s aktualisieren"),
+        h("button", { class: "btn small", onclick: load }, "Aktualisieren"), info),
+      out)));
+  await load();
+  ctx.every(5000, () => { if (follow.checked && !document.hidden && ctx.current()) load(); });
 }
 
 // Bausteine für extra.js. Die beiden Module importieren sich gegenseitig; das ist

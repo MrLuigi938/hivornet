@@ -65,7 +65,7 @@ step "Cowrie entpacken"
 rm -rf "$DEST" "$VENV"
 mkdir -p "$DEST"
 tar -xzf "$tmp/cowrie.tar.gz" -C "$DEST" --strip-components=1 --no-same-owner
-step "Python-Pakete installieren (dauert auf dem Pi einige Minuten)"
+step "Python-Pakete installieren"
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
 "$VENV/bin/pip" install -q -r "$DEST/requirements.txt"

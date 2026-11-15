@@ -282,7 +282,7 @@ func (a *Auth) Require(next http.HandlerFunc) http.HandlerFunc {
 
 // viewerAllowed: Was ein Benutzer mit Rolle "viewer" darf. Ansehen ja, ändern nein.
 // Ausgenommen sind die Zusatz-Einstellungen (enthalten z. B. das ntfy-Thema, das
-// selbst ein Geheimnis ist) und die Benutzerverwaltung.
+// selbst ein Geheimnis ist), die Benutzerverwaltung und die Systemprotokolle.
 func viewerAllowed(r *http.Request) bool {
 	p := r.URL.Path
 	switch {
@@ -290,7 +290,7 @@ func viewerAllowed(r *http.Request) bool {
 		return true
 	case r.Method != "GET":
 		return false
-	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"):
+	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"):
 		return false
 	}
 	return true
