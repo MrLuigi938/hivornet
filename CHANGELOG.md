@@ -2,6 +2,18 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+- **Neues Design der Web-UI („Lagezentrale“).** Standardmäßig dunkel, Navigation in einer Kopfleiste, Benutzermenü oben rechts (Darstellung Dunkel/Hell/System, Einstellungen, Sitzungen, Protokolle, Abmelden). Alle Seiten nutzen dieselben Bausteine.
+- **Seite „Lage“** (bisher Dashboard): sechs Kennzahlen mit Verlaufslinie und Vergleich zum Zeitraum davor (Logins angenommen und Downloads rot, sobald einer vorkommt), große Weltkarte, **Gerade aktiv** mit den Angreifern der letzten 15 Minuten (je IP eine Zeile mit Stufe, Art und Zugangsdaten, aufklappbar), Verlauf nach Dienst und Top-Listen. Die Live-Anzeige oben zeigt, wie viele Angreifer gerade aktiv und wie viele Verbindungen im Tarpit sind.
+- **Seite „Angriffe“** (ersetzt den Live-Feed): Ereignisse einer IP werden zu Angriffen gebündelt (weniger als 15 Minuten Pause). Jede Karte zeigt Stufe (Abtasten, Versuche, Login angenommen, Befehle ausgeführt, Datei nachgeladen), vermutete Art (z. B. SSH-Brute-Force, Web-Scanner, IoT-Botnetz, Redis-Übernahme, Port-Scan), Zusammenfassung, Zeitstreifen, Zugangsdaten mit Anzahl, Pfade, Befehle, Nachlade-Adressen und erkannte Muster; aufklappbar mit den Ereignissen, gleichartige zusammengefasst. Filter nach Stufe und Dienst, Suche über alles, Zeitraum 1 Std/24 Std/7 Tage, Live-Aktualisierung. Die Einzelansicht bleibt als Umschalter erhalten und fasst Wiederholungen derselben IP zu einer Zeile mit Zähler zusammen.
+- **Weltkarte:** Länder nach Anzahl der Angriffe eingefärbt, Orte als kleine Punkte; Zoom per Mausrad, Verschieben durch Ziehen, Regionen-Knöpfe (Europa, Asien, …) und Umschalter Länder/Orte/Beides. Gilt für Lage und Live-Karte.
+- **Angreifer-Seite:** Kopf mit Herkunft, Netzbetreiber, höchster Stufe und Kennzahlen; darunter alle Angriffe dieser IP als Karten. Die Einzelereignisse sind eingeklappt.
+- Zugangsdaten und Analyse: Ein Klick auf Benutzername, Passwort, Befehl, Pfad oder Angriffsmuster zeigt die Angriffe, in denen er vorkam.
+- Live-Karte: Wiederholungen derselben IP zählen in der Laufliste hoch, statt neue Zeilen anzulegen.
+- API: `/api/attacks`, `/api/stats/series`; `/api/events` kennt `from` und `to`.
+
 ## [0.4.0-beta.6] – 2026-11-15
 
 ### Geändert

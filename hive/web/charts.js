@@ -1,5 +1,5 @@
 // Diagramme als SVG: Weltkarte, Zeitverlauf (gestapelte Säulen), Top-Listen.
-import { h, s, fmtNum, hoverTip, api, flag } from "./dom.js";
+import { h, s, fmtNum, hoverTip, hideTip, api, flag } from "./dom.js";
 import { COUNTRIES, COUNTRY_NAMES } from "./world.js";
 
 export const countryName = (cc) => COUNTRY_NAMES[cc] || (cc === "LAN" ? "Lokales Netz" : cc) || "Unbekannt";
@@ -20,87 +20,200 @@ export const svcColor = (s) => `var(${SVC_COLOR[s] || "--other"})`;
 
 // ---------- Weltkarte ----------
 
-// home = { lat, lon, label }: Standort des Honeypots. Ist er gesetzt, zeichnet
-// attack() eine Linie vom Ursprung dorthin (Farbe = Dienst).
-export function worldMap(points, { home = null, large = false } = {}) {
-  const max = Math.max(1, ...points.map((p) => p.n));
-  const px = (lon) => lon + 180, py = (lat) => 90 - lat;
+// Ausschnitte für die Regionen-Knöpfe (viewBox in Kartenkoordinaten: x = Länge + 180, y = 90 - Breite).
+export const REGIONS = {
+  Welt: [0, 5, 360, 150], Europa: [160, 22, 78, 32.5], Asien: [235, 28, 110, 46], Nordamerika: [40, 18, 100, 41.7], Südamerika: [80, 85, 72, 30],
+};
 
-  // Angriffe je Land (heute ab Mitternacht im Browser, insgesamt). Werden im
-  // Hintergrund geladen und bei Live-Angriffen weitergezählt.
+// worldMap zeichnet die Herkunft der Angriffe.
+//   points:    Orte [{lat, lon, n, country, city}]
+//   countries: Verbindungen je Land [{key, n}] (sonst aus den Orten summiert)
+//   home:      { lat, lon, label } des Honeypots; attack() zieht eine Linie dorthin
+//   mode:      "beides" (Länder eingefärbt und Orte), "laender" oder "orte"
+// Zoom mit dem Mausrad, Verschieben durch Ziehen, Doppelklick zeigt die ganze Welt.
+// Punkte behalten beim Zoomen ihre Größe auf dem Bildschirm.
+export function worldMap(points, { home = null, large = false, countries = null, mode = "beides", controls = true } = {}) {
+  let vb = [...REGIONS.Welt];
+  let counts = new Map(), pts = [], max = 1, pmax = 1;
+  const k = () => vb[2] / 360;
+
+  // Angriffe je Land heute und insgesamt (für den Tooltip, im Hintergrund geladen)
   const stats = {};
   const midnight = new Date();
   midnight.setHours(0, 0, 0, 0);
   api("stats/countries?today_from=" + midnight.getTime()).then((d) => Object.assign(stats, d)).catch(() => {});
   const countryRows = (cc) => {
     const st = stats[cc] || { today: 0, total: 0 };
-    return [["Angriffe heute", fmtNum(st.today)], ["Angriffe insgesamt", fmtNum(st.total)]];
+    return [["Im Zeitraum", fmtNum(counts.get(cc) || 0)], ["Heute", fmtNum(st.today)], ["Insgesamt", fmtNum(st.total)]];
   };
 
   const land = s("g", { class: "countries" });
+  const paths = new Map();
   for (const c of COUNTRIES) {
     const p = s("path", { class: "country", d: c.d });
-    if (c.c) hoverTip(p, () => [[flag(c.c), " ", countryName(c.c)], countryRows(c.c)]);
+    if (c.c) {
+      hoverTip(p, () => [[flag(c.c), " ", countryName(c.c)], countryRows(c.c)]);
+      paths.set(c.c, [...(paths.get(c.c) || []), p]);
+    }
     land.append(p);
   }
+  const dots = s("g"), live = s("g"), homeG = s("g", { class: "home" });
+  const svg = s("svg", { viewBox: vb.join(" "), preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": "Weltkarte der Angriffsherkunft" }, land, dots, live, homeG);
 
-  const dots = s("g");
-  const sorted = [...points].sort((a, b) => b.n - a.n); // kleine Punkte oben
-  for (const p of sorted) {
-    const r = 0.45 + 1.6 * Math.sqrt(p.n / max); // in Grad: klein genug, dass Land und Ort erkennbar bleiben
-    const c = s("circle", { class: "pt", cx: (p.lon + 180).toFixed(2), cy: (90 - p.lat).toFixed(2), r: r.toFixed(2) });
-    hoverTip(c, () => [
-      [flag(p.country), " ", [p.city, countryName(p.country)].filter(Boolean).join(", ")],
-      [["Verbindungen von hier (Zeitraum)", fmtNum(p.n)], ...(p.country ? countryRows(p.country) : [])],
-    ]);
-    dots.append(c);
+  function paint() {
+    for (const [cc, ps] of paths) {
+      const n = counts.get(cc) || 0;
+      const lvl = mode === "orte" || !n ? 0 : Math.min(5, 1 + Math.floor(4.999 * Math.sqrt(n / max)));
+      for (const p of ps) p.setAttribute("class", "country k" + lvl);
+    }
   }
-  const live = s("g");
-  let homeEl = null;
-  if (home && (home.lat || home.lon)) {
-    const hx = px(home.lon).toFixed(2), hy = py(home.lat).toFixed(2);
-    homeEl = s("g", { class: "home" },
-      s("circle", { class: "home-ring", cx: hx, cy: hy, r: 2.6 }),
-      s("circle", { class: "home-dot", cx: hx, cy: hy, r: 1.3 }));
-    hoverTip(homeEl, () => [home.label || "Honeypot", [["Ziel der Angriffe", ""]]]);
+  function drawDots() {
+    dots.replaceChildren();
+    if (mode === "laender") return;
+    const f = Math.max(k(), 0.12);
+    for (const p of [...pts].sort((a, b) => b.n - a.n)) { // kleine Punkte oben
+      const r = (0.35 + 1.3 * Math.sqrt(p.n / pmax)) * f;
+      const c = s("circle", { class: "pt", cx: (p.lon + 180).toFixed(2), cy: (90 - p.lat).toFixed(2), r: r.toFixed(3), "stroke-width": (0.08 * f).toFixed(3) });
+      hoverTip(c, () => [
+        [flag(p.country), " ", [p.city, countryName(p.country)].filter(Boolean).join(", ")],
+        [["Verbindungen von hier (Zeitraum)", fmtNum(p.n)], ...(p.country ? countryRows(p.country).slice(1) : [])],
+      ]);
+      dots.append(c);
+    }
   }
-  const svg = s("svg", { viewBox: "0 5 360 150", role: "img", "aria-label": "Weltkarte der Angriffsherkunft" },
-    land, dots, live, homeEl);
-  const el = h("div", { class: "chart map" + (large ? " large" : "") }, svg);
-  const pulse = (lat, lon) => {
+  function drawHome() {
+    homeG.replaceChildren();
+    if (!home || !(home.lat || home.lon)) return;
+    const x = home.lon + 180, y = 90 - home.lat;
+    homeG.append(s("circle", { class: "home-ring", cx: x, cy: y, r: 2.4 * k(), "stroke-width": 0.3 * k() }), s("circle", { class: "home-dot", cx: x, cy: y, r: 1.1 * k() }));
+  }
+  hoverTip(homeG, () => [(home && home.label) || "Honeypot", [["Ziel der Angriffe", ""]]]);
+  function clamp([x, y, w]) {
+    w = Math.min(360, Math.max(12, w));
+    const hh = w / 2.4;
+    return [Math.min(360 - w, Math.max(0, x)), Math.min(155 - hh, Math.max(5, y)), w, hh];
+  }
+  function apply() {
+    svg.setAttribute("viewBox", vb.map((x) => x.toFixed(3)).join(" "));
+    land.style.strokeWidth = (0.2 * k()).toFixed(3);
+    drawDots();
+    drawHome();
+  }
+  function setView(v, animate = false) {
+    const from = [...vb], to = clamp(v);
+    if (!animate || matchMedia("(prefers-reduced-motion: reduce)").matches) { vb = to; apply(); return; }
+    const t0 = performance.now();
+    const step = (t) => {
+      const q = Math.min(1, (t - t0) / 350), e = 1 - Math.pow(1 - q, 3);
+      vb = from.map((x, i) => x + (to[i] - x) * e);
+      apply();
+      if (q < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  const toMap = (ev) => {
+    const r = svg.getBoundingClientRect(), sc = Math.max(vb[2] / r.width, vb[3] / r.height);
+    const ox = (r.width - vb[2] / sc) / 2, oy = (r.height - vb[3] / sc) / 2;
+    return [vb[0] + (ev.clientX - r.left - ox) * sc, vb[1] + (ev.clientY - r.top - oy) * sc, sc];
+  };
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const [mx, my] = toMap(ev), w = Math.min(360, Math.max(12, vb[2] * (ev.deltaY > 0 ? 1.25 : 0.8))), q = w / vb[2];
+    setView([mx - (mx - vb[0]) * q, my - (my - vb[1]) * q, w]);
+  }, { passive: false });
+  let drag = null;
+  svg.addEventListener("pointerdown", (ev) => { if (ev.button !== 0) return; drag = { x: ev.clientX, y: ev.clientY, vb: [...vb], sc: toMap(ev)[2], moved: false }; });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y;
+    if (!drag.moved && Math.hypot(dx, dy) < 4) return;
+    if (!drag.moved) { drag.moved = true; svg.setPointerCapture(ev.pointerId); svg.classList.add("dragging"); hideTip(); }
+    setView([drag.vb[0] - dx * drag.sc, drag.vb[1] - dy * drag.sc, drag.vb[2]]);
+  });
+  const endDrag = () => { drag = null; svg.classList.remove("dragging"); };
+  svg.addEventListener("pointerup", endDrag);
+  svg.addEventListener("pointercancel", endDrag);
+  svg.addEventListener("dblclick", () => setView(REGIONS.Welt, true));
+
+  function setData(points, countries) {
+    pts = (points || []).filter((p) => p.lat || p.lon);
+    counts = new Map();
+    if (countries) for (const c of countries) counts.set(c.key, (counts.get(c.key) || 0) + Number(c.n || 0));
+    else for (const p of pts) if (p.country) counts.set(p.country, (counts.get(p.country) || 0) + p.n);
+    counts.delete("LAN");
+    max = Math.max(1, ...counts.values());
+    pmax = Math.max(1, ...pts.map((p) => p.n));
+    paint();
+    drawDots();
+  }
+  setData(points, countries);
+  apply();
+
+  const box = h("div", { class: "mapbox" }, svg,
+    h("div", { class: "scale" }, "wenige ", h("i"), " viele Verbindungen"),
+    h("div", { class: "hint" }, "Mausrad: zoomen · Ziehen: verschieben · Doppelklick: Welt"));
+  let ctl = null;
+  if (controls) {
+    const modeSeg = h("div", { class: "seg", role: "group", "aria-label": "Darstellung" });
+    for (const [v, l] of [["laender", "Länder"], ["orte", "Orte"], ["beides", "Beides"]]) {
+      const b = h("button", { class: v === mode ? "on" : "", onclick: () => {
+        mode = v;
+        modeSeg.querySelectorAll("button").forEach((x) => x.classList.toggle("on", x === b));
+        paint();
+        drawDots();
+      } }, l);
+      modeSeg.append(b);
+    }
+    ctl = h("div", { class: "mapctl" },
+      h("div", { class: "seg", role: "group", "aria-label": "Ausschnitt" }, Object.keys(REGIONS).map((r) => h("button", { onclick: () => setView(REGIONS[r], true) }, r))),
+      modeSeg);
+  }
+  const el = h("div", { class: "chart map" + (large ? " large" : "") }, box);
+
+  const pulse = (lat, lon, color = "var(--live)") => {
     if (!lat && !lon) return;
     if (live.childNodes.length > 120) live.firstChild.remove();
-    const x = px(lon).toFixed(2), y = py(lat).toFixed(2);
-    const g = s("g", null, s("circle", { class: "pulse", cx: x, cy: y, r: 2 }), s("circle", { class: "pulse-core", cx: x, cy: y, r: 0.7 }));
+    const g = s("circle", { class: "pulse", cx: lon + 180, cy: 90 - lat, r: 1.6 * k(), style: { stroke: color, strokeWidth: 0.35 * k() } });
     live.append(g);
     setTimeout(() => g.remove(), 2300);
   };
   return {
     el,
+    controls: ctl,
+    setData,
+    zoom: (name) => setView(REGIONS[name], true),
     pulse,
     // Angriff: Puls am Ursprung und, wenn ein Standort bekannt ist, eine Linie zum Honeypot.
     attack(lat, lon, service, country) {
-      if (country && country !== "LAN") { // Länderzähler live mitführen
+      if (country && country !== "LAN") {
+        counts.set(country, (counts.get(country) || 0) + 1);
         const st = stats[country] || (stats[country] = { today: 0, total: 0 });
         st.today++;
         st.total++;
       }
       if (!lat && !lon) return;
-      pulse(lat, lon);
-      if (!homeEl) return;
-      const x1 = px(lon), y1 = py(lat), x2 = px(home.lon), y2 = py(home.lat);
+      pulse(lat, lon, svcColor(service));
+      if (!home || !(home.lat || home.lon)) return;
+      const x1 = lon + 180, y1 = 90 - lat, x2 = home.lon + 180, y2 = 90 - home.lat;
       const dist = Math.hypot(x2 - x1, y2 - y1);
       if (dist < 1) return;
       // Bogen: Kontrollpunkt über der Mitte, umso höher, je länger die Strecke
       const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 - Math.min(40, dist * 0.28);
-      const d = `M${x1.toFixed(2)} ${y1.toFixed(2)}Q${cx.toFixed(2)} ${cy.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}`;
-      const arc = s("path", { class: "arc", d, pathLength: 1, style: { stroke: svcColor(service) } });
-      const hit = s("circle", { class: "impact", cx: x2.toFixed(2), cy: y2.toFixed(2), r: 2.4, style: { stroke: svcColor(service) } });
-      const g = s("g", null, arc, hit);
-      live.append(g);
-      setTimeout(() => g.remove(), 2600);
+      const arc = s("path", { class: "arc", d: `M${x1.toFixed(2)} ${y1.toFixed(2)}Q${cx.toFixed(2)} ${cy.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}`,
+        pathLength: 1, style: { stroke: svcColor(service), strokeWidth: 0.45 * k() } });
+      live.append(arc);
+      setTimeout(() => arc.remove(), 2600);
     },
   };
+}
+
+// Verlaufslinie für Kennzahlen
+export function sparkline(values, { w = 120, hh = 28 } = {}) {
+  const v = values && values.length > 1 ? values : [0, ...(values || [0])];
+  const max = Math.max(1, ...v), n = v.length;
+  const pts = v.map((x, i) => `${((i / (n - 1)) * w).toFixed(1)},${(hh - 2 - (x / max) * (hh - 4)).toFixed(1)}`).join(" ");
+  return s("svg", { class: "spark", viewBox: `0 0 ${w} ${hh}`, preserveAspectRatio: "none", "aria-hidden": "true" },
+    s("polyline", { points: `0,${hh} ${pts} ${w},${hh}`, class: "area" }), s("polyline", { points: pts, class: "line" }));
 }
 
 // ---------- Zeitverlauf ----------

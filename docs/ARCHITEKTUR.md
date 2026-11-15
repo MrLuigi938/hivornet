@@ -75,6 +75,7 @@ Regeln, die jeder Handler einhalten muss:
 | `geo.go` | GeoIP (DB-IP Lite), `Enrich`, monatliches Update |
 | `sse.go` | `Broker`: Live-Ereignisse an Browser |
 | `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `Report.Text` |
+| `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `webhookBody` (Felder der Meldung plus `content` für Discord), `watchWarnings`, Testnachricht |
 | `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB, GreyNoise), Geheimnis-Behandlung (`secretFields`), Tabelle `lookups` |
@@ -94,7 +95,7 @@ Regeln, die jeder Handler einhalten muss:
 3. `Geo.Enrich` setzt Land, Stadt, Koordinaten, ASN.
 4. `Writer.Submit` verwirft Duplikate (`eid`) und stellt ein; ist die Warteschlange voll, bekommt der Sensor 503 und sendet später erneut.
 5. `Writer.writeBatch` schreibt in einer Transaktion nach `events`, `hourly`, `attackers` und `top_hourly` (über `topKeys`, inklusive Muster, Werkzeuge, Adressen).
-6. Nach dem Commit ruft der Writer `pub` auf: `Broker.Publish` (Live-Feed) und `Notifier.OnEvent`.
+6. Nach dem Commit ruft der Writer `pub` auf: `Broker.Publish` (Live-Strom der UI) und `Notifier.OnEvent`.
 
 ### HTTP-Routen (alle in `Hive.routes`)
 
@@ -112,7 +113,9 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET /api/logs`, `GET /api/logs/{id}?lines=…` | Protokoll-Quellen und Inhalt (nur Pi mit `HIVE_JOURNAL=1`, nur Admin) |
 | `POST /api/backup/export`, `POST /api/backup/import` | verschlüsselte Sicherung herunterladen bzw. einspielen (nur Admin, Passwort nötig) |
 | `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map`, `/countries?today_from=…` | Kennzahlen (`countries`: Angriffe je Land heute und gesamt); `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
-| `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `q`, `range`, `hide_noise`, `before`, `limit` |
+| `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `from`/`to` (ms), `q`, `range`, `hide_noise`, `before`, `limit` |
+| `GET /api/attacks` | Angriffe, neueste Aktivität zuerst; `range` (`1h`, `24h`, `7d`), `active=1` (letzte 15 Min), `ip=a,b` (Live-Aktualisierung), `stufe=…`, `service`, `q`, `before` (ms), `limit`; liefert dazu `stufen` (Anzahl je Stufe), `matched`, `truncated` |
+| `GET /api/stats/series` | Verläufe je Kennzahl (`connect`, `ips`, `login`, `request`, `command`, `download`, `success`), Summen und Summen des Zeitraums davor, `active_tarpits` |
 | `GET /api/export/events`, `/api/export/blocklist`, `/api/export/stix` | Export (CSV/JSON, Blockliste, STIX 2.1) |
 | `GET /api/stream` | Live-Ereignisse (SSE) |
 | `GET /api/attackers/{ip}`, `…/intel`, `…/greynoise` | Angreifer, AbuseIPDB, GreyNoise |
@@ -156,9 +159,10 @@ Reines JavaScript in ES-Modulen, kein Build-Schritt, per `go:embed` im Binary (i
 | `index.html`, `style.css`, `favicon.svg` | Rahmen; Farben als CSS-Variablen für Hell und Dunkel; Logo (Schild mit Stachel) |
 | `flags.woff2` | Schrift „Twemoji Country Flags“, damit Flaggen-Emojis auch unter Windows erscheinen |
 | `dom.js` | `h()` baut Elemente und fügt Texte **immer als Textknoten** ein (`safeText` ersetzt Steuerzeichen); `api()`, Formatierung, Tooltip (`hideTip`), `flag(cc)`, `store()` (Präfix `hv.`) |
-| `charts.js` | `worldMap` (Länder mit Grenzen, Hover mit Flagge, Name und Angriffen heute/gesamt; Punkte, Standort, `attack()` zeichnet die Angriffslinie), `timeline`, `toplist`, `svcName`, `svcColor` |
+| `charts.js` | `worldMap` (Länder nach Anzahl eingefärbt, Orte als Punkte, Zoom per Mausrad, Verschieben, `REGIONS`, Umschalter Länder/Orte/Beides in `controls`; Hover mit Flagge, Name und Angriffen; `attack()` zeichnet die Angriffslinie), `sparkline`, `timeline`, `toplist`, `svcName`, `svcColor` |
+| `attacks.js` | Seite „Angriffe“ (`viewAttacks`), Karte je Angriff (`attackCard`), Zeile für „Gerade aktiv“ (`attackRow`), `liveAttacks` (sammelt IPs aus dem Live-Strom und holt alle 2 s deren Angriffe), Umschalter zur Einzelansicht |
 | `world.js` | Landumrisse (`COUNTRIES`) und deutsche Ländernamen (`COUNTRY_NAMES`), erzeugt von `tools/build_world.py`; Länder über der Datumsgrenze sind abgewickelt |
-| `app.js` | Anmeldung, Live-Stream, Router (`routes`, `route()`), Ansichten Dashboard, Live-Feed, Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
+| `app.js` | Anmeldung, Live-Stream, Kopfleiste mit Navigation und Benutzermenü, Router (`routes`, `route()`), Ansichten Lage (`viewDashboard`), Einzelne Ereignisse (`viewFeed`, fasst Wiederholungen zusammen), Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
 | `extra.js` | Ansichten Live-Karte und Analyse; Bausteine `reportCard`, `ttyCard`, `intelCard`, `extrasCards` |
 
 Regeln für die UI:

@@ -3,8 +3,8 @@
 //
 // Wie überall gilt: Angreiferdaten werden nur als Text eingefügt (h() aus dom.js).
 // Adressen aus Angreiferdaten werden nie zu Links gemacht.
-import { h, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime } from "./dom.js";
-import { worldMap, toplist, svcName } from "./charts.js";
+import { h, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag } from "./dom.js";
+import { worldMap, toplist, svcName, countryName } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME } from "./app.js";
 
 // ---------- Standort des Honeypots (Ziel der Angriffslinien) ----------
@@ -21,8 +21,8 @@ export async function homeLocation() {
 
 export async function viewLive(el, ctx) {
   header("Live-Karte");
-  const [mp, home] = await Promise.all([api("stats/map?range=24h"), homeLocation()]);
-  const map = worldMap(mp, { home, large: true });
+  const [mp, ctry, home] = await Promise.all([api("stats/map?range=24h"), api("stats/top?field=country&limit=100&range=24h"), homeLocation()]);
+  const map = worldMap(mp, { home, large: true, countries: ctry });
   const ticker = h("ul", { class: "ticker" });
   const perMin = tile("Angriffe pro Minute", "0", "Verbindungen in den letzten 60 s");
   const countries = tile("Länder", "0", "in den letzten 10 Minuten");
@@ -41,8 +41,21 @@ export async function viewLive(el, ctx) {
     mount(svcBox, toplist([...bySvc].map(([key, n]) => ({ key: svcName(key), n })).sort((a, b) => b.n - a.n).slice(0, 8)));
   };
   const addLine = (e, hot) => {
+    // gleiche IP, gleiche Art direkt hintereinander: Zähler hochzählen statt neuer Zeile
+    const key = `${e.src_ip}|${e.type}|${e.service}`, top = ticker.firstChild;
+    if (top && top.dataset.key === key) {
+      const n = Number(top.dataset.n) + 1;
+      top.dataset.n = n;
+      top.querySelector(".when").textContent = fmtTime(e.ts);
+      let x = top.querySelector(".xn");
+      if (!x) { x = h("span", { class: "xn" }); top.children[1].append(x); }
+      x.textContent = "×" + fmtNum(n);
+      if (hot) mount(top.querySelector(".what"), ipLink(e.src_ip), " ", TYPE_NAME[e.type] || e.type, ": ", describe(e));
+      top.style.animation = "none"; void top.offsetWidth; top.style.animation = "";
+      return;
+    }
     const where = [e.city, e.country_name].filter(Boolean).join(", ") || (e.country === "LAN" ? "Lokales Netz" : "unbekannt");
-    ticker.prepend(h("li", { class: hot ? "hot" : "" },
+    ticker.prepend(h("li", { class: hot ? "hot" : "", dataset: { key, n: 1 } },
       h("span", { class: "when" }, fmtTime(e.ts)),
       h("span", null, cc(e.country, e.country_name), " ", where, " → ", svcBadge(e.service, e.dst_port)),
       h("span", { class: "what" }, ipLink(e.src_ip), " ", hot ? [TYPE_NAME[e.type] || e.type, ": ", describe(e)] : null)));
@@ -54,7 +67,7 @@ export async function viewLive(el, ctx) {
       home.label || "Honeypot", "). Die Farbe zeigt den angegriffenen Dienst. Den Standort stellst du unter Einstellungen ein."),
     h("div", { class: "live-grid" },
       h("div", { class: "stack" },
-        card(null, map.el),
+        h("section", { class: "card" }, h("div", { class: "head" }, h("h2", null, "Herkunft, letzte 24 Stunden"), h("div", { class: "grow" }), map.controls), map.el),
         h("div", { class: "grid kpi" }, perMin, countries, last)),
       h("div", { class: "stack" },
         card("Gerade eben", ticker, h("div", { class: "empty", id: "ticker-empty" }, "Warte auf den nächsten Angriff …")),
@@ -67,7 +80,7 @@ export async function viewLive(el, ctx) {
       stamps.push(Date.now());
       if (e.country && e.country !== "LAN") seen.set(e.country, Date.now());
       bySvc.set(e.service, (bySvc.get(e.service) || 0) + 1);
-      last.querySelector(".value").textContent = e.country || "–";
+      mount(last.querySelector(".value"), e.country && e.country !== "LAN" ? [flag(e.country), " ", countryName(e.country)] : e.country === "LAN" ? "Lokales Netz" : "–");
       addLine(e, false);
     } else if (!isNoise(e) && e.type !== "tls" && e.type !== "client_version" && e.type !== "fingerprint") {
       addLine(e, true);
@@ -91,7 +104,8 @@ export async function viewAnalysis(el) {
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Was Angreifer tun, nachdem sie verbunden sind: erkannte Vorgehensweisen, benutzte Programme und die Adressen, ",
       "von denen sie Schadcode nachladen. Die Zuordnung erfolgt nach festen Regeln auf dem Hive; gezählt wird seit der Aktualisierung auf diese Version."),
-    card("Angriffsmuster", tags.length ? toplist(tags, { key: (x) => x.label || x.key }) : h("div", { class: "empty" }, "Noch keine Muster erkannt.")),
+    card("Angriffsmuster", tags.length ? toplist(tags, { key: (x) => x.label || x.key, link: (x) => "#/attacks?q=" + encodeURIComponent(x.label || x.key) }) : h("div", { class: "empty" }, "Noch keine Muster erkannt."),
+      tags.length ? h("p", { class: "muted", style: { margin: "10px 0 0", fontSize: "12.5px" } }, "Ein Klick zeigt die Angriffe mit diesem Muster.") : null),
     h("div", { class: "grid three" },
       card("Benutzte Programme", toplist(programs.slice(0, 20))),
       card("Installiert oder nachgezogen", installed.length ? toplist(installed.slice(0, 20)) : h("div", { class: "empty" }, "Noch nichts beobachtet.")),

@@ -33,7 +33,9 @@ function setAttrs(el, attrs, svg) {
     if (v === null || v === undefined || v === false) continue;
     if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
     else if (k === "class") el.setAttribute("class", v);
-    else if (k === "style" && typeof v === "object") Object.assign(el.style, v);
+    else if (k === "style" && typeof v === "object") {
+      for (const [sk, sv] of Object.entries(v)) sk.startsWith("--") ? el.style.setProperty(sk, sv) : (el.style[sk] = sv);
+    }
     else if (k === "dataset") Object.assign(el.dataset, v);
     else if (!svg && (k === "value" || k === "checked" || k === "disabled" || k === "selected")) el[k] = v;
     else el.setAttribute(k, v === true ? "" : String(v));

@@ -325,6 +325,15 @@ func eventFilter(r *http.Request) (string, []any) {
 		where = append(where, "id < ?")
 		args = append(args, v)
 	}
+	// Zeitfenster in Millisekunden (Ereignisse eines Angriffs)
+	if v, err := strconv.ParseInt(q.Get("from"), 10, 64); err == nil && v > 0 {
+		where = append(where, "ts >= ?")
+		args = append(args, v)
+	}
+	if v, err := strconv.ParseInt(q.Get("to"), 10, 64); err == nil && v > 0 {
+		where = append(where, "ts <= ?")
+		args = append(args, v)
+	}
 	if v, err := strconv.Atoi(q.Get("dst_port")); err == nil && v > 0 {
 		where = append(where, "dst_port = ?")
 		args = append(args, v)

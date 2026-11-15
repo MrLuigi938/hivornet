@@ -2,17 +2,19 @@
 import {
   h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag, hideTip,
 } from "./dom.js";
-import { worldMap, timeline, toplist, svcName, svcColor, countryName } from "./charts.js";
+import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
+// Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewLive, viewAnalysis, reportCard, ttyCard, intelCard, extrasCards, homeLocation } from "./extra.js";
 
 const app = document.getElementById("app");
 const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null };
 
+// Navigation in der Kopfleiste; Einstellungen, System und Protokolle stehen im Benutzermenü.
 const NAV = [
-  ["#/", "Dashboard"], ["#/live", "Live-Karte"], ["#/feed", "Live-Feed"], ["#/sessions", "Sitzungen"],
-  ["#/analysis", "Analyse"], ["#/creds", "Zugangsdaten"],
-  ["#/tarpit", "Tarpit"], ["#/settings", "Einstellungen"], ["#/system", "System"], ["#/logs", "Protokolle"],
+  ["#/", "Lage"], ["#/attacks", "Angriffe"], ["#/live", "Live-Karte"], ["#/analysis", "Analyse"],
+  ["#/creds", "Zugangsdaten"], ["#/tarpit", "Tarpit"], ["#/system", "System"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
 const TYPE_NAME = {
@@ -25,9 +27,9 @@ const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mys
 const MODE_NAME = { emulate: "Aufzeichnen", tarpit: "Tarpit", hybrid: "Hybrid" };
 
 // ---------- Theme ----------
+// Standard ist dunkel ("Lagezentrale"); "system" folgt der Einstellung des Betriebssystems.
 function applyTheme(t) {
-  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
-  else delete document.documentElement.dataset.theme;
+  document.documentElement.dataset.theme = t === "light" || t === "system" ? t : "dark";
 }
 applyTheme(store("theme"));
 
@@ -173,7 +175,19 @@ function startStream() {
 function stopStream() { if (state.es) state.es.close(); state.es = null; }
 function setLive(on) {
   const d = document.getElementById("live");
-  if (d) { d.classList.toggle("on", on); d.lastChild.textContent = on ? "live" : "getrennt"; }
+  if (!d) return;
+  d.classList.toggle("on", on);
+  d.dataset.state = on ? "live" : "getrennt";
+  renderLiveText();
+}
+// Zusatz in der Live-Anzeige (z. B. "7 aktiv · 2 im Tarpit"), gesetzt vom Dashboard
+let liveExtra = "";
+function setLiveInfo(text) { liveExtra = text || ""; renderLiveText(); }
+function renderLiveText() {
+  const d = document.getElementById("live");
+  if (!d) return;
+  const st = d.dataset.state || "verbinde …";
+  d.lastChild.textContent = st === "live" ? ["LIVE", liveExtra].filter(Boolean).join(" · ") : st;
 }
 function onLive(fn) { state.liveFns.add(fn); return () => state.liveFns.delete(fn); }
 
@@ -182,24 +196,38 @@ function onLive(fn) { state.liveFns.add(fn); return () => state.liveFns.delete(f
 let mainEl, topEl;
 
 function renderShell() {
+  const isAdmin = state.user.role !== "viewer";
   const theme = h("select", {
     "aria-label": "Darstellung",
     onchange: (e) => { store("theme", e.target.value); applyTheme(e.target.value); },
-  }, [["auto", "System"], ["dark", "Dunkel"], ["light", "Hell"]].map(([v, l]) => h("option", { value: v, selected: (store("theme") || "auto") === v }, l)));
+  }, [["dark", "Dunkel"], ["light", "Hell"], ["system", "Wie das System"]].map(([v, l]) => h("option", { value: v, selected: (["light", "system"].includes(store("theme")) ? store("theme") : "dark") === v }, l)));
+  const menu = h("div", { class: "menu", hidden: true },
+    h("div", { class: "info" }, "Angemeldet als ", h("b", null, state.user.username), state.user.role === "viewer" ? " (nur ansehen)" : ""),
+    isAdmin ? h("a", { href: "#/settings" }, "Einstellungen") : null,
+    h("a", { href: "#/sessions" }, "Sitzungen"),
+    state.user.logs ? h("a", { href: "#/logs" }, "Protokolle") : null,
+    h("hr"),
+    h("label", { class: "row" }, "Darstellung", theme),
+    h("hr"),
+    h("button", { class: "item", onclick: logout }, "Abmelden"),
+    h("div", { class: "info" }, "Version ", state.user.version));
+  const userBtn = h("button", { "aria-haspopup": "true", "aria-expanded": "false", onclick: (e) => {
+    e.stopPropagation();
+    menu.hidden = !menu.hidden;
+    userBtn.setAttribute("aria-expanded", String(!menu.hidden));
+  } }, h("span", { class: "avatar" }, (state.user.username || "?").slice(0, 1).toUpperCase()), state.user.username);
+  document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) { menu.hidden = true; userBtn.setAttribute("aria-expanded", "false"); } });
+  menu.addEventListener("click", (e) => { if (e.target.closest("a")) menu.hidden = true; });
   mainEl = h("div");
   topEl = h("div", { class: "top" });
-  mount(app, h("div", { class: "shell" },
-    h("aside", { class: "side" },
-      h("div", { class: "brand" }, h("img", { src: "favicon.svg", alt: "" }), "Hivornet"),
-      h("nav", { class: "nav" }, NAV.filter(([href]) => (state.user.role !== "viewer" || href !== "#/settings") && (state.user.logs || href !== "#/logs")).map(([href, label]) => h("a", { href }, label))),
+  mount(app,
+    h("header", { class: "topbar" },
+      h("a", { class: "brand", href: "#/" }, h("img", { src: "favicon.svg", alt: "" }), "Hivornet"),
+      h("nav", { class: "nav" }, NAV.map(([href, label]) => h("a", { href }, label))),
       h("div", { class: "grow" }),
-      h("div", { class: "foot" },
-        h("span", { id: "live", class: "live-dot" }, h("i"), h("span", null, "verbinde …")),
-        h("span", null, "Angemeldet als ", state.user.username, state.user.role === "viewer" ? " (nur ansehen)" : ""),
-        theme,
-        h("button", { class: "btn small", onclick: logout }, "Abmelden"),
-        h("span", null, "Version ", state.user.version))),
-    h("main", { class: "main" }, topEl, mainEl, credit(true))));
+      h("span", { id: "live", class: "livepill", role: "status" }, h("i"), h("span", null, "verbinde …")),
+      h("div", { class: "usermenu" }, userBtn, menu)),
+    h("main", { class: "main" }, topEl, mainEl, credit(true)));
   window.onhashchange = route;
 }
 
@@ -212,7 +240,7 @@ function header(title, { range = false, extra = null } = {}) {
 }
 
 const routes = [
-  [/^#?\/?$/, viewDashboard], [/^#\/feed$/, viewFeed], [/^#\/sessions$/, viewSessions],
+  [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings$/, viewSettings], [/^#\/system$/, viewSystem],
   [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/logs(\?.*)?$/, viewLogs],
@@ -223,10 +251,13 @@ async function route() {
   if (state.cleanup) { state.cleanup(); state.cleanup = null; }
   hideTip(); // Tooltip der vorigen Ansicht nicht stehen lassen
   const hash = location.hash || "#/";
+  // Einzelansicht, Angreifer und Sitzungen gehören in der Navigation zu "Angriffe"
+  const navHash = /^#\/(feed|attacker\/|session)/.test(hash) ? "#/attacks" : hash;
   for (const a of document.querySelectorAll(".nav a")) {
     const href = a.getAttribute("href");
-    a.classList.toggle("on", href === "#/" ? hash === "#/" || hash === "" : hash.startsWith(href));
+    a.classList.toggle("on", href === "#/" ? navHash === "#/" || navHash === "" : navHash.startsWith(href));
   }
+  setLiveInfo("");
   const [, view, m] = routes.map(([re, v]) => [re, v, hash.match(re)]).find(([, , m]) => m) || [null, viewDashboard, []];
   // Jede Ansicht zeichnet in ihren eigenen Behälter. Wird inzwischen weiternavigiert,
   // landet eine verspätete Ansicht in einem Behälter, der nicht mehr angezeigt wird,
@@ -243,7 +274,7 @@ async function route() {
       every: (ms, fn) => { const t = setInterval(fn, ms); cleanups.push(() => clearInterval(t)); },
       current: () => seq === routeSeq,
     };
-    await view(host, ctx, ...(m || []).slice(1).map(decodeURIComponent));
+    await view(host, ctx, ...(m || []).slice(1).map((x) => (x == null ? "" : decodeURIComponent(x))));
     if (seq !== routeSeq) cleanupAll();
   } catch (e) {
     cleanupAll();
@@ -292,12 +323,15 @@ function describe(e) {
   return "";
 }
 
-function eventRow(e, { fresh = false, showIP = true } = {}) {
-  const det = h("td", { class: "det" }, describe(e));
+// group: gleichartige Ereignisse derselben IP direkt hintereinander, als eine Zeile mit Zähler
+function eventRow(e, { fresh = false, showIP = true, group = null } = {}) {
+  const items = group || [e];
+  const summaryDet = () => (items.length > 1 ? [describe(e), h("span", { class: "muted" }, `  · und ${fmtNum(items.length - 1)} weitere`)] : describe(e));
+  const det = h("td", { class: "det" }, summaryDet());
   const tr = h("tr", { class: "click" + (fresh ? " new" : ""), title: "Klicken oder Eingabetaste für Details", tabindex: 0 },
     h("td", { class: "num" }, fmtTime(e.ts)),
     h("td", null, svcBadge(e.service, e.dst_port)),
-    h("td", null, TYPE_NAME[e.type] || e.type),
+    h("td", null, TYPE_NAME[e.type] || e.type, items.length > 1 ? h("span", { class: "xn" }, "×" + fmtNum(items.length)) : null),
     showIP ? h("td", null, ipLink(e.src_ip), " ", cc(e.country, e.country_name)) : null,
     det);
   let open = false;
@@ -308,6 +342,10 @@ function eventRow(e, { fresh = false, showIP = true } = {}) {
     if (ev.target.closest("a")) return;
     open = !open;
     tr.classList.toggle("expanded", open);
+    if (items.length > 1) {
+      mount(det, summaryDet(), open ? h("div", { style: { marginTop: "6px" } }, items.map((x) => h("div", null, h("span", { class: "muted num" }, fmtTime(x.ts), "  "), describe(x)))) : null);
+      return;
+    }
     mount(det, describe(e), open ? h("pre", { class: "json" }, JSON.stringify({
       zeit: fmtDateTime(e.ts), sensor: e.sensor, sitzung: e.session, quelle: `${e.src_ip}:${e.src_port}`,
       ort: [e.city, e.country_name].filter(Boolean).join(", ") || undefined, netz: e.asn ? `AS${e.asn} ${e.as_org}` : undefined,
@@ -334,64 +372,109 @@ function warningsBox(list, link) {
 // ---------- Dashboard ----------
 
 async function viewDashboard(el, ctx) {
-  header("Dashboard", { range: true });
+  header("Lage", { range: true });
   const r = state.range;
   const q = (p) => api(p + (p.includes("?") ? "&" : "?") + "range=" + r);
-  const [sum, tl, mp, countries, ports, ips, asns, creds, cmds, recent, sys] = await Promise.all([
-    q("stats/summary"), q("stats/timeline"), q("stats/map"),
-    q("stats/top?field=country"), q("stats/top?field=port"), q("stats/top?field=ip"), q("stats/top?field=asn"),
-    q("stats/top?field=cred"), q("stats/top?field=command"), api("events?limit=12&hide_noise=1"),
+  const [ser, tl, mp, countries, ports, ips, asns, creds, cmds, act, sys] = await Promise.all([
+    q("stats/series"), q("stats/timeline"), q("stats/map"),
+    q("stats/top?field=country&limit=100"), q("stats/top?field=port"), q("stats/top?field=ip"), q("stats/top?field=asn"),
+    q("stats/top?field=cred"), q("stats/top?field=command"), api("attacks?active=1&limit=60"),
     api("system").catch(() => null),
   ]);
   const home = await homeLocation();
-  const map = worldMap(mp, { home });
-  const recentBody = h("tbody", null, recent.map((e) => eventRow(e)));
-  const connTile = tile("Verbindungen", fmtNum(sum.connect));
-  mount(el,
-    h("div", { class: "stack" },
-      warningsBox(sys && sys.warnings, true),
-      h("div", { class: "grid kpi" },
-        connTile,
-        tile("Angreifer-IPs", fmtNum(sum.unique_ips)),
-        tile("Länder", fmtNum(sum.countries)),
-        tile("Login-Versuche", fmtNum(sum.login)),
-        tile("Befehle", fmtNum(sum.command)),
-        tile("Downloads", fmtNum(sum.download)),
-        tile("Tarpit-Zeit", fmtDur(sum.tarpit_ms), "so lange hingen Angreifer fest"),
-        tile("Gerade festgehalten", fmtNum(sum.active_tarpits), "offene Tarpit-Verbindungen")),
-      card("Herkunft der Angriffe", map.el,
-        h("div", { class: "legend" }, h("span", null, h("i", { class: "swatch", style: { background: "var(--accent)" } }), "Punktgröße = Verbindungen"),
-          h("span", null, h("i", { class: "swatch", style: { background: "var(--live)" } }), "neuer Angriff (live), Linie zum Honeypot"),
-          h("span", null, h("i", { class: "swatch", style: { background: "var(--good)" } }), home.label || "Honeypot"),
-          h("a", { href: "#/live" }, "Große Live-Karte"))),
-      card("Verbindungen nach Dienst", timeline(tl)),
-      h("div", { class: "grid three" },
-        card("Länder", toplist(countries, { key: (x) => x.label || x.key, extra: (x) => cc(x.key) })),
-        card("Ports", toplist(ports, { key: (x) => `${x.key} · ${svcName(x.label)}` })),
-        card("Angreifer-IPs", toplist(ips, { link: (x) => "#/attacker/" + encodeURIComponent(x.key), extra: (x) => cc(x.label) })),
-        card("Netzbetreiber", toplist(asns, { key: (x) => `AS${x.key} ${x.label}` })),
-        card("Zugangsdaten", toplist(creds)),
-        card("Befehle", toplist(cmds))),
-      card("Letzte Aktivität", h("div", { class: "tablewrap" }, h("table", null,
-        h("thead", null, h("tr", null, ["Zeit", "Dienst", "Typ", "Quelle", "Details"].map((t) => h("th", null, t)))), recentBody))),
-      h("p", null, h("a", { href: "#/feed" }, "Alle Ereignisse im Live-Feed"))));
 
-  let conns = Number(sum.connect) || 0;
+  // ---- Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor ----
+  const tiles = {};
+  const KPIS = [
+    ["connect", "Verbindungen"], ["ips", "Angreifer-IPs"], ["login", "Login-Versuche"], ["request", "Web-Anfragen"],
+    ["success", "Logins angenommen", true], ["download", "Downloads", true],
+  ];
+  const kpi = ([key, label, alarm]) => {
+    const v = Number(ser.totals[key] || 0), p = Number(ser.prev[key] || 0);
+    const delta = p ? Math.round(((v - p) / p) * 100) : null;
+    const value = h("span", null, fmtNum(v));
+    const t = h("div", { class: "card tile" + (alarm && v ? " alarm" : ""), title: p ? `Zeitraum davor: ${fmtNum(p)}` : null },
+      h("div", { class: "label" }, label),
+      h("div", { class: "value num" }, value, delta !== null && delta !== 0 ? h("small", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : null),
+      sparkline(ser.series[key] || []));
+    tiles[key] = { value, n: v };
+    return t;
+  };
+
+  // ---- Karte ----
+  const map = worldMap(mp, { home, countries });
+
+  // ---- Gerade aktiv (Angriffe der letzten 15 Minuten) ----
+  const active = new Map(act.attacks.map((a) => [a.id, a]));
+  const openRows = new Set();
+  const actList = h("div", { class: "list alist" });
+  const actCount = h("span", { class: "hint" });
+  const rowEls = new Map();
+  const setActInfo = () => {
+    actCount.textContent = active.size ? `${active.size} Angreifer, nach IP gebündelt` : "";
+    setLiveInfo(`${active.size} aktiv` + (ser.active_tarpits ? ` · ${ser.active_tarpits} im Tarpit` : ""));
+  };
+  const renderActive = () => {
+    const now = Date.now();
+    for (const [id, a] of active) if (now - a.last > 15 * 60e3) active.delete(id);
+    const list = [...active.values()].sort((x, y) => y.last - x.last);
+    rowEls.clear();
+    setActInfo();
+    mount(actList, list.length ? list.map((a) => { const r = attackRow(a, { open: openRows }); rowEls.set(a.id, r); return r; })
+      : h("div", { class: "empty" }, "Gerade ist niemand aktiv. Neue Angriffe erscheinen hier sofort."));
+  };
+  // Live: nur die geänderte Zeile ersetzen und nach oben setzen
+  const upsertActive = (a) => {
+    active.set(a.id, a);
+    const old = rowEls.get(a.id), r = attackRow(a, { fresh: true, open: openRows });
+    rowEls.set(a.id, r);
+    if (old) old.remove();
+    actList.querySelector(".empty")?.remove();
+    actList.prepend(r);
+    setActInfo();
+  };
+
+  mount(el, h("div", { class: "lage" },
+    warningsBox(sys && sys.warnings, true),
+    h("div", { class: "grid kpi6 kpis" }, KPIS.map(kpi)),
+    h("section", { class: "card mapcard" }, h("div", { class: "head" }, h("h2", null, "Herkunft der Angriffe"), h("div", { class: "grow" }), map.controls), map.el,
+      h("div", { class: "legend", style: { marginTop: "8px", marginBottom: 0 } },
+        h("span", null, h("i", { class: "swatch", style: { background: "var(--heat)" } }), "Land: Verbindungen im Zeitraum"),
+        h("span", null, h("i", { class: "swatch", style: { background: "var(--dot)", borderRadius: "50%" } }), "Ort"),
+        h("span", null, h("i", { class: "swatch", style: { background: "var(--live)" } }), "neuer Angriff, Linie zum Honeypot (Farbe = Dienst)"),
+        h("span", null, h("i", { class: "swatch", style: { background: "var(--good)", borderRadius: "50%" } }), home.label || "Honeypot"),
+        h("a", { href: "#/live" }, "Große Live-Karte"))),
+    h("aside", { class: "card act" }, h("div", { class: "head" }, h("h2", null, "Gerade aktiv"), h("div", { class: "grow" }), actCount), actList,
+      h("a", { href: "#/attacks", style: { marginTop: "10px", fontSize: "13px" } }, "Alle Angriffe")),
+    h("div", { class: "low" },
+      card("Verbindungen nach Dienst", timeline(tl)),
+      card("Länder", toplist(countries.slice(0, 7), { key: (x) => x.label || x.key, extra: (x) => cc(x.key) })),
+      card("Zugangsdaten", toplist(creds.slice(0, 7)))),
+    h("div", { class: "more grid" },
+      card("Ports", toplist(ports, { key: (x) => `${x.key} · ${svcName(x.label)}` })),
+      card("Angreifer-IPs", toplist(ips, { link: (x) => "#/attacker/" + encodeURIComponent(x.key), extra: (x) => cc(x.label) })),
+      card("Netzbetreiber", toplist(asns, { key: (x) => `AS${x.key} ${x.label}` })),
+      card("Befehle", toplist(cmds)))));
+  el.querySelector(".low .toplist")?.classList.add("heat");
+  renderActive();
+
   ctx.live((e) => {
     if (e.type === "connect") {
       map.attack(e.lat, e.lon, e.service, e.country);
-      conns++;
-      connTile.querySelector(".value").textContent = fmtNum(conns);
-    }
-    if (!isNoise(e)) {
-      recentBody.prepend(eventRow(e, { fresh: true }));
-      while (recentBody.children.length > 12) recentBody.lastChild.remove();
+      const t = tiles.connect;
+      t.n++;
+      t.value.textContent = fmtNum(t.n);
     }
   });
-  ctx.every(60000, () => { if (!document.hidden && location.hash.replace("#", "").replace("/", "") === "") route(); });
+  liveAttacks(ctx, (updated) => {
+    for (const a of updated.sort((x, y) => x.last - y.last)) if (Date.now() - a.last < 15 * 60e3) upsertActive(a);
+  });
+  ctx.every(5000, () => { document.querySelectorAll(".alist [data-rel]").forEach((x) => { x.textContent = relTime(Number(x.dataset.rel)); }); });
+  ctx.every(30000, () => { if (!document.hidden) renderActive(); });
+  ctx.every(120000, () => { if (!document.hidden && location.hash.replace("#", "").replace("/", "") === "") route(); });
 }
 
-// ---------- Live-Feed ----------
+// ---------- Einzelne Ereignisse ----------
 
 async function viewFeed(el, ctx) {
   const f = { service: "", type: "", q: "", country: "", port: "", hideNoise: store("hideNoise") !== "0", paused: false };
@@ -412,13 +495,31 @@ async function viewFeed(el, ctx) {
     if (before) p.set("before", String(lastId));
     return p.toString();
   };
+  // Zeilen: gleichartige Ereignisse derselben IP direkt hintereinander werden zusammengefasst ("×10")
+  let groups = [], shown = 0;
+  const sameKind = (a, b) => a.src_ip === b.src_ip && a.type === b.type && a.service === b.service;
+  const setInfo = () => { info.textContent = `${fmtNum(shown)} Ereignisse in ${fmtNum(groups.length)} Zeilen`; };
   async function load(older) {
     const rows = await api("events?" + params(older));
-    if (!older) body.replaceChildren();
-    rows.forEach((e) => body.append(eventRow(e)));
+    if (!older) { body.replaceChildren(); groups = []; shown = 0; }
+    for (const e of rows) {
+      const last = groups[groups.length - 1];
+      if (last && sameKind(last.items[0], e)) {
+        last.items.push(e);
+        const tr = eventRow(last.items[0], { group: last.items });
+        last.tr.replaceWith(tr);
+        last.tr = tr;
+      } else {
+        const g = { items: [e] };
+        g.tr = eventRow(e);
+        groups.push(g);
+        body.append(g.tr);
+      }
+      shown++;
+    }
     if (rows.length) lastId = rows[rows.length - 1].id;
     more.hidden = rows.length < 100;
-    info.textContent = `${fmtNum(body.children.length)} Ereignisse angezeigt`;
+    setInfo();
   }
   const matches = (e) => (!f.service || e.service === f.service) && (!f.type || e.type === f.type) && !(f.hideNoise && isNoise(e))
     && (!f.country || e.country === f.country) && (!f.port || String(e.dst_port) === f.port)
@@ -437,7 +538,7 @@ async function viewFeed(el, ctx) {
     h("button", { class: "btn small", onclick: () => download(`api/export/events?${params()}&format=json&range=${exRange.value}`) }, "JSON"),
     h("button", { class: "btn small", title: "Öffentliche Angreifer-IPs, eine pro Zeile (z. B. für Firewall-Regeln)", onclick: () => download(`api/export/blocklist?range=${exRange.value}`) }, "Blockliste"),
     h("button", { class: "btn small", title: "Angreifer-IPs, Nachlade-Adressen und Datei-Hashes als STIX 2.1 (für MISP, OpenCTI, Firewalls)", onclick: () => download(`api/export/stix?range=${exRange.value}`) }, "STIX"));
-  header("Live-Feed", { extra: pauseBtn });
+  header("Angriffe", { extra: [viewSwitch("einzeln"), pauseBtn] });
   mount(el, h("div", { class: "stack" },
     exportBox,
     h("div", { class: "filters" },
@@ -454,9 +555,20 @@ async function viewFeed(el, ctx) {
   await load();
   ctx.live((e) => {
     if (f.paused || !matches(e)) return;
-    body.prepend(eventRow(e, { fresh: true }));
-    while (body.children.length > 1000) body.lastChild.remove();
-    info.textContent = `${fmtNum(body.children.length)} Ereignisse angezeigt`;
+    const first = groups[0];
+    shown++;
+    if (first && sameKind(first.items[0], e)) {
+      first.items.unshift(e);
+      const tr = eventRow(e, { group: first.items, fresh: true });
+      first.tr.replaceWith(tr);
+      first.tr = tr;
+    } else {
+      const g = { items: [e], tr: eventRow(e, { fresh: true }) };
+      groups.unshift(g);
+      body.prepend(g.tr);
+      while (groups.length > 1000) groups.pop().tr.remove();
+    }
+    setInfo();
   });
 }
 
@@ -504,22 +616,44 @@ async function viewSession(el, ctx, id) {
 // ---------- Angreifer ----------
 
 async function viewAttacker(el, ctx, ip) {
-  header("Angreifer " + ip);
-  const d = await api("attackers/" + encodeURIComponent(ip));
+  header("Angreifer");
+  const [d, at] = await Promise.all([api("attackers/" + encodeURIComponent(ip)), api(`attacks?range=7d&limit=50&ip=${encodeURIComponent(ip)}`).catch(() => null)]);
   const i = d.info;
+  const attacks = at ? at.attacks : [];
+  const top = attacks.reduce((m, a) => (a.stufe > m ? a.stufe : m), 0);
+  const fact = (k, v) => h("div", null, h("div", { class: "k" }, k), h("div", { class: "v num" }, v));
+  const openCards = new Set();
+  const list = h("div", { class: "feed" }, attacks.length ? attacks.map((a, n) => { a.seen = attacks.length - n; return attackCard(a, { showIP: false, open: openCards }); })
+    : h("div", { class: "empty" }, "In den letzten 7 Tagen keine Angriffe (ältere Rohdaten sind nach der Aufbewahrungszeit gelöscht)."));
   mount(el, h("div", { class: "stack" },
-    h("div", { class: "grid kpi" },
-      tile("Herkunft", i.country_name || i.country || "unbekannt", i.city || null),
-      tile("Netzbetreiber", i.asn ? "AS" + i.asn : "–", i.as_org || null),
-      tile("Erstmals gesehen", fmtDateTime(i.first_seen)), tile("Zuletzt gesehen", fmtDateTime(i.last_seen), relTime(i.last_seen)),
-      tile("Ereignisse", fmtNum(i.events)), tile("Login-Versuche", fmtNum(i.logins)),
-      tile("Befehle", fmtNum(i.commands)), tile("Tarpit-Zeit", fmtDur(i.tarpit_ms))),
-    reportCard({ ip }),
-    intelCard(ip),
+    h("section", { class: "card" },
+      h("div", { class: "hero" },
+        flag(i.country) || h("span", { class: "flag" }, "🏳"),
+        h("div", null,
+          h("div", { class: "t1 mono" }, ip),
+          h("div", { class: "t2" }, [[i.city, i.country_name || i.country].filter(Boolean).join(", ") || "Herkunft unbekannt", i.asn ? `AS${i.asn} ${i.as_org || ""}` : ""].filter(Boolean).join(" · "))),
+        h("div", { class: "grow" }),
+        attacks.length ? h("span", { class: "badge stufe", style: { "--c": `var(--sev${top})` } }, "Höchste Stufe: ", ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"][top]) : null,
+        Date.now() - toMs(i.last_seen) < 15 * 60e3 ? h("span", { class: "badge active" }, "● gerade aktiv") : null),
+      h("div", { class: "facts-row" },
+        fact("Erstmals gesehen", fmtDateTime(i.first_seen)), fact("Zuletzt gesehen", relTime(i.last_seen)),
+        fact("Angriffe (7 Tage)", fmtNum(attacks.length)), fact("Ereignisse", fmtNum(i.events)),
+        fact("Login-Versuche", fmtNum(i.logins)), fact("Befehle", fmtNum(i.commands)), fact("Tarpit-Zeit", fmtDur(i.tarpit_ms)))),
+    card("Angriffe dieser IP", list),
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
       card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: `${c.username} / ${c.password}`, n: c.n }))))),
-    card("Ereignisse (neueste 300)", evTable(d.events, { showIP: false }))));
+    reportCard({ ip }),
+    intelCard(ip),
+    h("section", { class: "card" }, h("details", { class: "more" }, h("summary", null, `Alle Ereignisse einzeln (neueste ${fmtNum(d.events.length)})`), evTable(d.events, { showIP: false })))));
+  liveAttacks(ctx, (updated) => {
+    const a = updated.find((x) => x.ip === ip);
+    if (!a) return;
+    const n = attacks.findIndex((x) => x.id === a.id);
+    if (n >= 0) attacks.splice(n, 1);
+    attacks.unshift(a);
+    mount(list, attacks.map((x, k) => { x.seen = attacks.length - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === a.id }); }));
+  });
 }
 
 // ---------- Zugangsdaten ----------
@@ -529,12 +663,14 @@ async function viewCreds(el) {
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
   const [users, pws, combos, cmds, paths, uas, clients] = await Promise.all([
     q("username"), q("password"), q("cred"), q("command"), q("path"), q("useragent", 15), q("client", 15)]);
+  const find = (x) => "#/attacks?q=" + encodeURIComponent(x.key);
   mount(el, h("div", { class: "stack" },
+    h("p", { class: "sub" }, "Ein Klick auf einen Eintrag zeigt die Angriffe, in denen er vorkam."),
     h("div", { class: "grid three" },
-      card("Benutzernamen", toplist(users)), card("Passwörter", toplist(pws)), card("Kombinationen", toplist(combos))),
+      card("Benutzernamen", toplist(users, { link: find })), card("Passwörter", toplist(pws, { link: find })), card("Kombinationen", toplist(combos, { link: find }))),
     h("div", { class: "grid two" },
-      card("Befehle", toplist(cmds)),
-      card("HTTP-Pfade", toplist(paths, { extra: (x) => h("span", { class: "muted" }, svcName(x.label)) }))),
+      card("Befehle", toplist(cmds, { link: find })),
+      card("HTTP-Pfade", toplist(paths, { link: find, extra: (x) => h("span", { class: "muted" }, svcName(x.label)) }))),
     h("div", { class: "grid two" },
       card("User-Agents", toplist(uas)),
       card("SSH- und Client-Versionen", toplist(clients)))));

@@ -15,8 +15,9 @@ Hivornet ist ein leichtgewichtiges Honeypot-System für zu Hause und kleine Netz
 - **Viele Dienste:** SSH und Telnet mit gefälschter Shell (Cowrie), FTP, HTTP/HTTPS, Docker-API, MySQL, Redis, SMTP, RDP, VNC und weitere. SIP, SNMP und DNS laufen über UDP und zeichnen nur auf.
 - **Ausbremsen (Tarpit):** Pro Port wählbar: Angreifer bekommen endlos winzige Datenstücke, und ihr Scanner hängt fest.
 - **Auswertung im Browser:**
-  - Weltkarte mit Live-Angriffen und Ländern;
-  - Live-Feed, Sitzungen mit Terminal-Mitschnitt, Angriffsberichte;
+  - Lagezentrale mit Kennzahlen, zoombarer Weltkarte und den gerade aktiven Angreifern;
+  - Angriffe statt Einzelereignissen: alles einer IP gebündelt, mit Stufe, vermuteter Art und Zusammenfassung;
+  - Sitzungen mit Terminal-Mitschnitt, Angriffsberichte;
   - erkannte Angriffsmuster, Zugangsdaten und Befehle.
 - **Benachrichtigungen und Abgleich:** ntfy, Telegram oder Webhook; Reputation über AbuseIPDB und GreyNoise; Export als CSV, JSON, Blockliste und STIX.
 - **Sicher eingerichtet:**
@@ -111,7 +112,7 @@ Die Regeln sperren alle **neuen** Verbindungen aus dem Docker-Netz `honeynet` (B
 - **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Ausgelöste Aufgabe → Benutzerdefiniertes Skript, Ereignis „Hochfahren“, Benutzer `root`, Befehl: `sh /volume1/docker/hivornet/tools/firewall.sh`. Da Docker eventuell erst danach startet, zusätzlich eine geplante Aufgabe alle 15 Minuten mit demselben Befehl anlegen; das Skript ist idempotent.
 - **Linux mit systemd:** `tools/hivornet-firewall.service` nach `/etc/systemd/system/` kopieren, Pfad anpassen, `sudo systemctl enable --now hivornet-firewall`.
 
-**Kontrolle:** Die Web-UI prüft alle 10 Minuten, ob der Honeypot ins Internet kommt. Unter **System** steht dann „Internet aus dem Container: gesperrt“. Fehlt die Sperre, erscheint eine rote Warnung auf dem Dashboard.
+**Kontrolle:** Die Web-UI prüft alle 10 Minuten, ob der Honeypot ins Internet kommt. Unter **System** steht dann „Internet aus dem Container: gesperrt“. Fehlt die Sperre, erscheint eine rote Warnung auf der Seite Lage.
 
 Noch besser ist ein eigenes Netz (VLAN oder DMZ) für die NAS bzw. den Pi, sofern der Router dorthin Portweiterleitungen erlaubt. **Die FRITZ!Box erlaubt keine Portfreigaben an Geräte im Gastnetz** („Ziel nicht im Heimnetz“); dort gehört der Honeypot ins Heimnetz und wird durch die Netzsperre abgesichert.
 
@@ -161,18 +162,18 @@ Du musst nicht alle weiterleiten. Für den Anfang genügen 22, 23, 80, 443 und 3
 
 | Ansicht | Inhalt |
 |---|---|
-| Dashboard | Warnungen, Kennzahlen, Weltkarte mit Ländern und Live-Angriffen, Verlauf nach Dienst, Top-Länder/Ports/IPs/Netzbetreiber/Zugangsdaten/Befehle |
+| Lage | Warnungen; Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor; Weltkarte (Länder nach Anzahl eingefärbt, Orte, Zoom, Regionen, Live-Angriffe); **Gerade aktiv**: Angreifer der letzten 15 Minuten, nach IP gebündelt; Verlauf nach Dienst und Top-Listen |
+| Angriffe | **gebündelt:** eine Karte je Angriff (Ereignisse einer IP mit weniger als 15 Minuten Pause) mit Stufe (Abtasten → Versuche → Login angenommen → Befehle → Datei nachgeladen), vermuteter Art (z. B. „SSH-Brute-Force“, „Web-Scanner“), Zugangsdaten, Pfaden, Befehlen, erkannten Mustern und Zeitstreifen; Filter nach Stufe und Dienst, Suche. **Einzelne Ereignisse:** alle Ereignisse in Echtzeit, Wiederholungen als eine Zeile mit Zähler (×10); Export als CSV/JSON, Blockliste und STIX 2.1 (für MISP, OpenCTI) |
 | Live-Karte | große Karte: Jede neue Verbindung zeichnet eine Linie vom Ursprung zum Honeypot; Laufliste, Angriffe pro Minute |
-| Live-Feed | alle Ereignisse in Echtzeit, filterbar; Export als CSV/JSON, Blockliste der Angreifer-IPs und STIX 2.1 (für MISP, OpenCTI) |
-| Sitzungen | Verbindungen mit Logins oder Befehlen; Ablauf, Angriffsbericht und bei Cowrie der Terminal-Mitschnitt zum Abspielen |
-| Analyse | erkannte Angriffsmuster, benutzte und installierte Programme, Scanner, Nachlade-Adressen |
-| Angreifer | alles zu einer IP: Herkunft, Angriffsbericht, Reputation (AbuseIPDB, GreyNoise), Ports, Passwörter, Ereignisse |
-| Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen |
+| Analyse | erkannte Angriffsmuster (Klick zeigt die passenden Angriffe), benutzte und installierte Programme, Scanner, Nachlade-Adressen |
+| Angreifer | alles zu einer IP: Herkunft, alle Angriffe dieser IP, Angriffsbericht, Reputation (AbuseIPDB, GreyNoise), Ports, Passwörter, Ereignisse |
+| Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen; Klick zeigt die passenden Angriffe |
+| Sitzungen (Benutzermenü) | Verbindungen mit Logins oder Befehlen; Ablauf, Angriffsbericht und bei Cowrie der Terminal-Mitschnitt zum Abspielen |
 | Tarpit | verschwendete Angreiferzeit, gerade festgehaltene Verbindungen, Spitzenreiter |
 | Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort, Benutzer; dazu Standort für die Karte, Benachrichtigungen, KI-Auswertung, AbuseIPDB |
 | System | Warnungen, Updates, Netzsperre, RAM, Datenbank, GeoIP, Cowrie, Status je Sensor und Port |
 
-Auf der Weltkarte zeigt das Überfahren eines Landes Flagge, Namen und die Angriffe von heute und insgesamt. Änderungen in den Einstellungen übernimmt der Honeypot **innerhalb von 15 Sekunden ohne Neustart**.
+Die Oberfläche ist standardmäßig dunkel; im Benutzermenü oben rechts lässt sich auf Hell oder „Wie das System“ umstellen. Dort liegen auch Einstellungen, Sitzungen, Protokolle und Abmelden. Auf der Weltkarte zeigt das Überfahren eines Landes Flagge, Namen und die Angriffe im Zeitraum, heute und insgesamt; Mausrad zoomt, Ziehen verschiebt, Doppelklick zeigt wieder die ganze Welt. Änderungen in den Einstellungen übernimmt der Honeypot **innerhalb von 15 Sekunden ohne Neustart**.
 
 ### Modi je Port
 
@@ -252,7 +253,7 @@ docker compose restart hive          # der Hive übernimmt restore.db beim Start
 
 **Überwachung:**
 - **Healthchecks:** für Hive, Honeypot und Cowrie; `docker compose ps` zeigt `healthy`.
-- **Warnungen in der UI** (Dashboard und System), z. B.:
+- **Warnungen in der UI** (Lage und System), z. B.:
   - ein Sensor meldet sich nicht;
   - die Netzsperre fehlt;
   - Ereignisse wurden verworfen;
@@ -274,7 +275,7 @@ Von einem anderen Rechner im Heimnetz (Python 3, keine Zusatzpakete):
 python3 tools/attack_sim.py --host <IP-des-Geräts>
 ```
 
-Das schickt typische Angriffe auf alle Honeypot-Ports: Login-Seiten, Docker-Missbrauch, Redis-Cron-Masche, MySQL-Login, SSH-Tarpit, Telnet-Bot, SMTP-Anmeldung, VNC und RDP. Danach sieht man sie im Live-Feed (Quelle: deine LAN-IP, Land „LAN“). Gegen einen Raspberry Pi mit `--offset 0`, weil dort die echten Ports gelten.
+Das schickt typische Angriffe auf alle Honeypot-Ports: Login-Seiten, Docker-Missbrauch, Redis-Cron-Masche, MySQL-Login, SSH-Tarpit, Telnet-Bot, SMTP-Anmeldung, VNC und RDP. Danach sieht man sie unter Angriffe (Quelle: deine LAN-IP, Land „LAN“). Gegen einen Raspberry Pi mit `--offset 0`, weil dort die echten Ports gelten.
 
 Für eine gefüllte Weltkarte ohne echte Angriffe gibt es Demo-Daten (Docker, auf der NAS selbst ausführen):
 
