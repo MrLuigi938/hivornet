@@ -1,3 +1,5 @@
+<p align="center"><img src="docs/logo.svg" alt="Hivornet-Logo" width="120"></p>
+
 # Hivornet
 
 Ein leichtgewichtiges Honeypot-System als Alternative zu T-Pot: viele Protokolle, Angreifer ausbremsen (Tarpit) und Auswertung im Browser. Es läuft mit **3 Containern unter 512 MB RAM** auf einer NAS, einem Raspberry Pi oder einem kleinen Server.
