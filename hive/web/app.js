@@ -1082,7 +1082,11 @@ async function viewSystem(el, ctx) {
         ["Letztes Ereignis", relTime(d.cowrie.last_event)],
         vols.log !== undefined ? ["Logs", fmtBytes(vols.log)] : null,
         vols.lib !== undefined ? ["Downloads und Mitschnitte", fmtBytes(vols.lib)] : null,
-        d.cowrie.install ? ["Installation", installBadge(d.cowrie.install)] : null] : [["Status", "nicht eingerichtet"]]))),
+        d.cowrie.install ? ["Installation", installBadge(d.cowrie.install)] : null,
+        ...(d.cowrie.ports || []).map((p) => [p.name === "ssh" ? "SSH-Port" : "Telnet-Port",
+          p.ok ? h("span", { class: "badge ok", title: "geprüft " + relTime(p.checked) }, "lauscht")
+            : h("span", { class: "badge err", title: p.error || "" }, "lauscht nicht" + (p.hint ? ": " + p.hint : ""))])]
+        : [["Status", "nicht eingerichtet"]]))),
     d.network ? networkCard(d.network) : null,
     d.sensors.length ? d.sensors.map((s) => card("Sensor " + s.sensor,
       h("div", { class: "grid three" },

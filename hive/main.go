@@ -56,6 +56,7 @@ type Hive struct {
 	upd      updater       // Update-Prüfung (setup.go)
 	restart  chan struct{} // Neustart nach einer Wiederherstellung (backup.go)
 	hosts    hostList      // erlaubte Hostnamen der Web-UI (hosts.go)
+	probe    *portProbe    // lauschen die Cowrie-Ports? (probe.go)
 }
 
 func env(k, def string) string {
@@ -306,6 +307,11 @@ func main() {
 		})
 		go h.cowrie.Run()
 	}
+	h.probe = newPortProbe(cowrieProbeTargets())
+	go h.probe.run(bgStop, func() bool { // erst prüfen, wenn Cowrie fertig installiert ist
+		ci := cowrieInstallStatus()
+		return h.cowrie != nil && (ci == nil || ci.State == "ok")
+	})
 
 	go func() {
 		time.Sleep(time.Minute)

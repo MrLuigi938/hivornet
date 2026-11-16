@@ -688,6 +688,7 @@ func (h *Hive) warnings() []warning {
 		if s.EventsDropped > 0 {
 			add("warn", "Sensor %s hat %d Ereignisse verworfen (Warteschlange voll oder vom Hive abgelehnt).", s.Sensor, s.EventsDropped)
 		}
+		out = append(out, listenerWarnings(s)...)
 	}
 	if n := h.writer.dropped.Load(); n > 0 {
 		add("critical", "Der Hive konnte %d Ereignisse nicht speichern: %s", n, h.writer.lastErr.Load())
@@ -724,6 +725,7 @@ func (h *Hive) warnings() []warning {
 		if found && !last.IsZero() && time.Since(last) > 48*time.Hour {
 			add("warn", "Seit %s kein Cowrie-Ereignis. Ist Port 22 im Router weitergeleitet?", time.Since(last).Round(time.Hour))
 		}
+		out = append(out, h.probe.warnings()...)
 	}
 	return out
 }
@@ -745,6 +747,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 		cow["found"], cow["last_event"] = found, last
 		cow["volumes"] = h.cowrieVolumes()
 		cow["install"] = cowrieInstallStatus()
+		cow["ports"] = h.probe.Results()
 	}
 	evStored := int64(0)
 	if evMax.Valid {

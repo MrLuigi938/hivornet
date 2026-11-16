@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -334,6 +335,10 @@ func cowriePort(p int) int {
 func (c *CowrieTail) handle(line []byte) {
 	var m map[string]any
 	if json.Unmarshal(line, &m) != nil {
+		return
+	}
+	// Prüfverbindungen des Hive (probe.go) kommen von Loopback: keine Angriffe
+	if ip := net.ParseIP(str(m, "src_ip")); ip != nil && ip.IsLoopback() {
 		return
 	}
 	id := str(m, "eventid")
