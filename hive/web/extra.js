@@ -177,11 +177,12 @@ const bazaarText = (d) => d.query_status === "hash_not_found" ? "bei MalwareBaza
 
 // ---------- Angriffskette (hive/chain.go) ----------
 //
-// Graph in sechs Phasen-Spalten (Erkundung → … → Ziel). Knoten: Ports, Anmeldungen,
-// Exploits, Befehlsgruppen, Nachlade-Hosts, Dateien, Weiterleitungen; Pfeile: was folgte
-// worauf (je Sitzung) und woher eine Datei kam. Klick auf einen Knoten zeigt Einzelheiten
-// und hebt seine Verbindungen hervor. Angreiferdaten nur als Textknoten (s()/h()).
-const CH = { colW: 204, nodeW: 176, nodeH: 50, gapY: 14, top: 44, left: 8 };
+// Frei beweglicher Graph: Bubbles (Ports, Anmeldungen, Exploits, Befehlsgruppen, Nachlade-
+// Hosts, Dateien, Weiterleitungen) mit Pfeilen für die Reihenfolge je Sitzung und die
+// Herkunft von Dateien. Eine kleine Kräfte-Simulation ordnet sie an; jede Bubble zieht es
+// in das Band ihrer Phase (Erkundung → … → Ziel), damit die Richtung lesbar bleibt.
+// Verschieben, Zoomen und Umsetzen mit Maus, Touch oder Knöpfen. Klick zeigt Einzelheiten.
+// Angreiferdaten nur als Textknoten (s()/h()).
 const KIND_NAME = { service: "Dienst", login: "Anmeldeversuche", login_ok: "Login angenommen", exploit: "Exploit", pattern: "Muster",
   commands: "Befehle", host: "Nachlade-Host", file: "Datei", forward: "Weiterleitung", prompt: "Login-Abfrage", web: "Web-Anfragen", more: "Sammelknoten" };
 const short = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
@@ -217,74 +218,175 @@ export function chainCard({ ip, session }) {
 
 function chainView(c) {
   if (!c.nodes.length) return h("div", { class: "empty" }, "Keine Ereignisse.");
-  const byId = new Map(c.nodes.map((n) => [n.id, n]));
-  const cols = c.phases.map(() => []);
-  for (const n of c.nodes) cols[n.phase].push(n);
-  const pos = new Map();
-  cols.forEach((list, p) => list.forEach((n, i) => pos.set(n.id, { x: CH.left + p * CH.colW, y: CH.top + i * (CH.nodeH + CH.gapY) })));
-  const rows = Math.max(1, ...cols.map((l) => l.length));
-  const Wd = CH.left * 2 + c.phases.length * CH.colW - (CH.colW - CH.nodeW), Ht = CH.top + rows * (CH.nodeH + CH.gapY) + 16;
+  // ---- Modell: Knoten mit Position und Geschwindigkeit ----
+  const PH = 260; // Abstand der Phasen-Bänder (Weltkoordinaten)
+  const maxN = Math.max(1, ...c.nodes.map((n) => n.n));
+  const nodes = c.nodes.map((n, i) => ({
+    ...n, r: 20 + 16 * Math.log1p(n.n) / Math.log1p(maxN),
+    x: n.phase * PH + (Math.random() - 0.5) * 60, y: ((i % 7) - 3) * 55 + (Math.random() - 0.5) * 30, vx: 0, vy: 0, fixed: false,
+  }));
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const edges = c.edges.filter((e) => byId.has(e.from) && byId.has(e.to)).map((e) => ({ ...e, a: byId.get(e.from), b: byId.get(e.to) }));
+  const maxE = Math.max(1, ...edges.map((e) => e.n));
 
-  // Kanten
-  const maxN = Math.max(1, ...c.edges.map((e) => e.n));
-  const edgeEls = c.edges.map((e) => {
-    const a = pos.get(e.from), b = pos.get(e.to);
-    if (!a || !b) return null;
-    let d;
-    if (b.x > a.x) { // vorwärts: rechts aus A, links in B
-      const x1 = a.x + CH.nodeW, y1 = a.y + CH.nodeH / 2, x2 = b.x - 6, y2 = b.y + CH.nodeH / 2, mx = (x1 + x2) / 2;
-      d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
-    } else { // gleiche Spalte oder zurück: Bogen rechts herum
-      const x1 = a.x + CH.nodeW, y1 = a.y + CH.nodeH * 0.7, x2 = b.x + CH.nodeW + 6, y2 = b.y + CH.nodeH * 0.3, bulge = 34 + Math.min(60, Math.abs(y2 - y1) / 4);
-      // zurück: unten aus A heraus, unter den Knoten entlang, von unten in B hinein
-      const low = Math.max(a.y, b.y) + CH.nodeH + 10;
-      d = b.x < a.x ? `M${a.x + CH.nodeW / 2},${a.y + CH.nodeH} C${a.x + CH.nodeW / 2},${low} ${b.x + CH.nodeW / 2},${low} ${b.x + CH.nodeW / 2},${b.y + CH.nodeH + 6}`
-        : `M${x1},${y1} C${x1 + bulge},${y1} ${x2 + bulge},${y2} ${x2},${y2}`;
+  // ---- Kräfte: Abstoßung, Federn an Kanten, Zug zum eigenen Phasen-Band, keine Überlappung ----
+  let alpha = 1, raf = 0;
+  function tick() {
+    for (let i = 0; i < nodes.length; i++) {
+      const a = nodes[i];
+      for (let j = i + 1; j < nodes.length; j++) {
+        const b = nodes[j];
+        let dx = b.x - a.x, dy = b.y - a.y, d2 = dx * dx + dy * dy || 0.01;
+        const d = Math.sqrt(d2), min = a.r + b.r + 48; // Platz für die Beschriftung
+        let f = 5200 / d2; // Abstoßung
+        if (d < min) f += (min - d) * 0.5; // Überlappung auflösen
+        dx /= d; dy /= d;
+        a.vx -= dx * f; a.vy -= dy * f; b.vx += dx * f; b.vy += dy * f;
+      }
     }
-    const w = 1.2 + 2.8 * Math.log1p(e.n) / Math.log1p(maxN);
-    return s("path", { class: "ch-edge" + (e.label ? " ch-flow" : ""), d, "stroke-width": w.toFixed(2), "marker-end": "url(#ch-arrow)", "data-from": e.from, "data-to": e.to },
-      s("title", null, `${byId.get(e.from).label} → ${byId.get(e.to).label}${e.label ? " (" + e.label + ")" : ""}: ${e.n}×`));
+    for (const e of edges) { // Federn
+      const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, d = Math.hypot(dx, dy) || 0.01;
+      const f = (d - 150) * 0.012;
+      e.a.vx += (dx / d) * f; e.a.vy += (dy / d) * f; e.b.vx -= (dx / d) * f; e.b.vy -= (dy / d) * f;
+    }
+    for (const n of nodes) {
+      n.vx += (n.phase * PH - n.x) * 0.045; // Phase: links nach rechts
+      n.vy += -n.y * 0.004;
+      if (n.fixed) { n.vx = n.vy = 0; continue; }
+      n.x += Math.max(-40, Math.min(40, n.vx * alpha));
+      n.y += Math.max(-40, Math.min(40, n.vy * alpha));
+      n.vx *= 0.55; n.vy *= 0.55;
+    }
+  }
+  function run(steps = 1) {
+    alpha = Math.max(alpha, 0.3);
+    cancelAnimationFrame(raf);
+    const loop = () => {
+      for (let i = 0; i < steps; i++) tick();
+      alpha *= 0.985;
+      draw();
+      if (alpha > 0.02 && svg.isConnected !== false) raf = requestAnimationFrame(loop);
+    };
+    raf = requestAnimationFrame(loop);
+  }
+  // Vorlauf ohne Zeichnen, damit die Ansicht ruhig startet
+  for (let i = 0; i < 260; i++) { tick(); alpha = Math.max(0.05, alpha * 0.99); }
+
+  // ---- Zeichnen ----
+  const view = { k: 1, x: 0, y: 0 }; // Verschiebung und Zoom
+  const world = s("g", { class: "cg-world" });
+  const bands = s("g");
+  c.phases.forEach((p, i) => bands.append(
+    s("rect", { class: "cg-band" + (i % 2 ? " alt" : ""), x: i * PH - PH / 2, y: -5000, width: PH, height: 10000 }),
+    s("text", { class: "cg-phase", x: i * PH, "text-anchor": "middle", "data-phase": i }, `${i + 1}. ${p}`)));
+  const edgeG = s("g"), nodeG = s("g");
+  world.append(bands, edgeG, nodeG);
+  const edgeEls = edges.map((e) => {
+    const w = 1.2 + 3 * Math.log1p(e.n) / Math.log1p(maxE);
+    const p = s("path", { class: "cg-edge" + (e.label ? " flow" : ""), "stroke-width": w.toFixed(2), "marker-end": "url(#cg-arrow)" },
+      s("title", null, `${e.a.label} → ${e.b.label}${e.label ? " (" + e.label + ")" : ""}: ${e.n}×`));
+    edgeG.append(p);
+    return p;
   });
+  const nodeEls = nodes.map((n) => {
+    const g = s("g", { class: "cg-node sev" + Math.min(4, n.sev) + " kind-" + n.kind, tabindex: 0, role: "button", "aria-label": n.label },
+      s("title", null, `${n.label}${n.sub ? " – " + n.sub : ""} (${n.n}×, ${c.phases[n.phase]})`),
+      s("circle", { class: "cg-halo", r: n.r + 6 }),
+      s("circle", { class: "cg-bubble", r: n.r }),
+      s("text", { class: "cg-count", "text-anchor": "middle", dy: "0.35em" }, n.n > 1 ? fmtNum(n.n) : "1"),
+      s("text", { class: "cg-label", "text-anchor": "middle", y: n.r + 15 }, short(n.label, 26)),
+      n.sub ? s("text", { class: "cg-sub", "text-anchor": "middle", y: n.r + 29 }, short(n.sub, 30)) : null);
+    nodeG.append(g);
+    n.el = g;
+    return g;
+  });
+  const svg = s("svg", { class: "cg-svg", role: "img", "aria-label": "Angriffskette als frei beweglicher Graph" },
+    s("defs", null, s("marker", { id: "cg-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "6", markerHeight: "6", orient: "auto-start-reverse" },
+      s("path", { d: "M0,0 L10,5 L0,10 z", class: "cg-arrowhead" }))),
+    world);
 
-  const detail = h("div", { class: "ch-detail" }, h("p", { class: "muted" }, "Einen Knoten anklicken, um Einzelheiten und Verbindungen zu sehen."));
+  function draw() {
+    world.setAttribute("transform", `translate(${view.x},${view.y}) scale(${view.k})`);
+    const top = Math.min(...nodes.map((n) => n.y - n.r)) - 46;
+    bands.querySelectorAll(".cg-phase").forEach((t) => t.setAttribute("y", top));
+    edges.forEach((e, i) => {
+      const dx = e.b.x - e.a.x, dy = e.b.y - e.a.y, d = Math.hypot(dx, dy) || 1;
+      const x1 = e.a.x + (dx / d) * e.a.r, y1 = e.a.y + (dy / d) * e.a.r;
+      const x2 = e.b.x - (dx / d) * (e.b.r + 5), y2 = e.b.y - (dy / d) * (e.b.r + 5);
+      const bend = 0.18 * d, mx = (x1 + x2) / 2 - (dy / d) * bend * 0.3, my = (y1 + y2) / 2 + (dx / d) * bend * 0.3; // leichte Kurve
+      edgeEls[i].setAttribute("d", `M${x1.toFixed(1)},${y1.toFixed(1)} Q${mx.toFixed(1)},${my.toFixed(1)} ${x2.toFixed(1)},${y2.toFixed(1)}`);
+    });
+    nodes.forEach((n) => n.el.setAttribute("transform", `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`));
+  }
+  function fit() {
+    const r = svg.getBoundingClientRect();
+    if (!r.width) return;
+    const xs = nodes.map((n) => n.x), ys = nodes.map((n) => n.y);
+    const x0 = Math.min(...xs) - 90, x1 = Math.max(...xs) + 90, y0 = Math.min(...ys) - 80, y1 = Math.max(...ys) + 70;
+    view.k = Math.max(0.25, Math.min(1.4, Math.min(r.width / (x1 - x0), r.height / (y1 - y0))));
+    view.x = (r.width - (x1 + x0) * view.k) / 2;
+    view.y = (r.height - (y1 + y0) * view.k) / 2;
+    draw();
+  }
+  const zoomAt = (f, cx, cy) => {
+    const k = Math.max(0.2, Math.min(3, view.k * f));
+    view.x = cx - (cx - view.x) * (k / view.k); view.y = cy - (cy - view.y) * (k / view.k); view.k = k;
+    draw();
+  };
+
+  // ---- Bedienung: Hintergrund ziehen = verschieben, Mausrad = zoomen, Bubble ziehen = umsetzen ----
+  let drag = null;
+  svg.addEventListener("pointerdown", (ev) => {
+    const g = ev.target.closest(".cg-node");
+    const n = g && nodes.find((x) => x.el === g);
+    drag = { n, sx: ev.clientX, sy: ev.clientY, vx: view.x, vy: view.y, moved: false };
+    svg.setPointerCapture(ev.pointerId);
+    svg.classList.add("dragging");
+  });
+  svg.addEventListener("pointermove", (ev) => {
+    if (!drag) return;
+    const dx = ev.clientX - drag.sx, dy = ev.clientY - drag.sy;
+    if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+    if (drag.n) {
+      const r = svg.getBoundingClientRect();
+      drag.n.x = (ev.clientX - r.left - view.x) / view.k; drag.n.y = (ev.clientY - r.top - view.y) / view.k;
+      drag.n.fixed = true; drag.n.el.classList.add("pinned");
+      run();
+    } else { view.x = drag.vx + dx; view.y = drag.vy + dy; draw(); }
+  });
+  svg.addEventListener("pointerup", () => {
+    if (drag && drag.n && !drag.moved) select(drag.n.id);
+    drag = null;
+    svg.classList.remove("dragging");
+  });
+  svg.addEventListener("dblclick", (ev) => { // festgehaltene Bubble wieder freigeben
+    const g = ev.target.closest(".cg-node");
+    const n = g && nodes.find((x) => x.el === g);
+    if (n) { n.fixed = false; g.classList.remove("pinned"); run(); }
+  });
+  svg.addEventListener("wheel", (ev) => {
+    ev.preventDefault();
+    const r = svg.getBoundingClientRect();
+    zoomAt(ev.deltaY < 0 ? 1.12 : 1 / 1.12, ev.clientX - r.left, ev.clientY - r.top);
+  }, { passive: false });
+  nodeEls.forEach((g, i) => g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); select(nodes[i].id); } }));
+
+  // ---- Auswahl und Einzelheiten ----
+  const detail = h("div", { class: "ch-detail" }, h("p", { class: "muted" }, "Eine Bubble anklicken, um Einzelheiten und Verbindungen zu sehen."));
   let selected = null;
-  const svg = s("svg", { class: "ch-svg", viewBox: `0 0 ${Wd} ${Ht}`, width: Wd, height: Ht, role: "img", "aria-label": "Angriffskette nach Phasen" },
-    s("defs", null, s("marker", { id: "ch-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
-      s("path", { d: "M0,0 L10,5 L0,10 z", class: "ch-arrowhead" }))),
-    c.phases.map((p, i) => s("g", null,
-      s("rect", { class: "ch-col" + (cols[i].length ? "" : " empty"), x: CH.left + i * CH.colW - 4, y: 4, width: CH.nodeW + 8, height: Ht - 8, rx: 10 }),
-      s("text", { class: "ch-phase", x: CH.left + i * CH.colW + CH.nodeW / 2, y: 26, "text-anchor": "middle" }, `${i + 1}. ${p}`),
-      cols[i].length ? null : s("text", { class: "ch-none", x: CH.left + i * CH.colW + CH.nodeW / 2, y: CH.top + 26, "text-anchor": "middle" }, "–"))),
-    s("g", null, edgeEls),
-    c.nodes.map((n) => {
-      const p = pos.get(n.id);
-      const g = s("g", { class: "ch-node sev" + Math.min(4, n.sev), tabindex: 0, role: "button", "data-id": n.id, transform: `translate(${p.x},${p.y})` },
-        s("title", null, `${n.label}${n.sub ? " – " + n.sub : ""} (${n.n}×)`),
-        s("rect", { class: "ch-box", width: CH.nodeW, height: CH.nodeH, rx: 8 }),
-        s("rect", { class: "ch-bar", width: 5, height: CH.nodeH, rx: 2 }),
-        s("text", { class: "ch-label", x: 13, y: 20 }, short(n.label, 21)),
-        s("text", { class: "ch-sub", x: 13, y: 38 }, short(n.sub || KIND_NAME[n.kind] || "", 24)),
-        s("text", { class: "ch-n", x: CH.nodeW - 8, y: 20, "text-anchor": "end" }, n.n > 1 ? "×" + fmtNum(n.n) : ""));
-      const pick = () => select(n.id);
-      g.addEventListener("click", pick);
-      g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } });
-      return g;
-    }));
-
   function select(id) {
     selected = selected === id ? null : id;
     svg.classList.toggle("focus", !!selected);
-    svg.querySelectorAll(".ch-node").forEach((g) => g.classList.toggle("on", g.dataset.id === selected));
     const linked = new Set([selected]);
-    svg.querySelectorAll(".ch-edge").forEach((p) => {
-      const on = !!selected && (p.dataset.from === selected || p.dataset.to === selected);
-      p.classList.toggle("on", on);
-      if (on) { linked.add(p.dataset.from); linked.add(p.dataset.to); }
+    edges.forEach((e, i) => {
+      const on = !!selected && (e.from === selected || e.to === selected);
+      edgeEls[i].classList.toggle("on", on);
+      if (on) { linked.add(e.from); linked.add(e.to); }
     });
-    svg.querySelectorAll(".ch-node").forEach((g) => g.classList.toggle("near", !!selected && linked.has(g.dataset.id)));
-    if (!selected) { mount(detail, h("p", { class: "muted" }, "Einen Knoten anklicken, um Einzelheiten und Verbindungen zu sehen.")); return; }
+    nodes.forEach((n) => { n.el.classList.toggle("on", n.id === selected); n.el.classList.toggle("near", !!selected && linked.has(n.id)); });
+    if (!selected) { mount(detail, h("p", { class: "muted" }, "Eine Bubble anklicken, um Einzelheiten und Verbindungen zu sehen.")); return; }
     const n = byId.get(selected);
-    const ins = c.edges.filter((e) => e.to === n.id), outs = c.edges.filter((e) => e.from === n.id);
+    const ins = edges.filter((e) => e.to === n.id), outs = edges.filter((e) => e.from === n.id);
     const link = (id, extra) => h("button", { class: "linklike", onclick: () => select(id) }, byId.get(id).label, extra ? h("span", { class: "muted" }, " " + extra) : null);
     mount(detail,
       h("div", { class: "ch-dhead" }, h("span", { class: "badge stufe", style: { "--c": `var(--sev${Math.min(4, n.sev)})` } }, c.phases[n.phase]),
@@ -300,15 +402,29 @@ function chainView(c) {
 
   const path = mainPath(c);
   const reached = Math.max(...c.nodes.map((n) => n.phase));
+  const btn = (label, title, fn) => h("button", { class: "btn small", title, onclick: fn }, label);
+  const tools = h("div", { class: "cg-tools" },
+    btn("+", "Vergrößern", () => { const r = svg.getBoundingClientRect(); zoomAt(1.25, r.width / 2, r.height / 2); }),
+    btn("−", "Verkleinern", () => { const r = svg.getBoundingClientRect(); zoomAt(0.8, r.width / 2, r.height / 2); }),
+    btn("Einpassen", "Alles zeigen", fit),
+    btn("Neu anordnen", "Festgehaltene Bubbles freigeben und neu anordnen", () => {
+      nodes.forEach((n) => { n.fixed = false; n.el.classList.remove("pinned"); });
+      alpha = 1; run(2); setTimeout(fit, 900);
+    }));
+  const stage = h("div", { class: "cg-stage" }, svg, tools);
+  // erst einpassen, wenn die Fläche im Dokument ist und eine Größe hat
+  const ro = new ResizeObserver(() => { if (svg.getBoundingClientRect().width) { fit(); ro.disconnect(); } });
+  ro.observe(stage);
+  draw();
   return h("div", null,
     h("p", { class: "sub" }, `${fmtNum(c.events)} Ereignisse in ${fmtNum(c.sessions)} Sitzungen; erreicht bis Phase ${reached + 1} (${c.phases[reached]}).`,
       c.truncated ? " Nur die neuesten 5.000 Ereignisse." : ""),
     path.length > 1 ? h("div", { class: "ch-path" }, h("span", { class: "muted" }, "Hauptpfad: "),
       path.map((n, i) => [i ? h("span", { class: "ch-sep" }, " → ") : null, h("button", { class: "linklike", onclick: () => select(n.id) }, n.label)])) : null,
-    h("div", { class: "ch-wrap" }, svg),
-    h("div", { class: "ch-legend muted" }, "Farbe = Schwere wie die Stufen ",
-      [0, 1, 2, 3, 4].map((i) => h("i", { class: "ch-dot", style: { background: `var(--sev${i})` } })),
-      " · Strichstärke = Häufigkeit · orange Pfeile = Herkunft einer Datei bzw. Adresse"),
+    stage,
+    h("div", { class: "ch-legend muted" }, "Ziehen verschiebt die Ansicht, Mausrad zoomt; Bubbles lassen sich umsetzen (Doppelklick gibt sie frei). ",
+      "Größe = Häufigkeit, Farbe = Schwere ", [0, 1, 2, 3, 4].map((i) => h("i", { class: "ch-dot", style: { background: `var(--sev${i})` } })),
+      ", orange gestrichelt = Herkunft einer Datei bzw. Adresse."),
     detail);
 }
 
