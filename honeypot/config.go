@@ -33,6 +33,7 @@ type TarpitConfig struct {
 
 type Config struct {
 	Hostname  string           `json:"hostname" yaml:"hostname"`
+	Profile   string           `json:"profile,omitempty" yaml:"profile"` // Geräteprofil (profile.go); leer = bisher
 	Listeners []ListenerConfig `json:"listeners" yaml:"listeners"`
 	Tarpit    TarpitConfig     `json:"tarpit" yaml:"tarpit"`
 }
@@ -71,6 +72,7 @@ type fileListener struct {
 
 type fileConfig struct {
 	Hostname  string         `yaml:"hostname"`
+	Profile   string         `yaml:"profile"`
 	Listeners []fileListener `yaml:"listeners"`
 	Tarpit    TarpitConfig   `yaml:"tarpit"`
 }
@@ -84,7 +86,7 @@ func LoadConfigFile(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &fc); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	c := Config{Hostname: fc.Hostname, Tarpit: fc.Tarpit}
+	c := Config{Hostname: fc.Hostname, Profile: fc.Profile, Tarpit: fc.Tarpit}
 	for _, l := range fc.Listeners {
 		en := true
 		if l.Enabled != nil {
@@ -112,6 +114,10 @@ func (c *Config) Normalize(lowOffset int) []string {
 	d := DefaultConfig()
 	if c.Hostname == "" {
 		c.Hostname = d.Hostname
+	}
+	if _, ok := profiles[c.Profile]; !ok {
+		warn = append(warn, "unbekanntes Geräteprofil "+c.Profile+", nutze das bisherige")
+		c.Profile = ""
 	}
 	if c.Tarpit.IntervalMs < 200 {
 		c.Tarpit.IntervalMs = d.Tarpit.IntervalMs

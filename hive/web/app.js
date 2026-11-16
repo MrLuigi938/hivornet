@@ -780,6 +780,7 @@ async function viewSettings(el) {
   }
 
   const listBody = h("tbody");
+  const hostIn = h("input", { value: cfg.hostname, maxlength: 64, onchange: (e) => { cfg.hostname = e.target.value.trim(); } });
   const pubInfo = (port) => {
     if (s.direct_ports) return h("span", { class: "num" }, port, h("span", { class: "muted" }, " (direkt am Gerät)"));
     const p = s.published[String(port)];
@@ -843,8 +844,9 @@ async function viewSettings(el) {
         `Höchstens ${fmtNum(s.max_tarpit_conns)}. Jede gehaltene Verbindung kostet etwa 10–20 KB RAM; 4096 sind rund 60 MB.`),
       row("Max. Verbindungen pro IP", num(cfg.tarpit.max_per_ip, 1, s.max_tarpit_conns, (v) => { cfg.tarpit.max_per_ip = v; })),
       row("Max. Dauer (Minuten)", num(cfg.tarpit.max_duration_min, 0, 525600, (v) => { cfg.tarpit.max_duration_min = v; }), "Danach wird die Verbindung losgelassen. 1440 = 24 Stunden, 0 = unbegrenzt.")),
+    profileCard(cfg, () => { renderListeners(); hostIn.value = cfg.hostname; }),
     card("Allgemein",
-      row("Hostname im Honeypot", h("input", { value: cfg.hostname, maxlength: 64, onchange: (e) => { cfg.hostname = e.target.value.trim(); } }), "Erscheint in Login-Seiten, Docker- und Redis-Antworten."),
+      row("Hostname im Honeypot", hostIn, "Erscheint in Login-Seiten, Docker- und Redis-Antworten."),
       row("Rohdaten aufbewahren (Tage)", num(retention, 1, 3650, (v) => { retention = v; }), "Gilt für alle Sensoren. Danach werden Ereignisse und Angreifer-IPs gelöscht; Statistiken ohne IPs bleiben.")),
     h("div", null, h("button", { class: "btn primary", onclick: save }, sensor ? `Für ${sensor} speichern` : "Speichern"), msg),
     extras,
@@ -854,6 +856,36 @@ async function viewSettings(el) {
         h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg)),
     state.user.role === "admin" ? accessCard(s) : null,
     state.user.role === "admin" ? backupCard() : null));
+}
+
+// ---------- Geräteprofil ----------
+
+// Profile wie in honeypot/profile.go: Dienste, die zum Gerät passen, und ein Hostname.
+// Die Kennungen (Banner, Versionen) setzt der Honeypot selbst passend zum Profil.
+const PROFILES = {
+  "": { name: "Bisher (gemischt, wie vor 0.5.3)", desc: "Alle Dienste mit den bisherigen Kennungen. Von außen wirkt das Gerät widersprüchlich (Windows-RDP, Router-Telnet und Ubuntu-Mailserver zugleich)." },
+  "linux-server": { name: "Linux-Server (Ubuntu)", host: "srv-web01", desc: "Web-, Mail- und Datenbankserver: HTTP/HTTPS, FTP, SMTP, MySQL, Redis, Docker-API.",
+    services: ["http", "https", "ftp", "smtp", "mysql", "redis", "dockerapi", "ssh-tarpit"] },
+  "nas": { name: "NAS", host: "nas-backup01", desc: "Heim-NAS: Weboberfläche, FTP, MariaDB, SNMP.", services: ["http", "https", "ftp", "mysql", "snmp"] },
+  "router": { name: "Router oder Kamera", host: "router", desc: "Gerät mit BusyBox: Weboberfläche, Telnet, FTP, SNMP, SIP.", services: ["http", "https", "telnet", "ftp", "snmp", "sip"] },
+};
+function profileCard(cfg, refresh) {
+  const info = h("p", { class: "muted" });
+  const sel = h("select", { onchange: () => show() }, Object.entries(PROFILES).map(([k, p]) => h("option", { value: k, selected: (cfg.profile || "") === k }, p.name)));
+  const show = () => { info.textContent = PROFILES[sel.value].desc; };
+  show();
+  const apply = () => {
+    const p = PROFILES[sel.value];
+    cfg.profile = sel.value;
+    if (p.services) for (const l of cfg.listeners) l.enabled = p.services.includes(l.service);
+    if (p.host) cfg.hostname = p.host;
+    refresh(); // Formular zeigt die neuen Werte; gespeichert wird erst mit „Speichern“
+  };
+  return card("Geräteprofil",
+    h("p", { class: "sub" }, "Damit das Gerät von außen stimmig wirkt: Das Profil bestimmt Banner und Versionen aller Dienste. ",
+      "„Übernehmen“ schaltet zusätzlich die passenden Dienste ein, die übrigen aus, und setzt den Hostnamen; danach speichern. Cowrie (SSH/Telnet) behält seine eigenen Einstellungen."),
+    h("div", { class: "form-row" }, h("label", null, "Profil"), sel, info),
+    h("div", { class: "btnrow" }, h("button", { class: "btn", onclick: apply }, "Profil übernehmen")));
 }
 
 // ---------- Zugriff über einen Reverse-Proxy (erlaubte Hostnamen) ----------

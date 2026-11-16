@@ -85,9 +85,14 @@ func commandExecuted(service, input string, loggedIn bool) bool {
 		return true
 	case "redis":
 		return redisChanging(input)
+	case "ftp": // nach dem Login nur Hochladen, Löschen, Umbenennen, SITE
+		f := strings.Fields(strings.ToUpper(input))
+		return loggedIn && len(f) > 0 && ftpChanging[f[0]]
 	}
 	return loggedIn
 }
+
+var ftpChanging = map[string]bool{"STOR": true, "APPE": true, "STOU": true, "DELE": true, "MKD": true, "XMKD": true, "RMD": true, "XRMD": true, "RNFR": true, "RNTO": true, "SITE": true}
 
 // Redis-Befehle, die Daten oder Einstellungen ändern oder Code ausführen.
 var redisChangingCmds = map[string]bool{

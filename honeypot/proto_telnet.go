@@ -333,7 +333,7 @@ func handleTelnet(s *Session) {
 	if !loggedIn {
 		return
 	}
-	if s.WriteString("\r\n\r\nBusyBox v1.30.1 (2021-04-19 13:01:22 UTC) built-in shell (ash)\r\n\r\n") != nil {
+	if s.WriteString("\r\n\r\n"+s.m.prof().TelnetShell+"\r\n\r\n") != nil {
 		return
 	}
 	for i := 0; i < telnetMaxCommands; i++ {

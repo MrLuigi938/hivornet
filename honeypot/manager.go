@@ -45,6 +45,7 @@ type Manager struct {
 	current   Config
 	tarpit    atomic.Pointer[TarpitConfig]
 	hostname  atomic.Value // string
+	profile   atomic.Pointer[string]
 	limits    *Limits
 	rate      *RateLimiter
 	tlsConf   atomic.Pointer[tls.Config]
@@ -148,6 +149,8 @@ func (m *Manager) Apply(c Config) bool {
 	tc := c.Tarpit
 	m.tarpit.Store(&tc)
 	m.hostname.Store(c.Hostname)
+	prof := c.Profile
+	m.profile.Store(&prof)
 	m.limits.Set(tc)
 
 	want := map[int]ListenerConfig{}

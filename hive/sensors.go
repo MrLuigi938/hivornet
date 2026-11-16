@@ -25,9 +25,13 @@ type TarpitConfig struct {
 
 type SensorConfig struct {
 	Hostname  string           `json:"hostname"`
+	Profile   string           `json:"profile,omitempty"` // Geräteprofil (honeypot/profile.go); leer = bisher
 	Listeners []ListenerConfig `json:"listeners"`
 	Tarpit    TarpitConfig     `json:"tarpit"`
 }
+
+// Geräteprofile, die der Honeypot kennt (honeypot/profile.go).
+var knownProfiles = []string{"", "linux-server", "nas", "router"}
 
 // Muss zur Tabelle "handlers" im Honeypot passen (dort prüft das TestServiceListsInSync).
 var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw", "telnet", "smtp", "vnc", "rdp", "sip", "snmp", "dns"}
@@ -47,6 +51,9 @@ func contains(list []string, s string) bool {
 func (c *SensorConfig) Validate() error {
 	if len(c.Hostname) > 64 {
 		return fmt.Errorf("Hostname zu lang")
+	}
+	if !contains(knownProfiles, c.Profile) {
+		return fmt.Errorf("unbekanntes Geräteprofil %q", c.Profile)
 	}
 	if len(c.Listeners) > 64 {
 		return fmt.Errorf("höchstens 64 Ports")

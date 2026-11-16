@@ -179,6 +179,8 @@ Die Oberfläche ist standardmäßig dunkel; im Benutzermenü oben rechts lässt 
 
 **Eigene Netze:** Verbindungen aus dem Heimnetz (private Adressen) und aus Netzen, die du unter Einstellungen → Eigene Netze einträgst, gelten als „eigener Test“. Sie werden gespeichert und sind auf der Seite Angriffe über „Eigene Tests zeigen“ einsehbar, zählen aber nicht in Kennzahlen, Top-Listen, „Gerade aktiv“ und Benachrichtigungen (abschaltbar).
 
+**Tarnung und Köder:** Unter Einstellungen → Geräteprofil wählst du, als was der Honeypot auftritt (Linux-Server, NAS, Router/Kamera); Banner und Versionen passen dann zusammen. Ohne Wahl bleibt alles wie bisher. Der Web-Honeypot liefert unter `/.env`, `/.git/config` und ähnlichen Pfaden Köderdateien mit erfundenen Zugangsdaten, die für jede Installation anders sind. Wer sie später bei einem anderen Dienst ausprobiert, wird als „Köder benutzt“ markiert. Der Telnet-Honeypot nimmt je Angreifer das dritte ausprobierte Werkspasswort an, der FTP-Honeypot anonyme Anmeldungen und die Köder-Zugangsdaten.
+
 ### Modi je Port
 
 - **Aufzeichnen** (`emulate`): spielt den Dienst nach und zeichnet Logins, Befehle und Anfragen auf.

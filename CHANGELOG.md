@@ -11,10 +11,18 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Telnet: Befehle an der Login-Abfrage** (`enable`, `system`, `shell`, `sh`, `/bin/busybox …`) zählen nicht mehr als Benutzername und Passwort.
 - **Getrennte Top-Listen:** SNMP-Community-Strings, SIP-Adressen und DNS-Abfragen stehen in eigenen Listen statt bei Zugangsdaten bzw. HTTP-Pfaden; IP-Adressen in SIP-Adressen werden ersetzt. Beim ersten Start werden die Top-Listen einmal nach den neuen Regeln neu gezählt.
 
+### Geändert
+- **Telnet-Honeypot:** Je Angreifer-IP gilt das dritte verschiedene Werkspasswort aus der bekannten Liste und bleibt danach für diese IP gleich, statt eines einzigen Passworts je Gerät.
+- **Tarnung:** HTTP antwortet auf `OPTIONS` mit 405 und auf kaputte Anfragen mit 400 wie nginx; die MySQL-Thread-ID zählt je Verbindung hoch; Redis kennt `CONFIG GET` mit Mustern (auch `*`) und Abschnitte bei `INFO`.
+
 ### Neu
 - **Warnung, wenn ein Dienst nicht lauscht:** Auf dem Raspberry Pi prüft der Hive jede Minute Cowrie-SSH und -Telnet und nennt bei einem kaputten Host-Schlüssel die Ursache; Ports, die der Honeypot nicht öffnen konnte, erscheinen ebenfalls als Warnung. System → Cowrie zeigt den Stand der Ports. `HIVE_COWRIE_PROBE` setzt die Ziele oder schaltet die Prüfung ab.
 - **Automatische Meldung an AbuseIPDB** (standardmäßig aus, mit Probemodus): echte Angriffsversuche mit passender Kategorie und einem Kommentar ohne Passwörter, IP-Adressen und Hostnamen; nie eigene oder private Adressen, nie Angriffe nur über UDP, Forschungsscanner ausnehmbar; je IP höchstens eine Meldung im eingestellten Abstand, Tageslimit, Pause bei erschöpftem Kontingent. Protokoll, Kontingent und Fehler in den Einstellungen.
 - **Forschungsscanner gekennzeichnet:** Angriffe von Shodan, Censys, Shadowserver und ähnlichen Diensten tragen ein Kennzeichen (erkannt am Netzbetreiber und User-Agent).
+- **Köderdateien:** Der Web-Honeypot liefert `/.env`, `/.git/config`, `/robots.txt`, `/backup/` und `config.php.bak` mit glaubwürdigem Inhalt statt 404. Die Zugangsdaten darin sind erfunden und je Installation verschieden. Probiert sie jemand später bei FTP, MySQL, SMTP, Redis, Telnet oder SSH aus, erscheint das Muster **„Köder benutzt“** (Stufe mindestens „Login angenommen“, Benachrichtigung als schweres Muster).
+- **Geräteprofile** (Einstellungen → Geräteprofil): Linux-Server, NAS oder Router/Kamera bestimmen Banner und Versionen aller Dienste; „Profil übernehmen“ schaltet dazu passende Dienste ein und setzt den Hostnamen. Bestehende Installationen behalten ihr Verhalten, bis ein Profil gewählt wird.
+- **FTP mit Schein-Verzeichnis:** Anmeldung anonym und mit den Köder-Zugangsdaten, Verzeichnisse und Dateigrößen; `LIST`, `RETR` und `STOR` werden aufgezeichnet, Daten aber nie übertragen (keine Datenverbindung).
+- **Docker-API** listet Container und Images.
 - **Eigene Netze:** Verbindungen aus privaten Adressen und aus einstellbaren Netzen gelten als „eigener Test“: gespeichert und auf der Seite Angriffe einsehbar, aber nicht in Kennzahlen, Top-Listen, Angreiferliste, „Gerade aktiv“ und Benachrichtigungen.
 
 ## [0.5.2-beta.1] – 2026-11-16

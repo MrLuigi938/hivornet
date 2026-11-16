@@ -80,7 +80,7 @@ func serveHTTP(s *Session, docker bool) {
 				if docker {
 					s.WriteString("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n400 Bad Request")
 				} else {
-					writeHTTP(s, "GET", 400, "text/html", nginxError(400), nil, false, true)
+					writeHTTP(s, "GET", 400, "text/html", nginxError(400, s.m.prof().HTTPServer), nil, false, true)
 				}
 			}
 			return
@@ -153,9 +153,11 @@ func writeHTTP(s *Session, method string, status int, ctype, body string, extra 
 	var b strings.Builder
 	fmt.Fprintf(&b, "HTTP/1.1 %d %s\r\n", status, http.StatusText(status))
 	if docker {
-		b.WriteString("Server: Docker/24.0.7 (linux)\r\nApi-Version: 1.43\r\nOstype: linux\r\n")
+		b.WriteString("Server: Docker/" + s.m.prof().DockerVer + " (linux)\r\nApi-Version: 1.43\r\nOstype: linux\r\n")
 	} else {
-		b.WriteString("Server: nginx/1.24.0\r\n")
+		if sv := s.m.prof().HTTPServer; sv != "" {
+			b.WriteString("Server: " + sv + "\r\n")
+		}
 	}
 	fmt.Fprintf(&b, "Date: %s\r\n", time.Now().UTC().Format(http.TimeFormat))
 	noBody := status == 204 || status == 304 || (status >= 100 && status < 200)
@@ -238,13 +240,13 @@ var loginPaths = map[string]string{
 	"/cgi-bin/luci": "LuCI", "/webui": "", "/user/login": "",
 }
 
-// nginxError: Fehlerseite, wie nginx 1.24 sie schickt.
-func nginxError(code int) string {
+// nginxError: Fehlerseite, wie nginx (bzw. der Webserver des Profils) sie schickt.
+func nginxError(code int, server string) string {
 	t := fmt.Sprintf("%d %s", code, http.StatusText(code))
 	if code == 405 {
 		t = "405 Not Allowed"
 	}
-	return "<html>\r\n<head><title>" + t + "</title></head>\r\n<body>\r\n<center><h1>" + t + "</h1></center>\r\n<hr><center>nginx/1.24.0</center>\r\n</body>\r\n</html>\r\n"
+	return "<html>\r\n<head><title>" + t + "</title></head>\r\n<body>\r\n<center><h1>" + t + "</h1></center>\r\n<hr><center>" + server + "</center>\r\n</body>\r\n</html>\r\n"
 }
 
 func isTimeout(err error) bool {
@@ -257,7 +259,7 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 	switch req.Method {
 	case "GET", "HEAD", "POST":
 	default: // nginx liefert statische Seiten nur für GET/HEAD; alles andere: 405
-		return 405, "text/html", nginxError(405), nil
+		return 405, "text/html", nginxError(405, s.m.prof().HTTPServer), nil
 	}
 	if ctype, body, ok := baitFile(path, s.m.Hostname()); ok && req.Method != "POST" {
 		return 200, ctype, body, nil
@@ -272,7 +274,7 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 		failed := req.Method == "POST"
 		return 200, "text/html; charset=utf-8", loginPage(s.m.Hostname(), product, path, failed), nil
 	}
-	return 404, "text/html", nginxError(404), nil
+	return 404, "text/html", nginxError(404, s.m.prof().HTTPServer), nil
 }
 
 func loginPage(host, product, action string, failed bool) string {
@@ -408,16 +410,16 @@ func dockerResponse(s *Session, req *http.Request) (int, string, string, map[str
 		return 200, "text/plain; charset=utf-8", "OK", nil
 	case p == "/version":
 		return 200, js, mustJSON(map[string]any{
-			"Platform": map[string]string{"Name": "Docker Engine - Community"}, "Version": "24.0.7", "ApiVersion": "1.43",
+			"Platform": map[string]string{"Name": "Docker Engine - Community"}, "Version": s.m.prof().DockerVer, "ApiVersion": "1.43",
 			"MinAPIVersion": "1.12", "GitCommit": "311b9ff", "GoVersion": "go1.20.10", "Os": "linux", "Arch": "amd64",
-			"KernelVersion": "5.15.0-91-generic", "BuildTime": "2023-10-26T09:08:02.000000000+00:00",
+			"KernelVersion": s.m.prof().Kernel, "BuildTime": "2023-10-26T09:08:02.000000000+00:00",
 		}), nil
 	case p == "/info":
 		return 200, js, mustJSON(map[string]any{
 			"ID": strings.ToUpper(randHex(16)), "Containers": 3, "ContainersRunning": 2, "ContainersPaused": 0,
 			"ContainersStopped": 1, "Images": 5, "Driver": "overlay2", "Name": s.m.Hostname(),
-			"OperatingSystem": "Ubuntu 22.04.3 LTS", "OSType": "linux", "Architecture": "x86_64", "NCPU": 4,
-			"MemTotal": int64(8232407040), "ServerVersion": "24.0.7", "KernelVersion": "5.15.0-91-generic",
+			"OperatingSystem": s.m.prof().OSName, "OSType": "linux", "Architecture": "x86_64", "NCPU": 4,
+			"MemTotal": int64(8232407040), "ServerVersion": s.m.prof().DockerVer, "KernelVersion": s.m.prof().Kernel,
 		}), nil
 	case p == "/containers/json":
 		return 200, js, dockerContainers(req.URL.Query().Get("all") == "1" || req.URL.Query().Get("all") == "true"), nil

@@ -65,7 +65,7 @@ func handleSMTP(s *Session) {
 		s.Tarpit(nil, func() []byte { return []byte("220-" + randWord(10, 40) + "\r\n") })
 		return
 	}
-	if s.WriteString("220 "+host+" ESMTP Postfix (Ubuntu)\r\n") != nil {
+	if s.WriteString("220 "+host+" "+s.m.prof().SMTPBanner+"\r\n") != nil {
 		return
 	}
 	hold := func() { // hybrid: nach dem ersten Login oder Absender festhalten

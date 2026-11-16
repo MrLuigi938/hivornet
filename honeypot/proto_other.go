@@ -47,7 +47,11 @@ func handleFTP(s *Session) {
 		s.Tarpit(nil, drip)
 		return
 	}
-	if s.WriteString("220 (vsFTPd 3.0.5)\r\n") != nil {
+	banner := s.m.prof().FTPBanner
+	if strings.Contains(banner, "%s") {
+		banner = fmt.Sprintf(banner, s.m.Hostname())
+	}
+	if s.WriteString("220 "+banner+"\r\n") != nil {
 		return
 	}
 	br := bufio.NewReader(s.Conn)
@@ -234,9 +238,9 @@ var (
 
 // redisInfo liefert INFO wie Redis 6.2: ohne Argument bzw. "default"/"all" alle
 // Abschnitte, sonst nur den genannten (unbekannt: leer).
-func redisInfo(section string) string {
+func redisInfo(p deviceProfile, section string) string {
 	secs := [][2]string{
-		{"server", "# Server\r\nredis_version:6.2.14\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\nos:Linux 5.15.0-91-generic x86_64\r\narch_bits:64\r\n" +
+		{"server", "# Server\r\nredis_version:" + p.RedisVersion + "\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\nos:Linux " + p.Kernel + " x86_64\r\narch_bits:64\r\n" +
 			"multiplexing_api:epoll\r\ngcc_version:11.4.0\r\nprocess_id:1123\r\n" +
 			fmt.Sprintf("tcp_port:6379\r\nuptime_in_seconds:%d\r\nuptime_in_days:%d\r\n", redisUptime, redisUptime/86400) +
 			"hz:10\r\nexecutable:/usr/bin/redis-server\r\nconfig_file:/etc/redis/redis.conf\r\n"},
@@ -343,7 +347,7 @@ func handleRedis(s *Session) {
 			if len(args) > 1 {
 				sec = args[1]
 			}
-			reply = bulk(redisInfo(sec))
+			reply = bulk(redisInfo(s.m.prof(), sec))
 		case "CONFIG":
 			if sub == "GET" && len(args) > 2 {
 				reply = redisConfigGet(args[2:])
@@ -390,9 +394,9 @@ func (m *Manager) nextMySQLID() uint32 {
 	return m.mysqlID.Add(1)
 }
 
-func mysqlHandshake(salt []byte, threadID uint32) []byte {
+func mysqlHandshake(salt []byte, threadID uint32, version string) []byte {
 	p := []byte{10}
-	p = append(p, "5.7.44-log"...)
+	p = append(p, version...)
 	p = append(p, 0)
 	p = binary.LittleEndian.AppendUint32(p, threadID)
 	p = append(p, salt[:8]...)
@@ -479,7 +483,7 @@ func handleMySQL(s *Session) {
 	for i := range salt {
 		salt[i] = byte(33 + rand.IntN(90))
 	}
-	if s.Write(mysqlHandshake(salt, s.m.nextMySQLID())) != nil {
+	if s.Write(mysqlHandshake(salt, s.m.nextMySQLID(), s.m.prof().MySQLVersion)) != nil {
 		return
 	}
 	s.ReadDeadline(30 * time.Second)
@@ -546,7 +550,7 @@ func handleSSHTarpit(s *Session) {
 	drip := func() []byte { return []byte(randWord(8, 32) + "\r\n") }
 	switch s.Mode {
 	case "emulate":
-		if s.WriteString("SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.6\r\n") != nil {
+		if s.WriteString(s.m.prof().SSHBanner+"\r\n") != nil {
 			return
 		}
 		readVersion(10 * time.Second)

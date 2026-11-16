@@ -35,8 +35,8 @@ Geo-Felder (`country`, `city`, `lat`, `lon`, `asn`, `as_org`) ergänzt der Hive 
 |---|---|
 | `connect` | `mode` |
 | `disconnect` | `bytes_out` |
-| `login` | `success` (Cowrie), `path` (HTTP), `password_hashed`, `auth_hex`, `database`, `plugin` (MySQL); `accepted` (Telnet des Honeypots: Login wurde zum Schein angenommen); `password_hashed`, `challenge`, `response` (VNC, Hex); `cookie`, `protocols` (RDP: nur Benutzername aus dem Cookie) |
-| `command` | `input`, optional `truncated` |
+| `login` | `success` (Cowrie), `path` (HTTP), `password_hashed`, `auth_hex`, `database`, `plugin` (MySQL); `accepted` (Telnet und FTP des Honeypots: Login wurde zum Schein angenommen); `bait` (Köder-Zugangsdaten benutzt, bei MySQL am Hash erkannt); `password_hashed`, `challenge`, `response` (VNC, Hex); `cookie`, `protocols` (RDP: nur Benutzername aus dem Cookie) |
+| `command` | `input`, optional `truncated`; bei FTP nach dem Login `cwd` und bei `STOR`/`APPE` `upload: true` |
 | `request` | `method`, `path`, `host`, `user_agent`, `version`, `headers`, `body`, `body_truncated`; bei Cowrie `forward_to` |
 | `download` | `url`, `sha256`, `failed`, bzw. `filename`, `upload` |
 | `client_version` | `version`; bei RDP zusätzlich `client_name`, `keyboard_layout` |

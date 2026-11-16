@@ -45,9 +45,11 @@ Ausgehende Verbindungen:
 | `session.go` | `Session` mit `Emit`, `Login`, `Command`, `Write`, `Tarpit`; Hilfen `clip`, `printable`, `readLine`, `capReader`; Budgets `budgetText` usw.; `selfSignedTLS` |
 | `limits.go` | `Limits` (Verbindungen gesamt, je IP, je Port, Tarpit-Plätze), `RateLimiter` (10 Ereignisse/s je IP, Burst 300) |
 | `hive.go` | `Event`, `HiveClient` (Senden, Konfiguration, Heartbeat), `Emitter` (Warteschlange nach Bytes, Blöcke ≤ 200/1 MB, 4xx verwerfen, 5xx wiederholen), `marshalEvent` (JSON ohne HTML-Maskierung, damit `&` das Größenbudget nicht sprengt) |
-| `proto_http.go` | `http`, `https`, `dockerapi` |
-| `proto_other.go` | `ftp`, `redis`, `mysql`, `ssh-tarpit`, `raw` |
-| `proto_telnet.go` | `telnet`: Login, Schein-Shell (`telnetReply`), `telnetReadLine` entfernt IAC-Folgen (maskiertes 0xFF zählt zur Zeilenlänge) |
+| `proto_http.go` | `http`, `https`, `dockerapi`; `nginxError` (Fehlerseiten wie nginx), Docker-Listen |
+| `bait.go` | Köder: `deriveBait` (HMAC aus dem Token, gleich in `hive/bait.go`), `baitFile` (Inhalte für `/.env`, `/.git/config` …), `mysqlNativeMatch`; `Session.Login` setzt `data.bait` |
+| `profile.go` | Geräteprofile (`profiles`): Banner und Versionen je Profil; `Manager.prof()`. Leeres Profil = bisheriges Verhalten |
+| `proto_other.go` | `ftp` (Schein-Verzeichnis nach Login, keine Datenverbindung), `redis` (`redisInfo` mit Abschnitten, `redisConfigGet`), `mysql` (Thread-ID zählt hoch), `ssh-tarpit`, `raw` |
+| `proto_telnet.go` | `telnet`: Login (`telnetAccept`: drittes verschiedenes Werkspasswort je IP gilt), Schein-Shell (`telnetReply`), `telnetReadLine` entfernt IAC-Folgen (maskiertes 0xFF zählt zur Zeilenlänge) |
 | `proto_smtp.go` | `smtp`: AUTH PLAIN/LOGIN, MAIL/RCPT/DATA; `smtpReadData` begrenzt die Mail |
 | `proto_vnc.go` | `vnc`: RFB-Handshake bis zur Challenge/Response |
 | `proto_rdp.go` | `rdp`: `readTPKT`, `parseRDPRequest` (Cookie, Protokolle), `rdpConfirm`, `rdpClientInfo` |
@@ -77,6 +79,7 @@ Regeln, die jeder Handler einhalten muss:
 | `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `timelineLine` (Ablauf für die KI), `Report.Text` |
 | `einstufung.go` | **Einstufung an einer Stelle:** `eventKind` (TLS am Klartext-Port, Eingabe an der Login-Abfrage, Protokoll-Abfrage, Protokoll-Befehl, ausgeführter Befehl), `commandExecuted`, `redisChanging`, `probeCommand`, `promptLines`, `requestKey`/`maskSIP` (SIP/DNS-Schlüssel) |
 | `abusereport.go` | **Automatische Meldung an AbuseIPDB:** `abuseVerdict` (wann und mit welchen Kategorien), `abuseComment`/`scrubComment` (ohne Passwörter, IPs, Hostnamen), `abuseRound` alle 5 Minuten über die Angriffe der letzten 30 Minuten, `sendAbuseReport` (`POST /api/v2/report`, Kontingent aus `X-RateLimit-*`, Pause bei 429), Protokoll in `kv` (`abuse_report_log`), Abstand je IP in `lookups` (`abuse_report`, `abuse_report_dry`) |
+| `bait.go` | Köder-Zugangsdaten wie im Honeypot ableiten, `baitUsed`, `eventPatterns` (Muster plus `bait_used`) |
 | `scanner.go` | Forschungsscanner (Shodan, Censys …) am AS-Namen und User-Agent erkennen: `researchScanner` |
 | `ownnet.go` | Eigene Netze (`OwnNets` in den Extras): `isOwnIP`, `ownHidden`; der Writer schreibt eigene Tests nur nach `events`, Notifier und `/api/attacks` blenden sie aus |
 | `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |

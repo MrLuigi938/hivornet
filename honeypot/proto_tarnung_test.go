@@ -209,3 +209,22 @@ func TestBaitLoginFlagged(t *testing.T) {
 		t.Fatalf("Köder-Login: %+v", l)
 	}
 }
+
+// Ein gewähltes Profil ändert die Kennungen; ohne Profil bleibt alles wie bisher.
+func TestDeviceProfile(t *testing.T) {
+	m := testManager()
+	c := DefaultConfig()
+	if p := m.prof(); p.HTTPServer != "nginx/1.24.0" {
+		t.Fatalf("ohne Profil: %q", p.HTTPServer)
+	}
+	c.Profile = "router"
+	m.Apply(c)
+	defer m.StopAll()
+	if p := m.prof(); p.HTTPServer != "lighttpd/1.4.59" || p.SSHBanner != "SSH-2.0-dropbear_2019.78" {
+		t.Fatalf("Profil router: %+v", p)
+	}
+	c.Profile = "gibtsnicht"
+	if w := c.Normalize(0); len(w) == 0 || c.Profile != "" {
+		t.Fatal("unbekanntes Profil nicht verworfen")
+	}
+}
