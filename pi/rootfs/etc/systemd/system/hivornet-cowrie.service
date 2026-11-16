@@ -14,6 +14,9 @@ ConditionPathExists=/opt/hivornet/cowrie-env/.hivornet-ok
 User=hivornet-cowrie
 WorkingDirectory=/opt/hivornet/cowrie
 Environment=PYTHONPATH=/opt/hivornet/cowrie/src PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Leere oder beschädigte SSH-Host-Schlüssel (z. B. nach Stromausfall beim ersten Start)
+# entfernen, sonst bricht Cowrie beim Lesen ab und Port 22 bleibt zu.
+ExecStartPre=/usr/local/sbin/hivornet-cowrie-keycheck /var/lib/hivornet-cowrie/lib
 ExecStart=/opt/hivornet/cowrie-env/bin/twistd -n --umask=0022 --pidfile= --logger cowrie.python.logfile.stdoutLogger cowrie
 Restart=always
 RestartSec=10
