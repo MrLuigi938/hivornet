@@ -298,7 +298,7 @@ func viewerAllowed(r *http.Request) bool {
 		return true
 	case r.Method != "GET":
 		return false
-	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"):
+	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"), strings.HasPrefix(p, "/api/abuse"):
 		return false
 	}
 	return true

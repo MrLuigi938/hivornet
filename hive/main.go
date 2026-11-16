@@ -57,6 +57,7 @@ type Hive struct {
 	restart  chan struct{} // Neustart nach einer Wiederherstellung (backup.go)
 	hosts    hostList      // erlaubte Hostnamen der Web-UI (hosts.go)
 	probe    *portProbe    // lauschen die Cowrie-Ports? (probe.go)
+	abuse    abuseReporter // Meldungen an AbuseIPDB (abusereport.go)
 }
 
 func env(k, def string) string {
@@ -195,6 +196,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/extras", a.Require(h.getExtras))
 	ui.HandleFunc("PUT /api/extras", a.Require(h.putExtras))
 	ui.HandleFunc("POST /api/extras/test-notify", a.Require(h.testNotify))
+	ui.HandleFunc("GET /api/abuse/log", a.Require(h.abuseLog))
 	ui.HandleFunc("GET /api/tarpit", a.Require(h.tarpit))
 	ui.HandleFunc("GET /api/settings", a.Require(h.getSettings))
 	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
@@ -276,6 +278,8 @@ func main() {
 	go h.notifier.Run(bgStop)
 	go h.watchWarnings(bgStop)
 	go h.checkUpdates(bgStop)
+	h.abuse.load(st)
+	go h.runAbuseReports(bgStop)
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
 	st.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID)

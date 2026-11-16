@@ -217,6 +217,16 @@ Unter **Einstellungen → Benachrichtigungen** trägst du ein Ziel ein und wähl
 
 „Speichern und Testnachricht senden“ prüft die Einrichtung. Je Angreifer und Anlass kommt höchstens eine Meldung in 10 Minuten, insgesamt höchstens so viele pro Stunde wie eingestellt (Standard 20). Token und Schlüssel speichert Hivornet in seiner Datenbank und zeigt sie nie wieder an; sie stehen damit auch in den Backups.
 
+### Automatische Meldung an AbuseIPDB
+
+Mit einem AbuseIPDB-Schlüssel kann Hivornet Angreifer selbst melden (Einstellungen → AbuseIPDB → „Angreifer automatisch melden“). Standardmäßig aus; eingeschaltet zuerst im **Probemodus**, der nur protokolliert, was gemeldet würde.
+
+- Gemeldet werden nur echte Angriffsversuche: Login-Versuche, Exploits gegen Web-Anwendungen, ausgeführte Befehle und Downloads. Die Kategorie passt zur Art (z. B. Brute-Force + SSH, Web-App-Angriff, IoT).
+- Nie gemeldet: eigene und private Adressen, Angriffe nur über UDP (SIP, SNMP, DNS; der Absender ist fälschbar), reines Abtasten und, wenn eingestellt, Forschungsscanner wie Shodan oder Censys.
+- Der Kommentar ist auf Englisch und enthält Art, Dienste, Anzahl der Versuche, einige Benutzernamen und erkannte Muster, aber keine Passwörter, keine IP-Adressen und nicht den Hostnamen des Honeypots.
+- Je IP höchstens eine Meldung im eingestellten Abstand (Standard 24 Stunden; AbuseIPDB verlangt mindestens 15 Minuten), dazu ein Tageslimit (Standard 50). Ist das Kontingent erschöpft, pausiert die Meldung bis zum Zeitpunkt, den AbuseIPDB nennt.
+- Das Protokoll mit Status, Kategorien, Kommentar, Kontingent und letztem Fehler steht direkt unter den Einstellungen.
+
 ### Weitere Benutzer
 
 Unter **Einstellungen → Benutzer** legt ein Admin weitere Konten an. Die Rolle **„Nur ansehen“** sieht alle Auswertungen, kann aber nichts ändern, keine KI-Auswertung starten und die Zusatz-Einstellungen (Benachrichtigungs-Ziele, Schlüssel) nicht sehen.

@@ -345,7 +345,7 @@ export async function extrasCards() {
     home: x.home, abuseipdb_key: secrets.abuseipdb_key || "", greynoise_key: secrets.greynoise_key || "",
     notify: { ...x.notify, ntfy_token: secrets.ntfy_token || "", telegram_token: secrets.telegram_token || "" },
     ai: { ...x.ai, api_key: secrets.ai_api_key || "" },
-    own: x.own,
+    own: x.own, abuse_report: x.abuse_report,
   });
   async function save() {
     try {
@@ -364,6 +364,7 @@ export async function extrasCards() {
 
   const n = x.notify, st = d.notify_status || {};
   x.own = x.own || { private: true, nets: [], in_stats: false };
+  x.abuse_report = x.abuse_report || { enabled: false, dry_run: true, daily_limit: 50, interval_hours: 24, skip_scanners: true };
   return h("div", { class: "stack" },
     card("Standort für die Karte",
       h("p", { class: "sub" }, "Dorthin zeigen die Angriffslinien auf der Karte. Ein ungefährer Ort genügt; er wird nirgends veröffentlicht."),
@@ -406,12 +407,46 @@ export async function extrasCards() {
       row("API-Schlüssel", secret("ai_api_key"), "Für lokale Modelle meist leer.")),
     card("AbuseIPDB (optional)",
       h("p", { class: "sub" }, "Mit einem kostenlosen Schlüssel von abuseipdb.com lässt sich auf der Seite eines Angreifers nachsehen, wie oft seine IP weltweit gemeldet wurde."),
-      row("API-Schlüssel", secret("abuseipdb_key"))),
+      row("API-Schlüssel", secret("abuseipdb_key")),
+      h("h3", null, "Angreifer automatisch melden"),
+      h("p", { class: "sub" }, "Meldet echte Angriffsversuche (Login-Versuche, Exploits, Befehle, Downloads) an AbuseIPDB, damit andere sie blockieren können. ",
+        "Nie gemeldet werden eigene und private Adressen, Angriffe nur über UDP (Absender fälschbar) und reines Abtasten. ",
+        "Der Kommentar enthält keine Passwörter, keine IP-Adressen und keine Hostnamen des Honeypots."),
+      row("Aktiv", check(x.abuse_report, "enabled", "Automatisch melden")),
+      row("Probemodus", check(x.abuse_report, "dry_run", "Nur protokollieren, was gemeldet würde (nichts senden)"), "Zum Ausprobieren: erst eine Weile im Probemodus laufen lassen und das Protokoll unten ansehen."),
+      row("Höchstens pro Tag", numIn(x.abuse_report, "daily_limit", 1, 1000, 1), "Das kostenlose Kontingent von AbuseIPDB liegt bei 1.000 Meldungen am Tag."),
+      row("Abstand je IP (Stunden)", numIn(x.abuse_report, "interval_hours", 1, 720, 1), "AbuseIPDB nimmt dieselbe IP höchstens alle 15 Minuten an."),
+      row("Ausnahmen", h("div", null,
+        check(x.abuse_report, "skip_scanners", "Forschungsscanner (Shodan, Censys, Shadowserver …) nicht melden"), h("br"),
+        check(x.abuse_report, "include_web_probe", "Auch die Suche nach .env, .git und Anmeldeseiten als Web-Angriff melden"))),
+      await abuseLogBox()),
     card("GreyNoise (optional)",
       h("p", { class: "sub" }, "Zeigt, ob eine IP als Massen-Scanner oder als harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
       row("API-Schlüssel", secret("greynoise_key"))),
     h("div", null, h("button", { class: "btn primary", onclick: async () => { if (await save()) homeCache = null; } }, "Zusatzfunktionen speichern"), msg),
     await usersCard());
+}
+
+// Protokoll der AbuseIPDB-Meldungen (auch Probemodus), Kontingent und letzter Fehler
+const ABUSE_CAT = { 5: "FTP-Brute-Force", 11: "E-Mail-Spam", 14: "Port-Scan", 15: "Hacking", 16: "SQL-Injection", 18: "Brute-Force", 20: "Befallener Rechner", 21: "Web-App-Angriff", 22: "SSH", 23: "IoT" };
+async function abuseLogBox() {
+  let d;
+  try { d = await api("abuse/log"); } catch (e) { return h("div", { class: "msg err" }, e.message); }
+  const st = { ok: "gemeldet", dry: "würde melden", error: "Fehler" };
+  return h("div", null,
+    h("p", { class: "muted" }, `Letzte 24 Stunden gemeldet: ${fmtNum(d.sent_24h)}`,
+      d.remaining >= 0 ? ` · Kontingent bei AbuseIPDB: noch ${fmtNum(d.remaining)} von ${fmtNum(d.limit)}` : "",
+      d.last_run ? ` · zuletzt geprüft ${new Date(d.last_run).toLocaleTimeString("de-DE")}` : ""),
+    d.pause_until ? h("div", { class: "msg warn" }, "Pausiert bis " + new Date(d.pause_until).toLocaleString("de-DE") + " (Kontingent erschöpft).") : null,
+    d.last_error ? h("div", { class: "msg err" }, "Letzter Fehler: " + d.last_error) : null,
+    d.log.length ? h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["Zeit", "IP", "Status", "Kategorien", "Kommentar"].map((t) => h("th", null, t)))),
+      h("tbody", null, d.log.slice(0, 50).map((e) => h("tr", null,
+        h("td", { class: "num" }, new Date(e.time).toLocaleString("de-DE")),
+        h("td", null, h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(e.ip) }, e.ip)),
+        h("td", null, h("span", { class: "badge " + (e.status === "ok" ? "ok" : e.status === "error" ? "err" : ""), title: e.error || "" }, st[e.status] || e.status)),
+        h("td", null, (e.categories || []).map((c) => ABUSE_CAT[c] || c).join(", ")),
+        h("td", { class: "mono" }, e.comment)))))) : h("div", { class: "empty" }, "Noch keine Meldungen."));
 }
 
 // ---------- Benutzer (nur für Admins) ----------

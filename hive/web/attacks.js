@@ -108,6 +108,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
       showIP ? [flag(a.country), h("a", { class: "ip mono", href: "#/attacker/" + encodeURIComponent(a.ip) }, a.ip), h("span", { class: "where" }, where(a))] : null,
       h("div", { class: "right" },
         a.own ? h("span", { class: "badge", title: "Adresse aus einem eigenen Netz (Einstellungen → Eigene Netze)" }, "eigener Test") : null,
+        a.scanner ? h("span", { class: "badge", title: "Bekannter Forschungs- oder Vermessungsdienst" }, "Forschungsscanner: " + a.scanner) : null,
         a.seen > 1 ? h("span", { class: "badge" }, `${a.seen}. Angriff dieser IP`) : null,
         active ? h("span", { class: "badge active" }, "● aktiv") : null,
         h("span", { class: "num" }, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)} · ${fmtDur(span)}`),

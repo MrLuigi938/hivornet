@@ -23,11 +23,12 @@ type Extras struct {
 		Lon   float64 `json:"lon"`
 		Label string  `json:"label"`
 	} `json:"home"`
-	Notify       NotifyConfig `json:"notify"`
-	AI           AIConfig     `json:"ai"`
-	AbuseIPDBKey string       `json:"abuseipdb_key"`
-	GreyNoiseKey string       `json:"greynoise_key"` // optional; ohne Schlüssel geht die Community-API mit kleinem Kontingent
-	Own          OwnNets      `json:"own"`           // eigene Netze (ownnet.go)
+	Notify       NotifyConfig      `json:"notify"`
+	AI           AIConfig          `json:"ai"`
+	AbuseIPDBKey string            `json:"abuseipdb_key"`
+	GreyNoiseKey string            `json:"greynoise_key"` // optional; ohne Schlüssel geht die Community-API mit kleinem Kontingent
+	Own          OwnNets           `json:"own"`           // eigene Netze (ownnet.go)
+	AbuseReport  AbuseReportConfig `json:"abuse_report"`  // automatische Meldung (abusereport.go)
 }
 
 type NotifyConfig struct {
@@ -59,6 +60,7 @@ func defaultExtras() Extras {
 	x.Notify.OnLogin, x.Notify.OnDownload, x.Notify.OnSevere, x.Notify.OnWarning = true, true, true, true
 	x.Notify.MaxPerHour = 20
 	x.Own.Private = true
+	x.AbuseReport = defaultAbuseReport()
 	return x
 }
 
@@ -103,6 +105,9 @@ func (x *Extras) Validate() error {
 		}
 	}
 	if err := x.Own.validate(); err != nil {
+		return err
+	}
+	if err := x.AbuseReport.validate(); err != nil {
 		return err
 	}
 	if x.AI.Enabled && (x.AI.BaseURL == "" || x.AI.Model == "") {

@@ -33,7 +33,7 @@ honeypot <── GET /api/sensor/config (alle 15 s) ── hive      honeypot �
 Ausgehende Verbindungen:
 
 - `honeypot` und `cowrie`: keine (Netzsperre `tools/firewall.sh`, auf dem Pi `hivornet-firewall`); der Honeypot prüft das selbst (`HONEYPOT_EGRESS_PROBE`).
-- `hive`: GeoIP-Download (`download.db-ip.com`), Update-Prüfung (`api.github.com`, abschaltbar) sowie, nur wenn eingerichtet oder auf Knopfdruck, Benachrichtigungen, KI-Schnittstelle, AbuseIPDB und GreyNoise.
+- `hive`: GeoIP-Download (`download.db-ip.com`), Update-Prüfung (`api.github.com`, abschaltbar) sowie, nur wenn eingerichtet oder auf Knopfdruck, Benachrichtigungen, KI-Schnittstelle, AbuseIPDB (Abfrage und, wenn eingeschaltet, automatische Meldung) und GreyNoise.
 
 ## 2. Honeypot (`honeypot/`)
 
@@ -76,6 +76,8 @@ Regeln, die jeder Handler einhalten muss:
 | `sse.go` | `Broker`: Live-Ereignisse an Browser |
 | `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `timelineLine` (Ablauf für die KI), `Report.Text` |
 | `einstufung.go` | **Einstufung an einer Stelle:** `eventKind` (TLS am Klartext-Port, Eingabe an der Login-Abfrage, Protokoll-Abfrage, Protokoll-Befehl, ausgeführter Befehl), `commandExecuted`, `redisChanging`, `probeCommand`, `promptLines`, `requestKey`/`maskSIP` (SIP/DNS-Schlüssel) |
+| `abusereport.go` | **Automatische Meldung an AbuseIPDB:** `abuseVerdict` (wann und mit welchen Kategorien), `abuseComment`/`scrubComment` (ohne Passwörter, IPs, Hostnamen), `abuseRound` alle 5 Minuten über die Angriffe der letzten 30 Minuten, `sendAbuseReport` (`POST /api/v2/report`, Kontingent aus `X-RateLimit-*`, Pause bei 429), Protokoll in `kv` (`abuse_report_log`), Abstand je IP in `lookups` (`abuse_report`, `abuse_report_dry`) |
+| `scanner.go` | Forschungsscanner (Shodan, Censys …) am AS-Namen und User-Agent erkennen: `researchScanner` |
 | `ownnet.go` | Eigene Netze (`OwnNets` in den Extras): `isOwnIP`, `ownHidden`; der Writer schreibt eigene Tests nur nach `events`, Notifier und `/api/attacks` blenden sie aus |
 | `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |
 | `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`), `allURLs` |
@@ -128,6 +130,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET /api/report?ip=…` oder `?session=…` (`&format=text`), `POST /api/report/ai` | Angriffsbericht, KI-Auswertung |
 | `GET/PUT /api/settings` | Sensor-Konfiguration, Aufbewahrung |
 | `GET/PUT /api/extras`, `POST /api/extras/test-notify` | Zusatzfunktionen |
+| `GET /api/abuse/log` | Protokoll der AbuseIPDB-Meldungen, Kontingent, letzter Fehler (nur Admin) |
 | `GET /api/tarpit`, `GET /api/system`, `GET /healthz`, `GET /metrics` | Tarpit (mit `held`: gerade festgehaltene Verbindungen aus den Lebenszeichen, Herkunft aus `attackers`), System, Überwachung |
 
 ## 4. Datenbank
@@ -149,7 +152,7 @@ SQLite über `modernc.org/sqlite` (ohne cgo), WAL, `auto_vacuum=INCREMENTAL`, h�
 | `hourly` | Stunde, Dienst, Typ, Land | Anzahl, Tarpit-Zeit; ohne IPs | 400 Tage |
 | `top_hourly` | Stunde, `field`, `key` | Zähler für Top-Listen und Karte; `label` ist die Beschriftung | Frist |
 | `attackers` | `ip` | erste/letzte Sichtung, Zähler, Herkunft | Frist |
-| `lookups` | `subject`, `source` | `subject` = `ip:<IP>` oder `session:<ID>`; `source` = `abuseipdb`, `greynoise` oder `ai`; `data` = JSON bzw. Text | Frist |
+| `lookups` | `subject`, `source` | `subject` = `ip:<IP>` oder `session:<ID>`; `source` = `abuseipdb`, `greynoise`, `ai`, `abuse_report`, `abuse_report_dry` (letzte Meldung); `data` = JSON bzw. Text | Frist |
 | `kv` | `k` | `sensor_config`, `sensor_config:<name>`, `retention_days`, `cowrie_state`, `cowrie_offset`, `extras`, `update_channel`, `config_level`, `patterns_backfilled` | bleibt |
 | `users`, `auth_sessions` | | Konten mit Rolle (bcrypt), Sitzungen (SHA-256 des Tokens). Sitzungen gelöschter Benutzer gelten nicht mehr (JOIN in `Auth.Who`) | Sitzungen 7 Tage |
 

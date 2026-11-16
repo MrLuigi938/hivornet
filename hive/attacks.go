@@ -61,11 +61,13 @@ type Attack struct {
 	Success       bool           `json:"success,omitempty"`
 	SuccessCred   string         `json:"success_cred,omitempty"`
 	Stufe         int            `json:"stufe"`
-	Own           bool           `json:"own,omitempty"` // eigener Test (ownnet.go)
-	Profile       string         `json:"profile"`
-	TarpitMs      int64          `json:"tarpit_ms,omitempty"`
-	Sessions      []string       `json:"sessions,omitempty"`
-	Strip         []stripEvent   `json:"strip,omitempty"` // Zeitstreifen: höchstens stripMax Ereignisse
+	Own           bool           `json:"own,omitempty"`     // eigener Test (ownnet.go)
+	Scanner       string         `json:"scanner,omitempty"` // Forschungsscanner (scanner.go)
+	userAgents    []string
+	Profile       string       `json:"profile"`
+	TarpitMs      int64        `json:"tarpit_ms,omitempty"`
+	Sessions      []string     `json:"sessions,omitempty"`
+	Strip         []stripEvent `json:"strip,omitempty"` // Zeitstreifen: höchstens stripMax Ereignisse
 	// nur zum Aufbau
 	creds, paths, tags, loginSvc map[string]int
 	svc                          map[string]bool
@@ -191,6 +193,9 @@ func (a *Attack) add(e *Event) {
 		return
 	case "request":
 		a.paths[clip(requestKey(e), 300)]++
+		if ua := str("user_agent"); ua != "" && len(a.userAgents) < 5 && !slices.Contains(a.userAgents, ua) {
+			a.userAgents = append(a.userAgents, clip(ua, 200))
+		}
 	case "download":
 		if u := str("url"); u != "" && len(a.URLs) < 10 && !slices.Contains(a.URLs, u) {
 			a.URLs = append(a.URLs, clip(u, 300))
@@ -262,6 +267,7 @@ func (a *Attack) finish() {
 	}
 	a.Stufe = a.stufe()
 	a.Own = ownHidden(a.IP) // eigener Test, der aus Kennzahlen herausgehalten wird
+	a.Scanner = researchScanner(a.ASOrg, a.userAgents...)
 	a.Profile = a.classify()
 }
 

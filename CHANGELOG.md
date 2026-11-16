@@ -13,6 +13,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ### Neu
 - **Warnung, wenn ein Dienst nicht lauscht:** Auf dem Raspberry Pi prüft der Hive jede Minute Cowrie-SSH und -Telnet und nennt bei einem kaputten Host-Schlüssel die Ursache; Ports, die der Honeypot nicht öffnen konnte, erscheinen ebenfalls als Warnung. System → Cowrie zeigt den Stand der Ports. `HIVE_COWRIE_PROBE` setzt die Ziele oder schaltet die Prüfung ab.
+- **Automatische Meldung an AbuseIPDB** (standardmäßig aus, mit Probemodus): echte Angriffsversuche mit passender Kategorie und einem Kommentar ohne Passwörter, IP-Adressen und Hostnamen; nie eigene oder private Adressen, nie Angriffe nur über UDP, Forschungsscanner ausnehmbar; je IP höchstens eine Meldung im eingestellten Abstand, Tageslimit, Pause bei erschöpftem Kontingent. Protokoll, Kontingent und Fehler in den Einstellungen.
+- **Forschungsscanner gekennzeichnet:** Angriffe von Shodan, Censys, Shadowserver und ähnlichen Diensten tragen ein Kennzeichen (erkannt am Netzbetreiber und User-Agent).
 - **Eigene Netze:** Verbindungen aus privaten Adressen und aus einstellbaren Netzen gelten als „eigener Test“: gespeichert und auf der Seite Angriffe einsehbar, aber nicht in Kennzahlen, Top-Listen, Angreiferliste, „Gerade aktiv“ und Benachrichtigungen.
 
 ## [0.5.2-beta.1] – 2026-11-16
