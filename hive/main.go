@@ -281,6 +281,10 @@ func main() {
 	go h.checkUpdates(bgStop)
 	h.abuse.load(st)
 	go h.runAbuseReports(bgStop)
+	botVerifier.mu.Lock()
+	botVerifier.st = st
+	botVerifier.mu.Unlock()
+	go botVerifier.run(bgStop)
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
 	st.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID)

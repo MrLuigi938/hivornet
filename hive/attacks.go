@@ -65,7 +65,8 @@ type Attack struct {
 	SuccessCred   string         `json:"success_cred,omitempty"`
 	Stufe         int            `json:"stufe"`
 	Own           bool           `json:"own,omitempty"`     // eigener Test (ownnet.go)
-	Scanner       string         `json:"scanner,omitempty"` // Forschungsscanner (scanner.go)
+	Scanner       string         `json:"scanner,omitempty"` // Forschungsscanner (scanner.go) oder geprüfter Suchmaschinen-Bot
+	Bot           string         `json:"bot,omitempty"`     // angeblicher Suchmaschinen-Bot und Prüfergebnis (botverify.go)
 	userAgents    []string
 	Profile       string       `json:"profile"`
 	TarpitMs      int64        `json:"tarpit_ms,omitempty"`
@@ -292,6 +293,12 @@ func (a *Attack) finish() {
 	a.Stufe = a.stufe()
 	a.Own = ownHidden(a.IP) // eigener Test, der aus Kennzahlen herausgehalten wird
 	a.Scanner = researchScanner(a.ASOrg, a.userAgents...)
+	if label, real := botLabel(a.IP, a.userAgents); label != "" {
+		a.Bot = label
+		if real && a.Scanner == "" {
+			a.Scanner = strings.Fields(label)[0]
+		}
+	}
 	a.Profile = a.classify()
 }
 
@@ -447,7 +454,7 @@ func (a *Attack) matches(q string) bool {
 	if q == "" {
 		return true
 	}
-	parts := []string{a.IP, a.Country, a.CountryName, a.City, a.ASOrg, "AS" + strconv.Itoa(a.ASN), a.Profile, a.SuccessCred}
+	parts := []string{a.IP, a.Country, a.CountryName, a.City, a.ASOrg, "AS" + strconv.Itoa(a.ASN), a.Profile, a.SuccessCred, a.Scanner, a.Bot}
 	for k := range a.creds { // alle, nicht nur die angezeigten
 		parts = append(parts, k)
 	}
