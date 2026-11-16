@@ -494,7 +494,11 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			if fw := dataString(e.Data, "forward_to"); fw != "" {
 				reqs.add("Weiterleitung nach " + clip(fw, 200))
 			} else {
-				reqs.add(clip(dataString(e.Data, "method")+" "+dataString(e.Data, "path"), 200))
+				if e.Service == "sip" || e.Service == "dns" {
+					reqs.add(clip(e.Service+": "+requestKey(e), 200))
+				} else {
+					reqs.add(clip(dataString(e.Data, "method")+" "+dataString(e.Data, "path"), 200))
+				}
 			}
 		case "download":
 			hashes.add(dataString(e.Data, "sha256"))

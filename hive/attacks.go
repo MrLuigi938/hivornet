@@ -187,11 +187,7 @@ func (a *Attack) add(e *Event) {
 		}
 		return
 	case "request":
-		p := str("path")
-		if m := str("method"); m != "" && m != "GET" {
-			p = m + " " + p
-		}
-		a.paths[clip(p, 300)]++
+		a.paths[clip(requestKey(e), 300)]++
 	case "download":
 		if u := str("url"); u != "" && len(a.URLs) < 10 && !slices.Contains(a.URLs, u) {
 			a.URLs = append(a.URLs, clip(u, 300))

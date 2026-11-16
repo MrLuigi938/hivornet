@@ -28,6 +28,7 @@ package main
 
 import (
 	"path"
+	"regexp"
 	"strings"
 )
 
@@ -184,4 +185,29 @@ func promptLines(e *Event) ([]string, bool) {
 		}
 	}
 	return out, true
+}
+
+// ---- Anfragen anderer Protokolle (SIP, DNS) ----
+
+// sipHostRe: Host-Teil einer SIP-Adresse, wenn er eine IP ist. Scanner schreiben dort
+// meist die angegriffene Adresse hinein, also die öffentliche IP des Honeypots.
+var sipHostRe = regexp.MustCompile(`(?i)(sips?:(?:[^@\s;>]*@)?)(\[[0-9a-f:.]+\]|\d{1,3}(?:\.\d{1,3}){3})`)
+
+// maskSIP ersetzt IP-Adressen in SIP-Adressen durch einen Platzhalter.
+func maskSIP(s string) string { return sipHostRe.ReplaceAllString(s, "${1}‹IP›") }
+
+// requestKey: Schlüssel für Listen. Web: Methode (außer GET) und Pfad; SIP: Methode und
+// Adresse ohne IP; DNS: Abfragetyp und Name.
+func requestKey(e *Event) string {
+	p, m := dataString(e.Data, "path"), dataString(e.Data, "method")
+	switch e.Service {
+	case "sip":
+		return strings.TrimSpace(m + " " + maskSIP(p))
+	case "dns":
+		return strings.TrimSpace(strings.TrimPrefix(m, "DNS ") + " " + p)
+	}
+	if m != "" && m != "GET" {
+		return m + " " + p
+	}
+	return p
 }

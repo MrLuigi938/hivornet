@@ -248,7 +248,7 @@ func (h *Hive) timeline(w http.ResponseWriter, r *http.Request) {
 
 var topFields = map[string]bool{
 	"country": true, "port": true, "ip": true, "asn": true, "service": true, "username": true, "password": true,
-	"cred": true, "command": true, "path": true, "useragent": true, "client": true,
+	"cred": true, "command": true, "path": true, "useragent": true, "client": true, "snmp": true, "sip": true, "dns": true,
 	"tag": true, "tool": true, "url": true, // aus der Muster-Analyse (analyze.go)
 }
 

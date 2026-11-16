@@ -332,6 +332,10 @@ func topKeys(e *Event) [][3]string {
 			add("geo", fmt.Sprintf("%.1f,%.1f", e.Lat, e.Lon), e.Country+"|"+e.City)
 		}
 	case "login":
+		if e.Service == "snmp" { // Community-String: eigene Liste, keine Zugangsdaten
+			add("snmp", e.Password, dataString(e.Data, "pdu"))
+			break
+		}
 		if lines, ok := promptLines(e); ok { // Befehle an der Login-Abfrage sind keine Zugangsdaten
 			for _, l := range lines {
 				add("command", l, e.Service)
@@ -348,8 +352,16 @@ func topKeys(e *Event) [][3]string {
 			add("command", in, e.Service)
 		}
 	case "request":
-		add("path", dataString(e.Data, "path"), e.Service)
-		add("useragent", dataString(e.Data, "user_agent"), "")
+		switch e.Service {
+		case "sip": // SIP-Adressen und DNS-Namen sind keine Web-Pfade
+			add("sip", requestKey(e), "")
+			add("client", dataString(e.Data, "user_agent"), e.Service)
+		case "dns":
+			add("dns", requestKey(e), "")
+		default:
+			add("path", dataString(e.Data, "path"), e.Service)
+			add("useragent", dataString(e.Data, "user_agent"), "")
+		}
 	case "client_version":
 		add("client", dataString(e.Data, "version"), e.Service)
 	}
