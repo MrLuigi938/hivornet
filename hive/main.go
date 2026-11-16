@@ -303,6 +303,7 @@ func main() {
 	if h.auth.sensorToken == "" {
 		log.Printf("WARNUNG: HIVORNET_TOKEN ist leer, Sensoren können nichts senden")
 	}
+	setBaitSecret(h.auth.sensorToken) // Köder-Zugangsdaten wie der Honeypot (bait.go)
 	h.auth.EnsureAdmin(env("HIVE_ADMIN_USER", "admin"), os.Getenv("HIVE_ADMIN_PASSWORD"))
 
 	if p := os.Getenv("HIVE_COWRIE_LOG"); p != "" {

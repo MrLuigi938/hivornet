@@ -82,6 +82,9 @@ var patterns = []Pattern{
 	pat("api_probe", "Dienst-Erkundung", "Fragt Versions- und Statusseiten ab.", "web", 1,
 		`/version$|/_ping|/actuator/health|/api/v1/|/v2/_catalog|/containers/json|/\.well-known/|/robots\.txt|/favicon\.ico|/sitemap\.xml`),
 
+	// Köder (bait.go): kein Textmuster, sondern Abgleich mit den Köder-Zugangsdaten. Die Regel
+	// passt nur auf ihren eigenen Platzhalter und steht hier für Name, Text und Schweregrad.
+	pat("bait_used", "Köder benutzt", "Hat Zugangsdaten aus einer Köderdatei des Web-Honeypots (.env, .git/config …) benutzt; hat die Datei also gelesen und gezielt ausprobiert.", "meta", 3, `^hivornet:koeder$`),
 	pat("tls_on_plain", "TLS auf Klartext-Port", "TLS-Handshake auf einem Port ohne TLS.", "raw", 1, `^\\x16\\x03`),
 	pat("smb_probe", "SMB-Probe", "SMB-Verhandlung (z. B. EternalBlue-Scanner).", "raw", 2, `\\xffSMB|\\xfeSMB`),
 	pat("http_on_raw", "HTTP auf fremdem Port", "HTTP-Anfrage an einen Nicht-HTTP-Dienst.", "raw", 1, `^(GET|POST|HEAD|OPTIONS|CONNECT) \S+ HTTP/`),
@@ -435,7 +438,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 				lastBody, lastLine, repeat = body, line, 1
 			}
 		}
-		for _, id := range matchAll(text, on, revealed) {
+		for _, id := range eventPatterns(e, text, on, revealed) {
 			p := patternByID[id]
 			t := tags[id]
 			if t == nil {

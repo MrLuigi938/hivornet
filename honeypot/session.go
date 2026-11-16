@@ -57,6 +57,12 @@ func (s *Session) Emit(ev Event) {
 }
 
 func (s *Session) Login(user, pass string, data map[string]any) {
+	if isBaitPass(pass) { // Zugangsdaten aus einer Köderdatei (bait.go)
+		if data == nil {
+			data = map[string]any{}
+		}
+		data["bait"] = true
+	}
 	s.Emit(Event{Type: "login", Username: clip(user, 256), Password: clip(pass, 256), Data: data})
 }
 

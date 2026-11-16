@@ -54,6 +54,9 @@ type Manager struct {
 	proxied       atomic.Int64 // Verbindungen, die aus dem eigenen Docker-Netz zu kommen scheinen
 
 	pits sync.Map // *Session -> TarpitConn: gerade festgehaltene Verbindungen (für die UI)
+
+	telnet  telnetMemos   // gültiges Telnet-Passwort je Angreifer-IP (proto_telnet.go)
+	mysqlID atomic.Uint32 // Thread-ID der nächsten MySQL-Verbindung (zählt hoch wie beim echten Server)
 }
 
 // TarpitConn ist eine gerade festgehaltene Verbindung (im Lebenszeichen an den Hive).

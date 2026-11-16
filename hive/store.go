@@ -367,7 +367,7 @@ func topKeys(e *Event) [][3]string {
 	}
 	// Muster, Werkzeuge und Nachlade-Adressen (analyze.go) für die Ansicht "Analyse"
 	text, on, revealed := analysisText(e)
-	for _, id := range matchAll(text, on, revealed) {
+	for _, id := range eventPatterns(e, text, on, revealed) {
 		add("tag", id, patternByID[id].Name)
 	}
 	for _, t := range eventTools(e) {

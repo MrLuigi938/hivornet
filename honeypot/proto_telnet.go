@@ -3,8 +3,10 @@ package main
 import (
 	"bufio"
 	"math/rand/v2"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -13,12 +15,16 @@ import (
 // Telnet-Emulation für Ports wie 2323 (Port 23 übernimmt Cowrie): ein kleines
 // Gerät mit BusyBox, wie Kameras und Router sie haben.
 //
-// Anmeldung: Wie ein echtes Gerät hat der Honeypot je Konto genau EIN Passwort
-// (telnetAccounts). Welches, hängt vom Hostnamen ab und bleibt damit über
-// Neustarts gleich. Alles andere wird nach einer Pause mit "Login incorrect"
-// abgelehnt, nach drei Versuchen endet die Verbindung. Honeypot-Erkenner, die
-// zufällige Zugangsdaten probieren, kommen so nicht hinein; Bots, die ihre Liste
-// von Werkspasswörtern durchgehen, treffen früher oder später.
+// Anmeldung: Wie ein echtes Gerät hat der Honeypot je Konto genau EIN Passwort aus
+// der Liste bekannter Werkspasswörter (telnetAccounts). Welches, legt jeder Angreifer
+// selbst fest: Je Angreifer-IP gilt das dritte verschiedene Werkspasswort, das sie für
+// ein Konto ausprobiert, und danach bleibt es für diese IP dasselbe (telnetAccept).
+// So sieht das Gerät für jeden einzelnen Angreifer echt aus (erst Fehlschläge, dann
+// ein fester Treffer), statt dass ein Bot je nach Gerät nie oder sofort hineinkommt.
+// Passwörter außerhalb der Liste werden immer abgelehnt; Honeypot-Erkenner, die
+// zufällige Zugangsdaten probieren, kommen nicht hinein. Die Köder-Zugangsdaten aus
+// den Köderdateien des HTTP-Honeypots (bait.go) gelten immer.
+// Nach drei Fehlversuchen endet eine Verbindung.
 //
 // Nach dem Login folgt eine Schein-Shell mit festen Antworten. Bots wie Mirai
 // prüfen mit "/bin/busybox <WORT>" auf "<WORT>: applet not found" und mit
@@ -33,24 +39,73 @@ const (
 )
 
 // Werkspasswörter verbreiteter Geräte (aus den Listen gängiger IoT-Botnetze).
-// Je Konto gilt genau eines davon, siehe telnetPassword.
+// Je Konto und Angreifer-IP gilt genau eines davon, siehe telnetAccept.
 var telnetAccounts = map[string][]string{
 	"root":  {"xc3511", "vizxv", "admin", "888888", "xmhdipc", "default", "juantech", "123456", "54321", "root", "12345", "pass", "1111", "666666", "password", "1234", "klv123", "hi3518", "jvbzd", "anko", "system", "realtek", "00000000", "Zte521"},
 	"admin": {"admin", "password", "1234", "12345", "123456", "admin1234", "smcadmin", "1111", "54321", "pass", "4321", "1111111"},
 }
 
-// telnetPassword liefert das eine gültige Passwort eines Kontos auf diesem Gerät.
-// Die Wahl hängt nur vom Hostnamen ab (FNV-1a), ist also stabil und je Gerät verschieden.
-func telnetPassword(host, user string) (string, bool) {
-	list := telnetAccounts[user]
-	if len(list) == 0 {
-		return "", false
+const (
+	telnetAcceptNth  = 3     // das wievielte verschiedene Werkspasswort gilt
+	telnetMemoMax    = 20000 // so viele Angreifer-IPs merkt sich der Honeypot
+	telnetMemoMaxAge = 7 * 24 * time.Hour
+)
+
+// telnetMemo: was eine Angreifer-IP je Konto probiert hat und welches Passwort gilt.
+type telnetMemo struct {
+	tried map[string][]string
+	ok    map[string]string
+	seen  time.Time
+}
+
+type telnetMemos struct {
+	mu sync.Mutex
+	m  map[string]*telnetMemo
+}
+
+// telnetAccept entscheidet über einen Login (siehe Kommentar oben).
+func (m *Manager) telnetAccept(ip, user, pass string) bool {
+	if b := bait(); user == b.User && pass == b.Pass {
+		return true
 	}
-	h := uint32(2166136261)
-	for _, c := range []byte(host + "\x00" + user) {
-		h = (h ^ uint32(c)) * 16777619
+	if !slices.Contains(telnetAccounts[user], pass) {
+		return false
 	}
-	return list[h%uint32(len(list))], true
+	t := &m.telnet
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if t.m == nil {
+		t.m = map[string]*telnetMemo{}
+	}
+	st := t.m[ip]
+	if st == nil {
+		if len(t.m) >= telnetMemoMax { // Älteste verwerfen, damit der Speicher begrenzt bleibt
+			cut := time.Now().Add(-telnetMemoMaxAge)
+			for k, v := range t.m {
+				if v.seen.Before(cut) || len(t.m) >= telnetMemoMax {
+					delete(t.m, k)
+				}
+				if len(t.m) < telnetMemoMax*9/10 {
+					break
+				}
+			}
+		}
+		st = &telnetMemo{tried: map[string][]string{}, ok: map[string]string{}}
+		t.m[ip] = st
+	}
+	st.seen = time.Now()
+	if want, ok := st.ok[user]; ok {
+		return pass == want
+	}
+	if !slices.Contains(st.tried[user], pass) && len(st.ok) < 4 {
+		st.tried[user] = append(st.tried[user], pass)
+	}
+	if len(st.tried[user]) >= telnetAcceptNth {
+		st.ok[user] = pass
+		delete(st.tried, user)
+		return true
+	}
+	return false
 }
 
 // telnetDelay ist die Pause nach einem falschen Passwort (in Tests verkürzt).
@@ -262,8 +317,7 @@ func handleTelnet(s *Session) {
 		if !ok {
 			return
 		}
-		want, known := telnetPassword(host, user)
-		loggedIn = known && pass == want
+		loggedIn = s.m.telnetAccept(s.SrcIP, user, pass)
 		s.Login(pr(user, 256), pr(pass, 256), map[string]any{"accepted": loggedIn})
 		if s.Mode == "hybrid" {
 			s.Tarpit([]byte("\r\n"), drip)

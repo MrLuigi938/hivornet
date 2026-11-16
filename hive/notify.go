@@ -130,6 +130,11 @@ func (n *Notifier) OnEvent(e *Event) {
 	nt := notice{IP: e.SrcIP, Time: e.TS}
 	switch e.Type {
 	case "login":
+		if baitUsed(e) && c.OnSevere {
+			nt.Kind, nt.Title = "severe", "Köder-Zugangsdaten benutzt"
+			nt.Text = fmt.Sprintf("%s auf Port %d von %s\nDer Angreifer hat Zugangsdaten aus einer Köderdatei des Web-Honeypots ausprobiert (Benutzer %s).", e.Service, e.DstPort, origin(e), e.Username)
+			break
+		}
 		if !c.OnLogin || !strings.Contains(string(e.Data), `"success":true`) {
 			return
 		}
@@ -145,7 +150,7 @@ func (n *Notifier) OnEvent(e *Event) {
 	case "command", "request":
 		text, on, revealed := analysisText(e)
 		severe := ""
-		for _, id := range matchAll(text, on, revealed) {
+		for _, id := range eventPatterns(e, text, on, revealed) {
 			if patternByID[id].Sev >= 3 {
 				severe = patternByID[id].Name
 				break

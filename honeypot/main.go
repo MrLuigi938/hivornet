@@ -66,6 +66,7 @@ func main() {
 	emDone := make(chan struct{})
 	go func() { em.Run(stop); close(emDone) }()
 
+	setBaitSecret(token) // Köder-Zugangsdaten je Installation (bait.go)
 	mgr := NewManager(em, bind, lowOffset)
 	mgr.Apply(base)
 	log.Printf("Hivornet Honeypot %s gestartet, Sensor %q, Hive %s", version, sensor, hiveURL)

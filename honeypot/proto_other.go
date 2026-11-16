@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"math/rand/v2"
+	"path"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +16,31 @@ import (
 
 // ---------------- FTP ----------------
 
+// ftpFiles: Schein-Verzeichnis nach dem Login (Köderdateien aus bait.go).
+func ftpFiles() map[string][]string {
+	b := bait()
+	return map[string][]string{
+		"/":       {"drwxr-xr-x    2 1001     1001         4096 Nov 03 02:15 backup", "drwxr-xr-x    2 0        0            4096 Sep 21 11:40 pub"},
+		"/backup": {"-rw-r--r--    1 1001     1001      4718203 Nov 03 02:15 db-" + b.DBName + ".sql.gz", "-rw-r--r--    1 1001     1001          912 Sep 21 11:42 config.php.bak"},
+		"/pub":    {},
+	}
+}
+
+func ftpPath(cwd, arg string) string {
+	if arg == "" {
+		return cwd
+	}
+	if !strings.HasPrefix(arg, "/") {
+		arg = cwd + "/" + arg
+	}
+	return path.Clean(arg)
+}
+
+// handleFTP spielt vsftpd nach. Anonym (anonymous/ftp) und mit den Köder-Zugangsdaten
+// gelingt die Anmeldung; danach gibt es ein kleines Schein-Verzeichnis. Datenverbindungen
+// (PASV/PORT) baut der Honeypot bewusst nicht auf: PORT hieße eine ausgehende Verbindung,
+// PASV ein weiterer offener Port, den kein Router weiterleitet. LIST, RETR und STOR werden
+// deshalb nur aufgezeichnet und mit der Fehlermeldung von vsftpd beantwortet.
 func handleFTP(s *Session) {
 	drip := func() []byte { return []byte("220-" + randWord(10, 40) + "\r\n") }
 	if s.Mode == "tarpit" {
@@ -25,8 +51,8 @@ func handleFTP(s *Session) {
 		return
 	}
 	br := bufio.NewReader(s.Conn)
-	user := ""
-	for i := 0; i < 30; i++ {
+	user, cwd, in := "", "/", false
+	for i := 0; i < 40; i++ {
 		s.ReadDeadline(60 * time.Second)
 		if i == 0 && s.sniffTLS(br) {
 			return
@@ -37,17 +63,32 @@ func handleFTP(s *Session) {
 		}
 		cmd, arg, _ := strings.Cut(strings.TrimSpace(line), " ")
 		reply := "530 Please login with USER and PASS.\r\n"
-		switch strings.ToUpper(cmd) {
+		up := strings.ToUpper(cmd)
+		if in {
+			if r, ok := ftpLoggedIn(s, up, arg, line, &cwd); ok {
+				if s.WriteString(r) != nil || up == "QUIT" {
+					return
+				}
+				continue
+			}
+		}
+		switch up {
 		case "USER":
 			user = arg
 			reply = "331 Please specify the password.\r\n"
 		case "PASS":
-			s.Login(user, arg, nil)
+			b := bait()
+			lu := strings.ToLower(user)
+			in = lu == "anonymous" || lu == "ftp" || user == b.User && arg == b.Pass
+			s.Login(user, arg, map[string]any{"accepted": in})
 			if s.Mode == "hybrid" {
 				s.Tarpit(nil, func() []byte { return []byte("530-" + randWord(10, 40) + "\r\n") })
 				return
 			}
 			reply = "530 Login incorrect.\r\n"
+			if in {
+				reply = "230 Login successful.\r\n"
+			}
 		case "QUIT":
 			s.WriteString("221 Goodbye.\r\n")
 			return
@@ -64,6 +105,56 @@ func handleFTP(s *Session) {
 			return
 		}
 	}
+}
+
+// ftpLoggedIn beantwortet Befehle nach dem Login. ok=false: wie vor dem Login behandeln.
+func ftpLoggedIn(s *Session, cmd, arg, line string, cwd *string) (string, bool) {
+	files := ftpFiles()
+	switch cmd {
+	case "PWD", "XPWD":
+		return "257 \"" + *cwd + "\" is the current directory\r\n", true
+	case "CWD", "XCWD", "CDUP":
+		p := ftpPath(*cwd, arg)
+		if cmd == "CDUP" {
+			p = path.Dir(*cwd)
+		}
+		if _, ok := files[p]; ok {
+			*cwd = p
+			return "250 Directory successfully changed.\r\n", true
+		}
+		return "550 Failed to change directory.\r\n", true
+	case "TYPE":
+		return "200 Switching to Binary mode.\r\n", true
+	case "SIZE", "MDTM":
+		p := ftpPath(*cwd, arg)
+		for _, f := range files[path.Dir(p)] {
+			if fs := strings.Fields(f); len(fs) == 9 && fs[8] == path.Base(p) && f[0] == '-' {
+				if cmd == "SIZE" {
+					return "213 " + fs[4] + "\r\n", true
+				}
+				return "213 20261103021500\r\n", true
+			}
+		}
+		return "550 Could not get file size.\r\n", true
+	case "PASV", "EPSV":
+		return "500 OOPS: vsf_sysutil_bind\r\n", true
+	case "PORT", "EPRT":
+		return "500 Illegal PORT command.\r\n", true
+	case "LIST", "NLST", "RETR", "STOR", "APPE", "STOU":
+		// aufzeichnen, aber ohne Datenverbindung nichts übertragen (siehe handleFTP)
+		data := map[string]any{"cwd": *cwd}
+		if cmd == "STOR" || cmd == "APPE" || cmd == "STOU" {
+			data["upload"] = true
+		}
+		s.Command(printable([]byte(line), 512), data)
+		return "425 Use PORT or PASV first.\r\n", true
+	case "DELE", "MKD", "XMKD", "RMD", "XRMD", "RNFR", "RNTO", "SITE":
+		s.Command(printable([]byte(line), 512), map[string]any{"cwd": *cwd})
+		return "550 Permission denied.\r\n", true
+	case "QUIT":
+		return "221 Goodbye.\r\n", true
+	}
+	return "", false
 }
 
 // ---------------- Redis ----------------
@@ -141,15 +232,56 @@ var (
 	redisKeys    = 2 + rand.IntN(40)
 )
 
-func redisInfo() string {
-	return "# Server\r\nredis_version:6.2.14\r\nredis_mode:standalone\r\nos:Linux 5.15.0-91-generic x86_64\r\narch_bits:64\r\n" +
-		fmt.Sprintf("tcp_port:6379\r\nuptime_in_seconds:%d\r\nuptime_in_days:%d\r\n", redisUptime, redisUptime/86400) +
-		"executable:/usr/bin/redis-server\r\nconfig_file:/etc/redis/redis.conf\r\n" +
-		"\r\n# Clients\r\nconnected_clients:1\r\n\r\n# Memory\r\n" +
-		fmt.Sprintf("used_memory:%d\r\nused_memory_human:%.2fM\r\n", redisMemUsed, float64(redisMemUsed)/1048576) +
-		"\r\n# Persistence\r\nloading:0\r\nrdb_bgsave_in_progress:0\r\nrdb_last_bgsave_status:ok\r\n" +
-		"\r\n# Replication\r\nrole:master\r\nconnected_slaves:0\r\n\r\n# Keyspace\r\n" +
-		fmt.Sprintf("db0:keys=%d,expires=0,avg_ttl=0\r\n", redisKeys)
+// redisInfo liefert INFO wie Redis 6.2: ohne Argument bzw. "default"/"all" alle
+// Abschnitte, sonst nur den genannten (unbekannt: leer).
+func redisInfo(section string) string {
+	secs := [][2]string{
+		{"server", "# Server\r\nredis_version:6.2.14\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\nos:Linux 5.15.0-91-generic x86_64\r\narch_bits:64\r\n" +
+			"multiplexing_api:epoll\r\ngcc_version:11.4.0\r\nprocess_id:1123\r\n" +
+			fmt.Sprintf("tcp_port:6379\r\nuptime_in_seconds:%d\r\nuptime_in_days:%d\r\n", redisUptime, redisUptime/86400) +
+			"hz:10\r\nexecutable:/usr/bin/redis-server\r\nconfig_file:/etc/redis/redis.conf\r\n"},
+		{"clients", "# Clients\r\nconnected_clients:1\r\nblocked_clients:0\r\n"},
+		{"memory", "# Memory\r\n" + fmt.Sprintf("used_memory:%d\r\nused_memory_human:%.2fM\r\n", redisMemUsed, float64(redisMemUsed)/1048576) +
+			"maxmemory:0\r\nmaxmemory_policy:noeviction\r\nmem_allocator:jemalloc-5.1.0\r\n"},
+		{"persistence", "# Persistence\r\nloading:0\r\nrdb_bgsave_in_progress:0\r\nrdb_last_bgsave_status:ok\r\naof_enabled:0\r\n"},
+		{"stats", fmt.Sprintf("# Stats\r\ntotal_connections_received:%d\r\ntotal_commands_processed:%d\r\nrejected_connections:0\r\n", redisUptime/97, redisUptime/11)},
+		{"replication", "# Replication\r\nrole:master\r\nconnected_slaves:0\r\nmaster_repl_offset:0\r\n"},
+		{"cpu", fmt.Sprintf("# CPU\r\nused_cpu_sys:%.2f\r\nused_cpu_user:%.2f\r\n", float64(redisUptime)/2900, float64(redisUptime)/1700)},
+		{"keyspace", "# Keyspace\r\n" + fmt.Sprintf("db0:keys=%d,expires=0,avg_ttl=0\r\n", redisKeys)},
+	}
+	section = strings.ToLower(section)
+	var parts []string
+	for _, s := range secs {
+		if section == "" || section == "default" || section == "all" || section == "everything" || section == s[0] {
+			parts = append(parts, s[1])
+		}
+	}
+	return strings.Join(parts, "\r\n")
+}
+
+// redisConfig: Werte für CONFIG GET (Auswahl, wie ein Debian-Paket sie mitbringt).
+var redisConfig = [][2]string{
+	{"dbfilename", "dump.rdb"}, {"requirepass", ""}, {"masterauth", ""}, {"unixsocket", ""}, {"logfile", "/var/log/redis/redis-server.log"},
+	{"pidfile", "/run/redis/redis-server.pid"}, {"maxmemory", "0"}, {"maxmemory-policy", "noeviction"}, {"timeout", "0"},
+	{"tcp-keepalive", "300"}, {"databases", "16"}, {"maxclients", "10000"}, {"port", "6379"}, {"bind", "* -::*"},
+	{"protected-mode", "no"}, {"daemonize", "yes"}, {"supervised", "systemd"}, {"loglevel", "notice"}, {"appendonly", "no"},
+	{"appendfilename", "appendonly.aof"}, {"appendfsync", "everysec"}, {"save", "3600 1 300 100 60 10000"},
+	{"slave-read-only", "yes"}, {"replica-read-only", "yes"}, {"dir", "/var/lib/redis"}, {"hz", "10"}, {"io-threads", "1"},
+}
+
+func redisConfigGet(patterns []string) string {
+	var out []string
+	seen := map[string]bool{}
+	for _, p := range patterns {
+		p = strings.ToLower(p)
+		for _, kv := range redisConfig {
+			if ok, _ := path.Match(p, kv[0]); ok && !seen[kv[0]] {
+				seen[kv[0]] = true
+				out = append(out, bulk(kv[0]), bulk(kv[1]))
+			}
+		}
+	}
+	return fmt.Sprintf("*%d\r\n", len(out)) + strings.Join(out, "")
 }
 
 func handleRedis(s *Session) {
@@ -207,17 +339,16 @@ func handleRedis(s *Session) {
 		case "BGSAVE":
 			reply = "+Background saving started\r\n"
 		case "INFO":
-			reply = bulk(redisInfo())
+			sec := ""
+			if len(args) > 1 {
+				sec = args[1]
+			}
+			reply = bulk(redisInfo(sec))
 		case "CONFIG":
 			if sub == "GET" && len(args) > 2 {
-				switch strings.ToLower(args[2]) {
-				case "dir":
-					reply = "*2\r\n" + bulk("dir") + bulk("/var/lib/redis")
-				case "dbfilename":
-					reply = "*2\r\n" + bulk("dbfilename") + bulk("dump.rdb")
-				default:
-					reply = "*0\r\n"
-				}
+				reply = redisConfigGet(args[2:])
+			} else if sub == "GET" {
+				reply = "-ERR wrong number of arguments for 'config|get' command\r\n"
 			} else {
 				reply = "+OK\r\n"
 			}
@@ -250,11 +381,20 @@ func mysqlPacket(seq byte, payload []byte) []byte {
 	return append([]byte{byte(n), byte(n >> 8), byte(n >> 16), seq}, payload...)
 }
 
-func mysqlHandshake(salt []byte) []byte {
+// nextMySQLID: Thread-ID der nächsten Verbindung. Ein echter Server zählt sie je
+// Verbindung hoch; der Startwert ist zufällig (der Server läuft scheinbar schon länger).
+func (m *Manager) nextMySQLID() uint32 {
+	if m.mysqlID.Load() == 0 {
+		m.mysqlID.CompareAndSwap(0, rand.Uint32N(90000)+1000)
+	}
+	return m.mysqlID.Add(1)
+}
+
+func mysqlHandshake(salt []byte, threadID uint32) []byte {
 	p := []byte{10}
 	p = append(p, "5.7.44-log"...)
 	p = append(p, 0)
-	p = binary.LittleEndian.AppendUint32(p, rand.Uint32N(90000)+1000)
+	p = binary.LittleEndian.AppendUint32(p, threadID)
 	p = append(p, salt[:8]...)
 	p = append(p, 0)
 	p = binary.LittleEndian.AppendUint16(p, 0xf7ff) // ohne CLIENT_SSL
@@ -339,7 +479,7 @@ func handleMySQL(s *Session) {
 	for i := range salt {
 		salt[i] = byte(33 + rand.IntN(90))
 	}
-	if s.Write(mysqlHandshake(salt)) != nil {
+	if s.Write(mysqlHandshake(salt, s.m.nextMySQLID())) != nil {
 		return
 	}
 	s.ReadDeadline(30 * time.Second)
@@ -364,6 +504,9 @@ func handleMySQL(s *Session) {
 		return
 	}
 	data := map[string]any{"password_hashed": true}
+	if b := bait(); mysqlNativeMatch(salt, lg.Auth, b.Pass) {
+		data["bait"] = true // Köder-Passwort, nur als Hash übertragen
+	}
 	if len(lg.Auth) > 0 {
 		data["auth_hex"] = hex.EncodeToString(lg.Auth[:min(len(lg.Auth), 64)])
 	}

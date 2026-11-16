@@ -44,15 +44,19 @@ func find(evs []Event, typ string) *Event {
 func TestTelnetLoginAndShell(t *testing.T) {
 	telnetDelay = func() time.Duration { return 0 }
 	m := testManager()
-	good, _ := telnetPassword(m.Hostname(), "root")
+	list := telnetAccounts["root"]
 	c, done := run(t, m, "telnet", "emulate")
 	readUntil(t, c, "login: ")
 	c.Write([]byte{255, 253, 1}) // IAC DO ECHO muss ignoriert werden
-	c.Write([]byte("root\r\n"))
-	readUntil(t, c, "Password: ")
-	c.Write([]byte("zufall-" + good + "\r\n")) // falsches Passwort: abgelehnt
-	readUntil(t, c, "Login incorrect")
-	readUntil(t, c, "login: ")
+	// zwei Werkspasswörter abgelehnt, das dritte verschiedene gilt
+	for _, pw := range []string{list[0], list[1]} {
+		c.Write([]byte("root\r\n"))
+		readUntil(t, c, "Password: ")
+		c.Write([]byte(pw + "\r\n"))
+		readUntil(t, c, "Login incorrect")
+		readUntil(t, c, "login: ")
+	}
+	good := list[2]
 	c.Write([]byte("root\r\n"))
 	readUntil(t, c, "Password: ")
 	c.Write([]byte(good + "\r\n"))
@@ -72,7 +76,7 @@ func TestTelnetLoginAndShell(t *testing.T) {
 			logins = append(logins, e)
 		}
 	}
-	if len(logins) != 2 || logins[0].Data["accepted"] != false || logins[1].Data["accepted"] != true || logins[1].Password != good {
+	if len(logins) != 3 || logins[0].Data["accepted"] != false || logins[2].Data["accepted"] != true || logins[2].Password != good {
 		t.Fatalf("Logins falsch: %+v", logins)
 	}
 	if cmd := find(evs, "command"); cmd == nil || cmd.Data["input"] != "/bin/busybox MIRAI" {
@@ -80,27 +84,34 @@ func TestTelnetLoginAndShell(t *testing.T) {
 	}
 }
 
-// Wie ein echtes Gerät: ein Passwort je Konto, unbekannte Konten nie, nach drei Versuchen Schluss.
+// Wie ein echtes Gerät: je Angreifer-IP gilt das dritte verschiedene Werkspasswort und
+// bleibt danach gleich; fremde Passwörter und unbekannte Konten nie; nach drei Versuchen Schluss.
 func TestTelnetRejectsLikeRealDevice(t *testing.T) {
 	telnetDelay = func() time.Duration { return 0 }
-	a, _ := telnetPassword("nas-backup01", "root")
-	b, _ := telnetPassword("nas-backup01", "root")
-	if a != b || a == "" {
-		t.Fatal("Passwort muss je Hostname stabil sein")
-	}
-	if _, ok := telnetPassword("nas-backup01", "zufallsname"); ok {
-		t.Fatal("unbekanntes Konto darf kein Passwort haben")
-	}
-	n := 0
-	for _, pw := range telnetAccounts["root"] {
-		if want, _ := telnetPassword("nas-backup01", "root"); pw == want {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Fatalf("%d gültige Passwörter für root, erwartet genau 1", n)
-	}
 	m := testManager()
+	l := telnetAccounts["root"]
+	acc := func(ip, pw string) bool { return m.telnetAccept(ip, "root", pw) }
+	if acc("203.0.113.1", "geheim") || acc("203.0.113.1", "geheim2") || acc("203.0.113.1", "geheim3") {
+		t.Fatal("Passwort außerhalb der Liste angenommen")
+	}
+	if acc("203.0.113.1", l[5]) || acc("203.0.113.1", l[5]) || acc("203.0.113.1", l[6]) {
+		t.Fatal("zu früh angenommen (Wiederholung zählt nicht)")
+	}
+	if !acc("203.0.113.1", l[7]) {
+		t.Fatal("drittes verschiedenes Werkspasswort abgelehnt")
+	}
+	if acc("203.0.113.1", l[5]) || !acc("203.0.113.1", l[7]) {
+		t.Fatal("gültiges Passwort muss je IP stabil bleiben")
+	}
+	if acc("203.0.113.2", l[7]) {
+		t.Fatal("andere IP: erstes Passwort darf nicht gelten")
+	}
+	if m.telnetAccept("203.0.113.3", "zufallsname", l[0]) {
+		t.Fatal("unbekanntes Konto angenommen")
+	}
+	if b := bait(); !m.telnetAccept("203.0.113.4", b.User, b.Pass) {
+		t.Fatal("Köder-Zugangsdaten abgelehnt")
+	}
 	c, done := run(t, m, "telnet", "emulate")
 	for i := 0; i < telnetMaxLogins; i++ {
 		readUntil(t, c, "login: ")

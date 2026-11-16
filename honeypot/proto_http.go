@@ -5,9 +5,11 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -68,11 +70,17 @@ func serveHTTP(s *Session, docker bool) {
 		}
 		req, err := http.ReadRequest(br)
 		if err != nil {
-			if i == 0 && err != io.EOF {
-				// kein gültiges HTTP: rohe Bytes festhalten, soweit noch im Puffer
-				if n := br.Buffered(); n > 0 {
+			if err != io.EOF && !errors.Is(err, io.ErrUnexpectedEOF) && !isTimeout(err) {
+				// kein gültiges HTTP: rohe Bytes festhalten, soweit noch im Puffer, und wie
+				// nginx (bzw. Docker) mit 400 antworten statt still aufzulegen
+				if n := br.Buffered(); i == 0 && n > 0 {
 					b, _ := br.Peek(min(n, 4096))
 					s.Emit(Event{Type: "payload", Data: map[string]any{"text": printable(b, budgetText)}})
+				}
+				if docker {
+					s.WriteString("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n400 Bad Request")
+				} else {
+					writeHTTP(s, "GET", 400, "text/html", nginxError(400), nil, false, true)
 				}
 			}
 			return
@@ -230,8 +238,30 @@ var loginPaths = map[string]string{
 	"/cgi-bin/luci": "LuCI", "/webui": "", "/user/login": "",
 }
 
+// nginxError: Fehlerseite, wie nginx 1.24 sie schickt.
+func nginxError(code int) string {
+	t := fmt.Sprintf("%d %s", code, http.StatusText(code))
+	if code == 405 {
+		t = "405 Not Allowed"
+	}
+	return "<html>\r\n<head><title>" + t + "</title></head>\r\n<body>\r\n<center><h1>" + t + "</h1></center>\r\n<hr><center>nginx/1.24.0</center>\r\n</body>\r\n</html>\r\n"
+}
+
+func isTimeout(err error) bool {
+	var ne net.Error
+	return errors.As(err, &ne) && ne.Timeout()
+}
+
 func webResponse(s *Session, req *http.Request) (int, string, string, map[string]string) {
 	path := req.URL.Path
+	switch req.Method {
+	case "GET", "HEAD", "POST":
+	default: // nginx liefert statische Seiten nur für GET/HEAD; alles andere: 405
+		return 405, "text/html", nginxError(405), nil
+	}
+	if ctype, body, ok := baitFile(path, s.m.Hostname()); ok && req.Method != "POST" {
+		return 200, ctype, body, nil
+	}
 	if strings.HasPrefix(path, "/manager/html") || strings.HasPrefix(path, "/host-manager") {
 		if req.Header.Get("Authorization") == "" {
 			return 401, "text/html", "<h1>401 Unauthorized</h1>", map[string]string{"WWW-Authenticate": `Basic realm="Tomcat Manager Application"`}
@@ -242,7 +272,7 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 		failed := req.Method == "POST"
 		return 200, "text/html; charset=utf-8", loginPage(s.m.Hostname(), product, path, failed), nil
 	}
-	return 404, "text/html", "<html>\r\n<head><title>404 Not Found</title></head>\r\n<body>\r\n<center><h1>404 Not Found</h1></center>\r\n<hr><center>nginx/1.24.0</center>\r\n</body>\r\n</html>\r\n", nil
+	return 404, "text/html", nginxError(404), nil
 }
 
 func loginPage(host, product, action string, failed bool) string {
@@ -312,6 +342,45 @@ func dockerCommand(req *http.Request, body []byte) string {
 	return ""
 }
 
+// Schein-Container und -Images: drei Container (zwei laufen), fünf Images, wie /info meldet.
+// IDs sind je Prozessstart fest, damit wiederholte Abfragen zusammenpassen.
+var dockerIDs = func() []string {
+	ids := make([]string, 8)
+	for i := range ids {
+		ids[i] = randHex(32)
+	}
+	return ids
+}()
+
+func dockerContainers(all bool) string {
+	created := time.Now().Add(-time.Duration(redisUptime) * time.Second).Unix()
+	type c struct {
+		Id, Image, Command, State, Status string
+		Names                             []string
+		Created                           int64
+		Ports                             []map[string]any
+	}
+	list := []c{
+		{dockerIDs[0], "nextcloud:27-apache", "/entrypoint.sh apache2-foreground", "running", fmt.Sprintf("Up %d days", redisUptime/86400), []string{"/nextcloud"}, created,
+			[]map[string]any{{"PrivatePort": 80, "PublicPort": 8081, "Type": "tcp", "IP": "0.0.0.0"}}},
+		{dockerIDs[1], "mariadb:10.11", "docker-entrypoint.sh mariadbd", "running", fmt.Sprintf("Up %d days", redisUptime/86400), []string{"/nextcloud-db"}, created,
+			[]map[string]any{{"PrivatePort": 3306, "Type": "tcp"}}},
+	}
+	if all {
+		list = append(list, c{dockerIDs[2], "restic/restic:0.16.2", "restic backup /data", "exited", "Exited (0) 9 hours ago", []string{"/backup-job"}, created, []map[string]any{}})
+	}
+	return mustJSON(list)
+}
+
+func dockerImages() string {
+	var out []map[string]any
+	for i, t := range []string{"nextcloud:27-apache", "mariadb:10.11", "restic/restic:0.16.2", "redis:6.2-alpine", "alpine:3.18"} {
+		out = append(out, map[string]any{"Id": "sha256:" + dockerIDs[3+i%5] + dockerIDs[(4+i)%8], "RepoTags": []string{t},
+			"Created": time.Now().AddDate(0, -2-i, 0).Unix(), "Size": 50_000_000 + i*37_000_000})
+	}
+	return mustJSON(out)
+}
+
 func joinAny(v any) string {
 	switch t := v.(type) {
 	case string:
@@ -350,8 +419,12 @@ func dockerResponse(s *Session, req *http.Request) (int, string, string, map[str
 			"OperatingSystem": "Ubuntu 22.04.3 LTS", "OSType": "linux", "Architecture": "x86_64", "NCPU": 4,
 			"MemTotal": int64(8232407040), "ServerVersion": "24.0.7", "KernelVersion": "5.15.0-91-generic",
 		}), nil
-	case p == "/containers/json" || p == "/images/json" || p == "/volumes":
-		return 200, js, "[]", nil
+	case p == "/containers/json":
+		return 200, js, dockerContainers(req.URL.Query().Get("all") == "1" || req.URL.Query().Get("all") == "true"), nil
+	case p == "/images/json":
+		return 200, js, dockerImages(), nil
+	case p == "/volumes":
+		return 200, js, `{"Volumes":[{"Driver":"local","Name":"nextcloud_db","Mountpoint":"/var/lib/docker/volumes/nextcloud_db/_data","Scope":"local"}],"Warnings":null}`, nil
 	case p == "/networks":
 		return 200, js, "[]", nil
 	case req.Method == "POST" && p == "/containers/create":

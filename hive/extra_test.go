@@ -59,6 +59,7 @@ var patternExamples = map[string]string{
 	"sqli":           "/item?id=1 UNION SELECT 1,2,3",
 	"cms_login":      "/wp-login.php",
 	"api_probe":      "/actuator/health",
+	"bait_used":      "hivornet:koeder",
 	"tls_on_plain":   `\x16\x03\x01\x02\x00\x01`,
 	"smb_probe":      `\x00\x00\x00\x85\xffSMBr\x00`,
 	"http_on_raw":    `GET / HTTP/1.1\r\nHost: x`,

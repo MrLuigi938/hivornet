@@ -184,6 +184,9 @@ func (a *Attack) add(e *Event) {
 			k = e.Username + " / " + e.Password
 		}
 		a.creds[clip(k, 200)]++
+		if baitUsed(e) {
+			a.tags["bait_used"]++
+		}
 		if flag("success") || flag("accepted") {
 			a.Success, a.SuccessCred = true, clip(k, 200)
 			if e.Session != "" {
@@ -208,7 +211,7 @@ func (a *Attack) add(e *Event) {
 		return
 	}
 	text, on, revealed := analysisText(e)
-	for _, id := range matchAll(text, on, revealed) {
+	for _, id := range eventPatterns(e, text, on, revealed) {
 		a.tags[id]++
 	}
 	for _, d := range revealed {
@@ -280,7 +283,7 @@ func (a *Attack) stufe() int {
 		return stufeDownload
 	case c["command"] > 0:
 		return stufeBefehle
-	case a.Success:
+	case a.Success || a.tags["bait_used"] > 0: // Köder-Zugangsdaten: wusste, was er tut
 		return stufeLogin
 	case c["login"] > 0 || c["request"] > 0 || c["payload"] > 0 || c["proto_command"] > 0 || c["prompt"] > 0:
 		return stufeVersuch
@@ -292,6 +295,8 @@ func (a *Attack) classify() string {
 	has := func(id string) bool { return a.tags[id] > 0 }
 	c := a.Counts
 	switch {
+	case has("bait_used"):
+		return "Köder benutzt"
 	case has("iot_botnet"):
 		return "IoT-Botnetz (Mirai-Art)"
 	case has("miner"):
