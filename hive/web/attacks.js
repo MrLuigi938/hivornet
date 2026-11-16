@@ -19,7 +19,11 @@ export function summary(a) {
   if (a.success) p.push("Login angenommen");
   if (c.request) p.push(`${fmtNum(c.request)} Web-Anfrage${c.request > 1 ? "n" : ""}`);
   if (c.payload) p.push(`${fmtNum(c.payload)}× Daten`);
-  if (c.command) p.push(`${fmtNum(c.command)} Befehl${c.command > 1 ? "e" : ""}`);
+  if (c.command) p.push(`${fmtNum(c.command)} Befehl${c.command > 1 ? "e" : ""} ausgeführt`);
+  const proto = (c.proto_command || 0) + (c.probe_command || 0);
+  if (proto) p.push(`${fmtNum(proto)} Protokoll-Befehl${proto > 1 ? "e" : ""}`);
+  if (c.prompt) p.push(`${fmtNum(c.prompt)}× Befehle an der Login-Abfrage`);
+  if (c.tls_plain) p.push("TLS-Handshake am Klartext-Port");
   if (c.download) p.push(`${fmtNum(c.download)} Download${c.download > 1 ? "s" : ""}`);
   if (!p.length) p.push(a.ports.length > 1 ? `${a.ports.length} Ports abgetastet` : `Verbindung zu Port ${a.ports[0] || "?"}`);
   return p.join(" · ");
@@ -91,7 +95,8 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
   const facts = [
     a.creds && a.creds.length ? ["Zugangsdaten" + (a.creds_distinct > 1 ? ` (${fmtNum(a.creds_distinct)} verschiedene)` : ""), counted(a.creds, 8), a.creds_distinct > 8 ? `+${fmtNum(a.creds_distinct - 8)}` : null] : null,
     a.paths && a.paths.length ? ["Aufgerufene Pfade" + (a.paths_distinct > 1 ? ` (${fmtNum(a.paths_distinct)})` : ""), counted(a.paths, 8), a.paths_distinct > 8 ? `+${fmtNum(a.paths_distinct - 8)}` : null] : null,
-    a.commands && a.commands.length ? ["Befehle", a.commands.slice(0, 6), a.commands.length > 6 ? `+${a.commands.length - 6}` : null] : null,
+    a.commands && a.commands.length ? ["Befehle (ausgeführt)", a.commands.slice(0, 6), a.commands.length > 6 ? `+${a.commands.length - 6}` : null] : null,
+    a.proto_commands && a.proto_commands.length ? ["Protokoll-Befehle (ohne Anmeldung)", a.proto_commands.slice(0, 6), a.proto_commands.length > 6 ? `+${a.proto_commands.length - 6}` : null] : null,
     a.urls && a.urls.length ? ["Nachlade-Adressen (nicht aufrufen)", a.urls, null, "hot"] : null,
     a.decoded && a.decoded.length ? ["Entschlüsselt (Base64, Hex …)", a.decoded, null, "decoded"] : null,
     a.tags && a.tags.length ? ["Erkannte Muster", a.tags.map((t) => t.label || t.key), null, "tag"] : null,

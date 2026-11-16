@@ -79,6 +79,43 @@ func (s *Session) WriteString(str string) error { return s.Write([]byte(str)) }
 
 func (s *Session) ReadDeadline(d time.Duration) { s.Conn.SetReadDeadline(time.Now().Add(d)) }
 
+// tlsHelloMax: so viele Bytes eines TLS-ClientHello werden höchstens behalten
+// (als Hex im Ereignis doppelt so viele Zeichen, deutlich unter dem Größenbudget).
+const tlsHelloMax = 3072
+
+// sniffTLS erkennt einen TLS-Handshake auf einem Klartext-Port (Scanner probieren
+// FTPS, Redis mit TLS usw.). Beginnt die erste Eingabe mit einem TLS-Record vom Typ
+// Handshake (0x16, Version 3.x), liest es diesen Record (höchstens tlsHelloMax Bytes
+// werden behalten, der Rest des Records verworfen), meldet ihn als Ereignis "tls" mit
+// plain=true und den Rohdaten als Hex (für Fingerabdrücke im Hive) und liefert true.
+// Der Aufrufer beendet dann die Verbindung, wie es ein Klartext-Dienst täte.
+// Die Lesefrist setzt der Aufrufer vorher.
+func (s *Session) sniffTLS(br *bufio.Reader) bool {
+	if b, err := br.Peek(1); err != nil || b[0] != 0x16 {
+		return false
+	}
+	h, err := br.Peek(5)
+	if err != nil || h[1] != 3 || h[2] > 4 {
+		return false
+	}
+	n := int(h[3])<<8 | int(h[4])
+	if n == 0 || n > 18432 { // größer als ein TLS-Record sein darf
+		return false
+	}
+	keep := min(5+n, tlsHelloMax)
+	rec := make([]byte, keep)
+	got, _ := io.ReadFull(br, rec)
+	if rest := int64(5 + n - keep); got == keep && rest > 0 {
+		io.CopyN(io.Discard, br, rest)
+	}
+	data := map[string]any{"plain": true, "client_hello": hex.EncodeToString(rec[:got]), "bytes": 5 + n}
+	if got < 5+n {
+		data["truncated"] = true
+	}
+	s.Emit(Event{Type: "tls", Data: data})
+	return true
+}
+
 // Tarpit hält die Verbindung fest: erst prefix, dann in jedem Intervall ein
 // kleines Stück aus next(). Blockiert, bis der Angreifer aufgibt, das Limit
 // greift oder die maximale Dauer erreicht ist.

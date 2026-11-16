@@ -52,7 +52,8 @@ type Attack struct {
 	CredsDistinct int            `json:"creds_distinct,omitempty"`
 	Paths         []Count        `json:"paths,omitempty"`
 	PathsDistinct int            `json:"paths_distinct,omitempty"`
-	Commands      []string       `json:"commands,omitempty"`
+	Commands      []string       `json:"commands,omitempty"`       // ausgeführte Befehle (einstufung.go)
+	ProtoCommands []string       `json:"proto_commands,omitempty"` // Protokoll-Befehle vor der Anmeldung, Eingaben an der Login-Abfrage
 	URLs          []string       `json:"urls,omitempty"`
 	Decoded       []string       `json:"decoded,omitempty"` // entschlüsselte Inhalte (Base64, Hex …)
 	Clients       []string       `json:"clients,omitempty"`
@@ -69,6 +70,7 @@ type Attack struct {
 	svc                          map[string]bool
 	port                         map[int]bool
 	seenCmd, seenSess, seenCli   map[string]bool
+	okSess                       map[string]bool // Sitzungen mit angenommenem Login
 }
 
 type stripEvent struct {
@@ -82,7 +84,20 @@ func newAttack(e *Event) *Attack {
 	ms := e.TS.UnixMilli()
 	return &Attack{ID: e.SrcIP + "@" + strconv.FormatInt(ms, 10), IP: e.SrcIP, First: ms, Last: ms, Counts: map[string]int{},
 		creds: map[string]int{}, paths: map[string]int{}, tags: map[string]int{}, loginSvc: map[string]int{},
-		svc: map[string]bool{}, port: map[int]bool{}, seenCmd: map[string]bool{}, seenSess: map[string]bool{}, seenCli: map[string]bool{}}
+		svc: map[string]bool{}, port: map[int]bool{}, seenCmd: map[string]bool{}, seenSess: map[string]bool{}, seenCli: map[string]bool{},
+		okSess: map[string]bool{}}
+}
+
+// kindCount: Zähler in Attack.Counts für die Arten aus einstufung.go. Befehle zählen nur
+// als "command", wenn sie ausgeführt wurden; sonst unter "proto_command" bzw. "prompt".
+var kindCount = map[evKind]string{kindTLSPlain: "tls_plain", kindPrompt: "prompt", kindProbe: "probe_command", kindProto: "proto_command", kindExec: "command"}
+
+func (a *Attack) addCommand(list *[]string, c string) {
+	c = clip(c, 500)
+	if c != "" && !a.seenCmd[c] && len(*list) < 30 {
+		a.seenCmd[c] = true
+		*list = append(*list, c)
+	}
 }
 
 func dataBool(d json.RawMessage, key string) bool {
@@ -101,7 +116,12 @@ func (a *Attack) add(e *Event) {
 	ms := e.TS.UnixMilli()
 	a.Last = ms
 	a.Events++
-	a.Counts[e.Type]++
+	kind := eventKind(e, a.okSess[e.Session])
+	if k, ok := kindCount[kind]; ok {
+		a.Counts[k]++
+	} else {
+		a.Counts[e.Type]++
+	}
 	if a.Country == "" && e.Country != "" {
 		a.Country, a.CountryName, a.City, a.Lat, a.Lon, a.ASN, a.ASOrg = e.Country, e.CountryName, e.City, e.Lat, e.Lon, e.ASN, e.ASOrg
 	}
@@ -128,8 +148,26 @@ func (a *Attack) add(e *Event) {
 	}
 	str := func(k string) string { s, _ := d[k].(string); return s }
 	flag := func(k string) bool { b, _ := d[k].(bool); return b }
+	switch {
+	case kind == kindPrompt:
+		lines, _ := promptLines(e)
+		for _, l := range lines {
+			a.addCommand(&a.ProtoCommands, "an der Login-Abfrage: "+l)
+		}
+	case kind == kindTLSPlain && e.Type == "command":
+		// kein Befehl; das Merkmal tls_on_plain setzt die Musterprüfung unten
+	case e.Type == "command":
+		if kind == kindExec {
+			a.addCommand(&a.Commands, str("input"))
+		} else {
+			a.addCommand(&a.ProtoCommands, str("input"))
+		}
+	}
 	switch e.Type {
 	case "login":
+		if kind == kindPrompt {
+			break
+		}
 		a.loginSvc[e.Service]++
 		var k string
 		switch {
@@ -143,6 +181,9 @@ func (a *Attack) add(e *Event) {
 		a.creds[clip(k, 200)]++
 		if flag("success") || flag("accepted") {
 			a.Success, a.SuccessCred = true, clip(k, 200)
+			if e.Session != "" {
+				a.okSess[e.Session] = true
+			}
 		}
 		return
 	case "request":
@@ -151,12 +192,6 @@ func (a *Attack) add(e *Event) {
 			p = m + " " + p
 		}
 		a.paths[clip(p, 300)]++
-	case "command":
-		c := clip(str("input"), 500)
-		if c != "" && !a.seenCmd[c] && len(a.Commands) < 30 {
-			a.seenCmd[c] = true
-			a.Commands = append(a.Commands, c)
-		}
 	case "download":
 		if u := str("url"); u != "" && len(a.URLs) < 10 && !slices.Contains(a.URLs, u) {
 			a.URLs = append(a.URLs, clip(u, 300))
@@ -226,18 +261,25 @@ func (a *Attack) finish() {
 			a.Tags[i].Label = p.Name
 		}
 	}
+	a.Stufe = a.stufe()
+	a.Profile = a.classify()
+}
+
+// stufe: höchste erreichte Stufe. Was als ausgeführter Befehl zählt, regelt einstufung.go;
+// TLS-Handshakes und reine Protokoll-Abfragen (PING, INFO, EHLO …) bleiben Abtasten.
+func (a *Attack) stufe() int {
 	c := a.Counts
 	switch {
 	case c["download"] > 0:
-		a.Stufe = stufeDownload
+		return stufeDownload
 	case c["command"] > 0:
-		a.Stufe = stufeBefehle
+		return stufeBefehle
 	case a.Success:
-		a.Stufe = stufeLogin
-	case c["login"] > 0 || c["request"] > 0 || c["payload"] > 0:
-		a.Stufe = stufeVersuch
+		return stufeLogin
+	case c["login"] > 0 || c["request"] > 0 || c["payload"] > 0 || c["proto_command"] > 0 || c["prompt"] > 0:
+		return stufeVersuch
 	}
-	a.Profile = a.classify()
+	return stufeScan
 }
 
 func (a *Attack) classify() string {
@@ -250,7 +292,7 @@ func (a *Attack) classify() string {
 		return "Krypto-Miner"
 	case has("redis_takeover") || a.svc["redis"] && c["command"] > 0:
 		return "Redis-Übernahme"
-	case has("docker_escape") || a.svc["dockerapi"] && (c["command"] > 0 || c["request"] > 0):
+	case has("docker_escape") || a.svc["dockerapi"] && c["command"] > 0:
 		return "Docker-API-Angriff"
 	case c["command"] > 0 || c["download"] > 0:
 		best, n := "", 0
@@ -275,12 +317,17 @@ func (a *Attack) classify() string {
 		}
 		return "Anmeldeversuche"
 	case c["request"] > 0:
+		if a.svc["dockerapi"] && len(a.svc) == 1 {
+			return "Docker-API-Abfrage"
+		}
 		if has("web_rce") || has("iot_exploit") || has("log4shell") || has("traversal") || has("sqli") {
 			return "Web-Exploit"
 		}
 		return "Web-Scanner"
-	case c["payload"] > 0:
+	case c["payload"] > 0 || c["proto_command"] > 0 || c["prompt"] > 0 || c["probe_command"] > 0:
 		return "Protokoll-Probe"
+	case c["tls_plain"] > 0:
+		return "TLS-Scan"
 	case len(a.port) >= 3:
 		return "Port-Scan"
 	}
@@ -373,6 +420,7 @@ func (a *Attack) matches(q string) bool {
 		parts = append(parts, k)
 	}
 	parts = append(parts, a.Commands...)
+	parts = append(parts, a.ProtoCommands...)
 	parts = append(parts, a.URLs...)
 	parts = append(parts, a.Decoded...)
 	parts = append(parts, a.Clients...)

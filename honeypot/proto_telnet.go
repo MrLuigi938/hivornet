@@ -229,11 +229,18 @@ func handleTelnet(s *Session) {
 		return
 	}
 	br := bufio.NewReaderSize(s.Conn, 1024)
+	first := true
 	ask := func(prompt string) (string, bool) {
 		if s.WriteString(prompt) != nil {
 			return "", false
 		}
 		s.ReadDeadline(60 * time.Second)
+		if first { // TLS-Client am Telnet-Port: erst nach der ersten Abfrage prüfen, Bots warten auf sie
+			first = false
+			if s.sniffTLS(br) {
+				return "", false
+			}
+		}
 		line, err := telnetReadLine(br, telnetMaxLine)
 		return line, err == nil
 	}

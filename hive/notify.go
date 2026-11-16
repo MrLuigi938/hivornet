@@ -155,7 +155,7 @@ func (n *Notifier) OnEvent(e *Event) {
 		case severe != "" && c.OnSevere:
 			nt.Kind, nt.Title = "severe", "Angriffsmuster erkannt: "+severe
 			nt.Text = fmt.Sprintf("%s auf Port %d von %s\n%s", e.Service, e.DstPort, origin(e), clip(strings.TrimSpace(text), 300))
-		case e.Type == "command" && c.OnCommand && e.Session != "":
+		case e.Type == "command" && c.OnCommand && e.Session != "" && eventKind(e, false) == kindExec:
 			n.mu.Lock()
 			_, seen := n.cmdSeen[e.Session]
 			n.cmdSeen[e.Session] = time.Now()

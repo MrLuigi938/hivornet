@@ -99,7 +99,19 @@ var patternByID = func() map[string]*Pattern {
 func eventText(e *Event) (text, on string) {
 	switch e.Type {
 	case "command":
-		return dataString(e.Data, "input"), "cmd"
+		if in := dataString(e.Data, "input"); isTLSText(in) {
+			return in, "raw" // TLS am Klartext-Port (einstufung.go): Merkmal tls_on_plain, kein Befehl
+		} else {
+			return in, "cmd"
+		}
+	case "tls":
+		if dataBool(e.Data, "plain") {
+			return tlsPrefix + " TLS-ClientHello", "raw"
+		}
+	case "login":
+		if lines, ok := promptLines(e); ok { // Befehle an der Login-Abfrage
+			return strings.Join(lines, "\n"), "cmd"
+		}
 	case "request":
 		t := dataString(e.Data, "path") + "\n" + dataString(e.Data, "body") + "\n" + dataString(e.Data, "headers")
 		if dataString(e.Data, "forward_to") != "" {
@@ -261,15 +273,27 @@ const (
 
 // timelineLine beschreibt ein Ereignis in einer Zeile für den Ablauf. Verbindungsende
 // und reine Fingerabdrücke fehlen; entschlüsselte Inhalte stehen dahinter.
-func timelineLine(e *Event, text string, revealed []string, loc *time.Location) string {
+func timelineLine(e *Event, kind evKind, text string, revealed []string, loc *time.Location) string {
 	var d string
+	switch {
+	case kind == kindTLSPlain:
+		d = "TLS-Handshake auf Klartext-Port (kein Befehl)"
+	case kind == kindPrompt:
+		lines, _ := promptLines(e)
+		d = "Eingabe an der Login-Abfrage (keine Zugangsdaten): " + strings.Join(lines, " ⏎ ")
+	case e.Type == "command" && kind != kindExec:
+		d = "Protokoll-Befehl vor der Anmeldung: " + text
+	}
 	switch e.Type {
 	case "disconnect", "fingerprint", "tls":
-		return ""
+		if d == "" {
+			return ""
+		}
 	case "connect":
 		d = "Verbindung"
 	case "login":
 		switch {
+		case d != "":
 		case dataString(e.Data, "cookie") != "":
 			d = "Login-Versuch (RDP, nur Benutzername) " + e.Username
 		case dataBool(e.Data, "password_hashed"):
@@ -281,7 +305,9 @@ func timelineLine(e *Event, text string, revealed []string, loc *time.Location) 
 			d += " → vom Honeypot angenommen"
 		}
 	case "command":
-		d = "Befehl: " + text
+		if d == "" {
+			d = "Befehl: " + text
+		}
 	case "request":
 		d = "Anfrage: " + strings.TrimSpace(dataString(e.Data, "method")+" "+dataString(e.Data, "path"))
 		if ua := dataString(e.Data, "user_agent"); ua != "" {
@@ -376,6 +402,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	var lastBody, lastLine string
 	repeat := 0
 	tags := map[string]*TagHit{}
+	okSess := map[string]bool{} // Sitzungen mit angenommenem Login (einstufung.go)
 	maxSev := 0
 	for _, e := range evs {
 		if r.First.IsZero() || e.TS.Before(r.First) {
@@ -396,7 +423,8 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		for _, d := range revealed {
 			decoded.add(clip(d, reportMaxText*2))
 		}
-		if line := timelineLine(e, text, revealed, loc); line != "" {
+		kind := eventKind(e, okSess[e.Session])
+		if line := timelineLine(e, kind, text, revealed, loc); line != "" {
 			// gleiche Zeile direkt hintereinander (ohne Uhrzeit) nur einmal, mit Zähler
 			body := line[8:]
 			if n := len(r.Timeline); n > 0 && lastBody == body {
@@ -427,10 +455,18 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		case "connect":
 			services.add(fmt.Sprintf("%s:%d", e.Service, e.DstPort))
 		case "login":
+			if kind == kindPrompt {
+				lines, _ := promptLines(e)
+				for _, l := range lines {
+					cmds.add("an der Login-Abfrage: " + clip(l, reportMaxText))
+				}
+				break
+			}
 			r.Logins++
 			if dataBool(e.Data, "success") || dataBool(e.Data, "accepted") {
 				r.LoginsOK++
 				maxSev = max(maxSev, 2)
+				okSess[e.Session] = true
 			}
 			switch {
 			case strings.Contains(string(e.Data), `"password_hashed":true`):
@@ -439,6 +475,14 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 				creds.add(e.Username + " / " + e.Password)
 			}
 		case "command":
+			if kind == kindTLSPlain {
+				break
+			}
+			if kind != kindExec {
+				cmds.add("vor der Anmeldung: " + clip(strings.TrimSpace(text), reportMaxText))
+				maxSev = max(maxSev, 1)
+				break
+			}
 			cmds.add(clip(strings.TrimSpace(text), reportMaxText))
 			for _, m := range outFileRe.FindAllStringSubmatch(text, 6) {
 				if f := m[1]; f != "/dev/null" && f != "-" && !strings.HasPrefix(f, "/dev/") {

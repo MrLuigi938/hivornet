@@ -77,6 +77,10 @@ func handleSMTP(s *Session) {
 		line, err := readLine(br, smtpMaxLine)
 		return line, err == nil
 	}
+	s.ReadDeadline(60 * time.Second)
+	if s.sniffTLS(br) {
+		return
+	}
 	for i := 0; i < smtpMaxCommands; i++ {
 		line, ok := read()
 		if !ok {

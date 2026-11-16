@@ -28,6 +28,9 @@ func handleFTP(s *Session) {
 	user := ""
 	for i := 0; i < 30; i++ {
 		s.ReadDeadline(60 * time.Second)
+		if i == 0 && s.sniffTLS(br) {
+			return
+		}
 		line, err := readLine(br, 1024)
 		if err != nil {
 			return
@@ -158,6 +161,9 @@ func handleRedis(s *Session) {
 	br := bufio.NewReader(s.Conn)
 	for i := 0; i < 200; i++ {
 		s.ReadDeadline(120 * time.Second)
+		if i == 0 && s.sniffTLS(br) {
+			return
+		}
 		args, truncated, err := readRESP(br)
 		if err != nil {
 			return
@@ -337,8 +343,12 @@ func handleMySQL(s *Session) {
 		return
 	}
 	s.ReadDeadline(30 * time.Second)
+	br := bufio.NewReader(s.Conn)
+	if s.sniffTLS(br) {
+		return
+	}
 	hdr := make([]byte, 4)
-	if _, err := io.ReadFull(s.Conn, hdr); err != nil {
+	if _, err := io.ReadFull(br, hdr); err != nil {
 		return
 	}
 	n := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
@@ -346,7 +356,7 @@ func handleMySQL(s *Session) {
 		return
 	}
 	p := make([]byte, n)
-	if _, err := io.ReadFull(s.Conn, p); err != nil {
+	if _, err := io.ReadFull(br, p); err != nil {
 		return
 	}
 	lg, ok := parseMySQLLogin(p)
@@ -414,8 +424,15 @@ func handleRaw(s *Session) {
 		return
 	}
 	s.ReadDeadline(10 * time.Second)
+	br := bufio.NewReaderSize(s.Conn, 4096)
+	if s.sniffTLS(br) {
+		if s.Mode == "hybrid" {
+			s.Tarpit(nil, drip)
+		}
+		return
+	}
 	buf := make([]byte, 4096)
-	n, _ := io.ReadAtLeast(s.Conn, buf, 1)
+	n, _ := io.ReadAtLeast(br, buf, 1)
 	if n > 0 {
 		s.Emit(Event{Type: "payload", Data: map[string]any{"text": printable(buf[:n], budgetText), "bytes": n}})
 	}

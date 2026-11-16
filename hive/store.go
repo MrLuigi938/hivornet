@@ -332,13 +332,21 @@ func topKeys(e *Event) [][3]string {
 			add("geo", fmt.Sprintf("%.1f,%.1f", e.Lat, e.Lon), e.Country+"|"+e.City)
 		}
 	case "login":
+		if lines, ok := promptLines(e); ok { // Befehle an der Login-Abfrage sind keine Zugangsdaten
+			for _, l := range lines {
+				add("command", l, e.Service)
+			}
+			break
+		}
 		add("username", e.Username, "")
 		add("password", e.Password, "")
 		if e.Password != "" {
 			add("cred", e.Username+" / "+e.Password, "")
 		}
 	case "command":
-		add("command", dataString(e.Data, "input"), e.Service)
+		if in := dataString(e.Data, "input"); !isTLSText(in) {
+			add("command", in, e.Service)
+		}
 	case "request":
 		add("path", dataString(e.Data, "path"), e.Service)
 		add("useragent", dataString(e.Data, "user_agent"), "")

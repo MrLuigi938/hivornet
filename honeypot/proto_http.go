@@ -62,7 +62,10 @@ func serveHTTP(s *Session, docker bool) {
 	br := bufio.NewReaderSize(cr, 4096)
 	for i := 0; i < 20; i++ {
 		s.ReadDeadline(30 * time.Second)
-		cr.n = maxHTTPHeader // Budget für Anfragezeile und Kopf, pro Anfrage neu
+		cr.n = maxHTTPHeader          // Budget für Anfragezeile und Kopf, pro Anfrage neu
+		if i == 0 && s.sniffTLS(br) { // HTTPS-Client am HTTP-Port
+			return
+		}
 		req, err := http.ReadRequest(br)
 		if err != nil {
 			if i == 0 && err != io.EOF {
