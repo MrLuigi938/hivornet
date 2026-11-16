@@ -42,7 +42,9 @@ workdir=$(sed -n 's/^WorkingDirectory=//p' "$UNIT")
 envs=$(sed -n 's/^Environment=//p' "$UNIT")
 pre=$(sed -n 's/^ExecStartPre=//p' "$UNIT")
 cmd=$(sed -n 's/^ExecStart=//p' "$UNIT")
-[ -n "$workdir" ] && [ -n "$cmd" ] && [ -n "$pre" ] || fail "WorkingDirectory/ExecStartPre/ExecStart nicht in $UNIT"
+if [ -z "$workdir" ] || [ -z "$cmd" ] || [ -z "$pre" ]; then
+  fail "WorkingDirectory/ExecStartPre/ExecStart nicht in $UNIT"
+fi
 cd "$workdir"
 # start: wie systemd erst ExecStartPre, dann ExecStart, beides als hivornet-cowrie
 start() {

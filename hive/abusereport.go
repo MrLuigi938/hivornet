@@ -160,7 +160,8 @@ func abuseComment(a *Attack, scrub []string) string {
 			svcs = append(svcs, n)
 		}
 	}
-	head := "Honeypot: " + a.Profile
+	// Englische Plattform: keine deutschen Bezeichnungen (Art, Musternamen), sondern die Kennungen der Muster.
+	head := "Honeypot"
 	if len(svcs) > 0 {
 		head += " (" + strings.Join(svcs, ", ") + ")"
 	}
@@ -190,7 +191,7 @@ func abuseComment(a *Attack, scrub []string) string {
 		if t.Key == "tls_on_plain" || t.Key == "recon" {
 			continue
 		}
-		tags = append(tags, t.Label)
+		tags = append(tags, strings.ReplaceAll(t.Key, "_", " "))
 	}
 	if len(tags) > 0 {
 		parts = append(parts, "detected: "+strings.Join(tags, ", "))
@@ -417,6 +418,14 @@ func (h *Hive) sendAbuseReport(ctx context.Context, key string, a *Attack, e abu
 		if !strings.Contains(string(raw), "once in 15 minutes") {
 			r.pauseUntil = time.Now().Add(wait)
 		}
+	}
+	// Schlüssel abgelehnt oder Störung bei AbuseIPDB: nicht jede weitere IP dagegen schicken,
+	// sondern warten (sonst füllt ein falscher Schlüssel das Protokoll alle 5 Minuten neu).
+	switch {
+	case resp.StatusCode == 401 || resp.StatusCode == 403:
+		r.pauseUntil = time.Now().Add(time.Hour)
+	case resp.StatusCode >= 500:
+		r.pauseUntil = time.Now().Add(15 * time.Minute)
 	}
 	r.mu.Unlock()
 	var out struct {

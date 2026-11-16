@@ -97,6 +97,11 @@ func TestAbuseReportRound(t *testing.T) {
 			w.Write([]byte(`{"errors":[{"detail":"Daily rate limit of 1000 requests exceeded for this endpoint.","status":429}]}`))
 			return
 		}
+		if st == 401 {
+			w.WriteHeader(401)
+			w.Write([]byte(`{"errors":[{"detail":"Authentication failed. Your API key is either missing, incorrect, or revoked.","status":401}]}`))
+			return
+		}
 		w.Write([]byte(`{"data":{"ipAddress":"` + r.Form.Get("ip") + `","abuseConfidenceScore":52}}`))
 	}))
 	defer srv.Close()
@@ -179,5 +184,23 @@ func TestAbuseReportRound(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &lg)
 	if lg.Sent24h != 2 || lg.LastError == "" || len(lg.Log) < 4 {
 		t.Fatalf("Protokoll-API: %+v", lg)
+	}
+
+	// Abgelehnter Schlüssel (401): nach der ersten Ablehnung warten, nicht jede weitere IP dagegen schicken
+	h.st.db.Exec(`DELETE FROM lookups`)
+	h.abuse.mu.Lock()
+	h.abuse.pauseUntil = time.Time{}
+	h.abuse.mu.Unlock()
+	mu.Lock()
+	status = 401
+	before := len(got)
+	mu.Unlock()
+	h.abuseRound(ctx)
+	h.abuseRound(ctx)
+	mu.Lock()
+	sent := len(got) - before
+	mu.Unlock()
+	if sent != 1 || !time.Now().Add(30*time.Minute).Before(h.abuse.pauseUntil) {
+		t.Fatalf("401: %d Aufrufe (erwartet 1), Pause bis %v", sent, h.abuse.pauseUntil)
 	}
 }

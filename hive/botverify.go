@@ -28,7 +28,10 @@ type botRule struct {
 }
 
 var botRules = []botRule{
-	{"Googlebot", "googlebot", []string{".googlebot.com", ".google.com", ".googleusercontent.com"}},
+	// Bewusst ohne .googleusercontent.com: Unter dieser Domain hängen auch die Rechner der
+	// Google-Cloud-Kunden. Ein Angreifer mit gemieteter VM und Googlebot-Kennung würde sonst
+	// als echter Googlebot gelten und von der AbuseIPDB-Meldung ausgenommen.
+	{"Googlebot", "googlebot", []string{".googlebot.com", ".google.com"}},
 	{"Bingbot", "bingbot", []string{".search.msn.com"}},
 	{"Applebot", "applebot", []string{".applebot.apple.com"}},
 	{"YandexBot", "yandexbot", []string{".yandex.ru", ".yandex.net", ".yandex.com"}},

@@ -17,17 +17,22 @@ func TestBotVerify(t *testing.T) {
 				return []string{"crawl-1.googlebot.com.evil.example."}, nil
 			case "203.0.113.10":
 				return []string{"crawl-66-249-66-1.googlebot.com."}, nil // PTR gefälscht, Vorwärts passt nicht
+			case "203.0.113.11": // gemietete VM in der Google-Cloud: Vorwärts passt, ist aber kein Googlebot
+				return []string{"11.113.0.203.bc.googleusercontent.com."}, nil
 			}
 			return nil, errors.New("NXDOMAIN")
 		},
 		lookIP: func(_ context.Context, host string) ([]string, error) {
-			if host == "crawl-66-249-66-1.googlebot.com" {
+			switch host {
+			case "crawl-66-249-66-1.googlebot.com":
 				return []string{"66.249.66.1"}, nil
+			case "11.113.0.203.bc.googleusercontent.com":
+				return []string{"203.0.113.11"}, nil
 			}
 			return nil, errors.New("NXDOMAIN")
 		}}
 	ctx := context.Background()
-	for ip, want := range map[string]string{"66.249.66.1": "ok", "203.0.113.9": "fake", "203.0.113.10": "fake", "198.51.100.1": "fake"} {
+	for ip, want := range map[string]string{"66.249.66.1": "ok", "203.0.113.9": "fake", "203.0.113.10": "fake", "198.51.100.1": "fake", "203.0.113.11": "fake"} {
 		if r := v.check(ctx, ip, "Googlebot"); r.Verdict != want {
 			t.Errorf("%s: %q, erwartet %q", ip, r.Verdict, want)
 		}

@@ -106,7 +106,7 @@ API nachgeschlagen (docs.abuseipdb.com, www.abuseipdb.com/categories): `POST htt
 - **HTTP-Kopfzeilen-Reihenfolge** wird aus dem Puffer gelesen, bevor `http.ReadRequest` sie sortiert; liegt der Kopf nicht ganz im ersten Puffer (4 KB), fehlt sie.
 - **Kampagnen**: Verkettet nur über gleiche Zugangsdatenliste (≥ 3 verschiedene, gleiche Menge) und gleichen Nachlade-Host. Fingerabdrücke werden getrennt gezeigt, weil verbreitete Werkzeuge sonst alles zusammenwerfen.
 - **CVE**: 16 eindeutig erkennbare Lücken; ein Treffer heißt „versucht“, nicht „verwundbar“.
-- **Bot-Prüfung**: einzige neue ausgehende Verbindung des Hive ist DNS über den Resolver des Systems (höchstens 2 Prüfungen/s, 30 Tage zwischengespeichert).
+- **Bot-Prüfung**: Für Googlebot gelten nur `.googlebot.com` und `.google.com`; `.googleusercontent.com` (auch Google-Cloud-Kunden) bewusst nicht. Einzige neue ausgehende Verbindung des Hive ist DNS über den Resolver des Systems (höchstens 2 Prüfungen/s, 30 Tage zwischengespeichert).
 - **abuse.ch** (API nachgeschlagen): beide APIs brauchen einen kostenlosen `Auth-Key`. Abgefragt werden nur Adressen und Hashes, die in den eigenen Daten vorkommen; nie ein Upload.
 - **Ungewöhnliche Zugangsdaten**: eingebettete Liste (~350 Wörter) gängiger Passwörter, Standardkonten und IoT-Werkspasswörter; kurze Zahlen und Benutzername = Passwort gelten als gewöhnlich.
 - **Wochenbericht**: montags ab 8 Uhr Ortszeit, nur einmal je ISO-Woche (`kv weekly_last`), Vorschau in den Einstellungen.
@@ -128,3 +128,24 @@ API nachgeschlagen (docs.abuseipdb.com, www.abuseipdb.com/categories): `POST htt
 - Neue Zählfelder in `top_hourly`: `snmp`, `sip`, `dns`, `ja3`, `ja4`, `hassh`, `httpfp`, `cve`. Neue `kv`-Schlüssel: `top_recounted_053`, `abuse_report_log`, `weekly_last`. Neue `lookups`-Quellen: `abuse_report`, `abuse_report_dry`, `rdns`, `urlhaus`, `malwarebazaar`. Keine Schemaänderung.
 - Virenscanner: Die neuen Regeln (CVE-Pfade, Köderdateien) haben Build und Tests unter Windows nicht gestört.
 - Größenbudget: neue Ereignisse geprüft (`TestTLSOnPlainTruncated`, `TestTLSOnPlainPorts` gegen `maxEventBytes`).
+
+---
+
+## Abnahme (zweite Sitzung, 17.11.2026)
+
+Geprüft von der Sitzung, die den Auftrag gestellt hat; nicht nur gelesen, sondern nachvollzogen:
+
+- `sh tools/check.sh` selbst ausgeführt: gofmt, vet, alle Tests, Cross-Build amd64/arm64/armv7 grün.
+- shellcheck 0.10.0 lokal über alle Skripte (in der Übergabe als „nur CI“ geführt): ein Hinweis SC2015 in `pi/test_cowrie_install.sh` (stand in ähnlicher Form schon auf `main`), behoben.
+- Honeypot und Hive aus dem Branch lokal gestartet und von außen geprüft: nginx-Antworten (405, 400, 404), Köderdateien (`/.env`, `/.git/config`, `/robots.txt`, `/wp-login.php`, `/backup/`), MySQL-Thread-ID zählt hoch, Redis `CONFIG GET *` und `INFO server`, Docker-Containerliste, FTP-Login mit den Köderdaten aus `/.env`, Telnet (drei zufällige Passwörter abgelehnt, drittes Werkspasswort angenommen).
+- Hive: Der Test-Angriff aus dem eigenen Netz wird als eigener Test geführt, Art „Köder benutzt“, Stufe „Login angenommen“; Redis-/FTP-Geplänkel zählt als Abtasten bzw. Versuche, nicht als Befehl. Ein eingespielter SSH-Einbruch mit Base64-verschleiertem Befehl und Log4Shell-Anfrage ergibt Stufe „Datei nachgeladen“, CVE-2021-44228, entschlüsselten Befehl, zweite Nachlade-Adresse und eine Angriffskette mit 10 Knoten.
+- Alle Seiten der UI geladen (Dashboard, Angriffe, Live-Karte, Analyse, Zugangsdaten, Tarpit, System, Einstellungen, Angreifer mit Angriffskette): keine JavaScript-Fehler, keine Skript-Elemente aus Angreiferdaten.
+
+Bei der Abnahme korrigiert:
+
+1. **Bot-Prüfung zu großzügig:** `.googleusercontent.com` galt als Beleg für einen echten Googlebot. Unter dieser Domain hängen auch gemietete Rechner der Google-Cloud; ein Angreifer von dort mit Googlebot-Kennung wäre als echt eingestuft und von der AbuseIPDB-Meldung ausgenommen worden. Entfernt, Test ergänzt.
+2. **AbuseIPDB bei abgelehntem Schlüssel:** Bei 401/403 wurde jede weitere IP trotzdem gesendet und alle 5 Minuten erneut. Jetzt eine Stunde Pause (bei 5xx 15 Minuten), Test ergänzt.
+3. **Kommentar an AbuseIPDB:** enthielt deutsche Bezeichnungen (Art des Angriffs, Musternamen) auf einer englischen Plattform. Jetzt „Honeypot (Dienste)“ und die Kennungen der Muster.
+4. shellcheck-Hinweis im Testskript (siehe oben).
+
+Weiter ungeprüft (unverändert): echte AbuseIPDB-, URLhaus- und MalwareBazaar-API, JA4 gegen die Referenzimplementierung, Docker-Build, `pi/test_cowrie_install.sh` in Debian 13, alles auf echter Pi-Hardware. Die SSH-Reparatur wirkt erst mit einem neuen Image.
