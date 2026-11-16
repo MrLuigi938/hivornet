@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.5.2-beta.1] – 2026-11-16
 
 ### Neu
 - **Verschleierte Befehle werden entschlüsselt.** Base64 (auch verschachtelt und URL-sicher), Hex- und Oktal-Escapes sowie URL-Kodierung in Befehlen, Web-Anfragen und Daten werden automatisch aufgedeckt. Der Klartext erscheint auf der Angriffskarte („Entschlüsselt“) und im Angriffsbericht; Nachlade-Adressen darin landen bei den Nachlade-Adressen, in der Analyse und in der Suche, und die Angriffsmuster prüfen auch den entschlüsselten Inhalt. Neues Muster „Verschleierung“.
