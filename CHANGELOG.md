@@ -2,6 +2,19 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben
+- **Raspberry Pi: SSH (Port 22) blieb nach einem Stromausfall beim ersten Start dauerhaft zu.** Eine leere Host-Schlüsseldatei ließ Cowrie beim Start abbrechen, Telnet lief weiter. Vor jedem Start entfernt jetzt `hivornet-cowrie-keycheck` leere oder beschädigte Schlüssel; Cowrie erzeugt sie neu. Braucht ein neues Image (Sicherung exportieren, Image aufspielen, Sicherung einspielen).
+- **Stufe „Befehle ausgeführt“ nur noch für echte Befehle:** nach einem angenommenen Login oder bei verändernden Befehlen (Redis `CONFIG SET`, `SLAVEOF`, Docker `create`/`exec` …). Protokoll-Abfragen von Forschungsscannern (Redis `PING`/`INFO`, FTP `AUTH TLS`, SMTP `EHLO`) sind Abtasten. Die Angriffskarte trennt „Befehle (ausgeführt)“ und „Protokoll-Befehle“. Alle Regeln an einer Stelle: `hive/einstufung.go`.
+- **TLS-Handshakes an Klartext-Ports** (FTP, Redis, SMTP, Telnet, HTTP, MySQL …) sind keine Befehle und keine „Verschleierung“ mehr, sondern ein Ereignis `tls` mit `plain: true` und den Rohdaten (für Fingerabdrücke). Ältere Einträge erkennt der Hive ebenso.
+- **Telnet: Befehle an der Login-Abfrage** (`enable`, `system`, `shell`, `sh`, `/bin/busybox …`) zählen nicht mehr als Benutzername und Passwort.
+- **Getrennte Top-Listen:** SNMP-Community-Strings, SIP-Adressen und DNS-Abfragen stehen in eigenen Listen statt bei Zugangsdaten bzw. HTTP-Pfaden; IP-Adressen in SIP-Adressen werden ersetzt. Beim ersten Start werden die Top-Listen einmal nach den neuen Regeln neu gezählt.
+
+### Neu
+- **Warnung, wenn ein Dienst nicht lauscht:** Auf dem Raspberry Pi prüft der Hive jede Minute Cowrie-SSH und -Telnet und nennt bei einem kaputten Host-Schlüssel die Ursache; Ports, die der Honeypot nicht öffnen konnte, erscheinen ebenfalls als Warnung. System → Cowrie zeigt den Stand der Ports. `HIVE_COWRIE_PROBE` setzt die Ziele oder schaltet die Prüfung ab.
+- **Eigene Netze:** Verbindungen aus privaten Adressen und aus einstellbaren Netzen gelten als „eigener Test“: gespeichert und auf der Seite Angriffe einsehbar, aber nicht in Kennzahlen, Top-Listen, Angreiferliste, „Gerade aktiv“ und Benachrichtigungen.
+
 ## [0.5.2-beta.1] – 2026-11-16
 
 ### Neu

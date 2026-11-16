@@ -75,6 +75,9 @@ Regeln, die jeder Handler einhalten muss:
 | `geo.go` | GeoIP (DB-IP Lite), `Enrich`, monatliches Update |
 | `sse.go` | `Broker`: Live-Ereignisse an Browser |
 | `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `timelineLine` (Ablauf für die KI), `Report.Text` |
+| `einstufung.go` | **Einstufung an einer Stelle:** `eventKind` (TLS am Klartext-Port, Eingabe an der Login-Abfrage, Protokoll-Abfrage, Protokoll-Befehl, ausgeführter Befehl), `commandExecuted`, `redisChanging`, `probeCommand`, `promptLines`, `requestKey`/`maskSIP` (SIP/DNS-Schlüssel) |
+| `ownnet.go` | Eigene Netze (`OwnNets` in den Extras): `isOwnIP`, `ownHidden`; der Writer schreibt eigene Tests nur nach `events`, Notifier und `/api/attacks` blenden sie aus |
+| `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |
 | `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`), `allURLs` |
 | `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
@@ -150,7 +153,7 @@ SQLite über `modernc.org/sqlite` (ohne cgo), WAL, `auto_vacuum=INCREMENTAL`, h�
 | `kv` | `k` | `sensor_config`, `sensor_config:<name>`, `retention_days`, `cowrie_state`, `cowrie_offset`, `extras`, `update_channel`, `config_level`, `patterns_backfilled` | bleibt |
 | `users`, `auth_sessions` | | Konten mit Rolle (bcrypt), Sitzungen (SHA-256 des Tokens). Sitzungen gelöschter Benutzer gelten nicht mehr (JOIN in `Auth.Who`) | Sitzungen 7 Tage |
 
-`top_hourly.field`: `country`, `port`, `ip`, `asn`, `service`, `geo` (Karte, Schlüssel „Breite,Länge“), `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag` (Muster-ID, `label` = Name), `tool`, `url`.
+`top_hourly.field`: `country`, `port`, `ip`, `asn`, `service`, `geo` (Karte, Schlüssel „Breite,Länge“), `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag` (Muster-ID, `label` = Name), `tool`, `url`, `snmp` (Community-String), `sip` (Methode und Adresse, IP ersetzt), `dns` (Typ und Name). Eigene Tests (`ownnet.go`) werden nicht gezählt. Ab 0.5.3 zählt `recountTop` (setup.go) die Felder aus Logins, Befehlen und Anfragen einmal neu (Merker `top_recounted_053`).
 
 ## 5. Web-UI (`hive/web/`)
 
@@ -197,6 +200,7 @@ Regeln für die UI:
 | `HIVE_UPDATE_REQUEST` | leer | Datei, in die der Hive eine Update-Anforderung legt; nur gesetzt, wo ein Updater läuft (Pi-Image). Fehlt sie, gibt es keinen Update-Knopf |
 | `HIVE_UPDATE_STATUS` | leer | Datei, aus der das Ergebnis des letzten Updates gelesen wird (vom Updater geschrieben) |
 | `HIVE_DIRECT_PORTS` | leer | `1`: Honeypot lauscht ohne Docker direkt auf den echten Ports; die Einstellungen zeigen „direkt am Gerät" statt der NAS-Portzuordnung |
+| `HIVE_COWRIE_PROBE` | auf dem Pi `ssh=127.0.0.1:22,telnet=127.0.0.1:23`, sonst aus | Cowrie-Ports, die der Hive jede Minute prüft; `off` schaltet ab |
 | `HIVE_WEB_DIR` | leer | UI vom Datenträger statt aus dem Binary (Entwicklung) |
 | `PORT_*` | | nur zur Anzeige „Öffentlich“ in den Einstellungen (`publishedPorts` in `api.go`) |
 
@@ -272,6 +276,7 @@ Betrieb ohne Docker: zwei systemd-Dienste statt Container, sonst dieselben Progr
 | `pi/rootfs/etc/hivornet/honeypot.yml` | Startkonfiguration mit echten Ports; 22 und 23 gehören Cowrie |
 | `pi/rootfs/etc/hivornet/cowrie.cfg` | Cowrie-Einstellungen: absolute Pfade unter `/var/lib/hivornet-cowrie`, Ports 22/23, Download-Grenze |
 | `pi/rootfs/usr/local/sbin/hivornet-cowrie-install` | installiert Cowrie beim ersten Start mit Internet (Version und Prüfsumme fest), Wiederholung stündlich über `hivornet-cowrie-install.timer`; schreibt seinen Stand nach `/var/lib/hivornet-status/cowrie-install` (Zeile 1 `running`/`ok`/`failed`, Zeile 2 Unix-Zeit, Zeile 3 Schritt bzw. Fehler). In der CI getestet mit `pi/test_cowrie_install.sh` (Debian 13) |
+| `pi/rootfs/.../hivornet-cowrie-keycheck` | `ExecStartPre` von `hivornet-cowrie.service` (Benutzer `hivornet-cowrie`): entfernt leere oder beschädigte SSH-Host-Schlüssel unter `state_path`, damit Cowrie sie neu erzeugt (sonst `BadKeyError`, Port 22 bleibt zu) |
 | `hivornet-cowrie.service`, `hivornet-cowrie-clean.timer` | Cowrie als Benutzer `hivornet-cowrie` mit `CAP_NET_BIND_SERVICE`, nur mit aktiver Netzsperre; tägliches Aufräumen nach 14 Tagen |
 | `pi/verify_image.py` | prüft ein fertiges Image (Bootpartition, Paketinhalt, Rechte, Prozessortyp je Architektur); läuft im Release-Workflow |
 

@@ -17,7 +17,8 @@ export function summary(a) {
   const c = a.counts || {}, p = [];
   if (c.login) p.push(`${fmtNum(c.login)} Login-Versuch${c.login > 1 ? "e" : ""}`);
   if (a.success) p.push("Login angenommen");
-  if (c.request) p.push(`${fmtNum(c.request)} Web-Anfrage${c.request > 1 ? "n" : ""}`);
+  const web = !a.services.every((s) => s === "sip" || s === "dns");
+  if (c.request) p.push(web ? `${fmtNum(c.request)} Web-Anfrage${c.request > 1 ? "n" : ""}` : `${fmtNum(c.request)} Anfrage${c.request > 1 ? "n" : ""}`);
   if (c.payload) p.push(`${fmtNum(c.payload)}× Daten`);
   if (c.command) p.push(`${fmtNum(c.command)} Befehl${c.command > 1 ? "e" : ""} ausgeführt`);
   const proto = (c.proto_command || 0) + (c.probe_command || 0);
@@ -94,7 +95,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
   toggle.onclick = () => setOpen(evBox.hidden);
   const facts = [
     a.creds && a.creds.length ? ["Zugangsdaten" + (a.creds_distinct > 1 ? ` (${fmtNum(a.creds_distinct)} verschiedene)` : ""), counted(a.creds, 8), a.creds_distinct > 8 ? `+${fmtNum(a.creds_distinct - 8)}` : null] : null,
-    a.paths && a.paths.length ? ["Aufgerufene Pfade" + (a.paths_distinct > 1 ? ` (${fmtNum(a.paths_distinct)})` : ""), counted(a.paths, 8), a.paths_distinct > 8 ? `+${fmtNum(a.paths_distinct - 8)}` : null] : null,
+    a.paths && a.paths.length ? [(a.services.every((s) => s === "sip" || s === "dns") ? "Anfragen" : "Aufgerufene Pfade") + (a.paths_distinct > 1 ? ` (${fmtNum(a.paths_distinct)})` : ""), counted(a.paths, 8), a.paths_distinct > 8 ? `+${fmtNum(a.paths_distinct - 8)}` : null] : null,
     a.commands && a.commands.length ? ["Befehle (ausgeführt)", a.commands.slice(0, 6), a.commands.length > 6 ? `+${a.commands.length - 6}` : null] : null,
     a.proto_commands && a.proto_commands.length ? ["Protokoll-Befehle (ohne Anmeldung)", a.proto_commands.slice(0, 6), a.proto_commands.length > 6 ? `+${a.proto_commands.length - 6}` : null] : null,
     a.urls && a.urls.length ? ["Nachlade-Adressen (nicht aufrufen)", a.urls, null, "hot"] : null,
@@ -106,6 +107,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     h("div", { class: "l1" },
       showIP ? [flag(a.country), h("a", { class: "ip mono", href: "#/attacker/" + encodeURIComponent(a.ip) }, a.ip), h("span", { class: "where" }, where(a))] : null,
       h("div", { class: "right" },
+        a.own ? h("span", { class: "badge", title: "Adresse aus einem eigenen Netz (Einstellungen → Eigene Netze)" }, "eigener Test") : null,
         a.seen > 1 ? h("span", { class: "badge" }, `${a.seen}. Angriff dieser IP`) : null,
         active ? h("span", { class: "badge active" }, "● aktiv") : null,
         h("span", { class: "num" }, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)} · ${fmtDur(span)}`),
@@ -179,7 +181,7 @@ export function liveAttacks(ctx, onUpdate) {
     const ips = [...dirty].slice(0, 50);
     ips.forEach((ip) => dirty.delete(ip));
     try {
-      const d = await api("attacks?range=24h&limit=200&ip=" + ips.map(encodeURIComponent).join(","));
+      const d = await api("attacks?range=24h&limit=200&own=1&ip=" + ips.map(encodeURIComponent).join(","));
       // je IP nur der neueste Angriff hat sich geändert
       const seen = new Set(), latest = [];
       for (const a of d.attacks) if (!seen.has(a.ip)) { seen.add(a.ip); latest.push(a); }
@@ -197,7 +199,9 @@ export async function viewAttacks(el, ctx, query = "") {
     range: RANGES.some(([v]) => v === params.get("range")) ? params.get("range") : store("attRange") || "24h",
     stufe: new Set((params.get("stufe") || "").split(",").filter((x) => /^[0-4]$/.test(x)).map(Number)),
     service: params.get("service") || "", q: params.get("q") || "", success: params.get("success") === "1", paused: false,
+    own: params.get("own") === "1",
   };
+  let nOwn = 0;
   const open = new Set();
   let list = [], matched = 0, stufen = [0, 0, 0, 0, 0], truncated = false;
 
@@ -224,7 +228,8 @@ export async function viewAttacks(el, ctx, query = "") {
       f.success ? chip(true, "Nur angenommene Logins ✕", null, sevColor(2), () => { f.success = false; load(); }) : null,
       STUFE.map((st, i) => chip(f.stufe.has(i), st, stufen[i], sevColor(i), () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); load(); })),
       h("span", { class: "fsep" }),
-      ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"].map((sv) => chip(f.service === sv, svcName(sv), null, svcColor(sv), () => { f.service = f.service === sv ? "" : sv; load(); })));
+      ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"].map((sv) => chip(f.service === sv, svcName(sv), null, svcColor(sv), () => { f.service = f.service === sv ? "" : sv; load(); })),
+      nOwn || f.own ? [h("span", { class: "fsep" }), chip(f.own, "Eigene Tests zeigen", nOwn, null, () => { f.own = !f.own; load(); })] : null);
   }
   function renderSide() {
     const now = Date.now();
@@ -263,6 +268,7 @@ export async function viewAttacks(el, ctx, query = "") {
     if (f.stufe.size) p.set("stufe", [...f.stufe].join(","));
     if (f.service) p.set("service", f.service);
     if (f.success) p.set("success", "1");
+    if (f.own) p.set("own", "1");
     if (f.q) p.set("q", f.q);
     if (before) p.set("before", String(before));
     return p.toString();
@@ -271,7 +277,7 @@ export async function viewAttacks(el, ctx, query = "") {
     const d = await api("attacks?" + qs(older && list.length ? list[list.length - 1].last : 0));
     if (!ctx.current()) return;
     list = older ? [...list, ...d.attacks] : d.attacks;
-    matched = d.matched; stufen = d.stufen; truncated = d.truncated;
+    matched = d.matched; stufen = d.stufen; truncated = d.truncated; nOwn = d.own || 0;
     more.hidden = list.length >= matched;
     render();
   }
@@ -293,6 +299,7 @@ export async function viewAttacks(el, ctx, query = "") {
   const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && (!f.success || a.success) && !f.q;
   liveAttacks(ctx, (updated) => {
     if (f.paused) return;
+    if (!f.own) updated = updated.filter((a) => !a.own);
     for (const a of updated.sort((x, y) => x.last - y.last)) {
       const i = list.findIndex((x) => x.id === a.id);
       if (i < 0 && !matchesFilter(a)) continue;

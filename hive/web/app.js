@@ -483,7 +483,7 @@ async function viewDashboard(el, ctx) {
     }
   });
   liveAttacks(ctx, (updated) => {
-    for (const a of updated.sort((x, y) => x.last - y.last)) if (Date.now() - a.last < 15 * 60e3) upsertActive(a);
+    for (const a of updated.sort((x, y) => x.last - y.last)) if (!a.own && Date.now() - a.last < 15 * 60e3) upsertActive(a);
   });
   ctx.every(5000, () => { document.querySelectorAll(".alist [data-rel]").forEach((x) => { x.textContent = relTime(Number(x.dataset.rel)); }); });
   ctx.every(30000, () => { if (!document.hidden) renderActive(); });
@@ -634,7 +634,7 @@ async function viewSession(el, ctx, id) {
 
 async function viewAttacker(el, ctx, ip) {
   header("Angreifer");
-  const [d, at] = await Promise.all([api("attackers/" + encodeURIComponent(ip)), api(`attacks?range=7d&limit=50&ip=${encodeURIComponent(ip)}`).catch(() => null)]);
+  const [d, at] = await Promise.all([api("attackers/" + encodeURIComponent(ip)), api(`attacks?range=7d&limit=50&own=1&ip=${encodeURIComponent(ip)}`).catch(() => null)]);
   const i = d.info;
   const attacks = at ? at.attacks : [];
   const top = attacks.reduce((m, a) => (a.stufe > m ? a.stufe : m), 0);
@@ -678,8 +678,8 @@ async function viewAttacker(el, ctx, ip) {
 async function viewCreds(el) {
   header("Zugangsdaten und Muster", { range: true });
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
-  const [users, pws, combos, cmds, paths, uas, clients] = await Promise.all([
-    q("username"), q("password"), q("cred"), q("command"), q("path"), q("useragent", 15), q("client", 15)]);
+  const [users, pws, combos, cmds, paths, uas, clients, snmp, sip, dns] = await Promise.all([
+    q("username"), q("password"), q("cred"), q("command"), q("path"), q("useragent", 15), q("client", 15), q("snmp", 15), q("sip", 15), q("dns", 15)]);
   const find = (x) => "#/attacks?q=" + encodeURIComponent(x.key);
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Ein Klick auf einen Eintrag zeigt die Angriffe, in denen er vorkam."),
@@ -690,7 +690,12 @@ async function viewCreds(el) {
       card("HTTP-Pfade", toplist(paths, { link: find, extra: (x) => h("span", { class: "muted" }, svcName(x.label)) }))),
     h("div", { class: "grid two" },
       card("User-Agents", toplist(uas)),
-      card("SSH- und Client-Versionen", toplist(clients)))));
+      card("SSH- und Client-Versionen", toplist(clients))),
+    snmp.length || sip.length || dns.length ? h("div", { class: "grid three" },
+      card("SNMP-Community-Strings", snmp.length ? toplist(snmp, { link: find }) : h("div", { class: "empty" }, "Keine.")),
+      card("SIP-Adressen", sip.length ? toplist(sip) : h("div", { class: "empty" }, "Keine."),
+        h("p", { class: "muted" }, "IP-Adressen in SIP-Adressen sind durch ‹IP› ersetzt.")),
+      card("DNS-Abfragen", dns.length ? toplist(dns) : h("div", { class: "empty" }, "Keine."))) : null));
 }
 
 // ---------- Tarpit ----------

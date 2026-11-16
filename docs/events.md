@@ -42,7 +42,7 @@ Geo-Felder (`country`, `city`, `lat`, `lon`, `asn`, `as_org`) ergänzt der Hive 
 | `client_version` | `version`; bei RDP zusätzlich `client_name`, `keyboard_layout` |
 | `fingerprint` | `hassh`, `hassh_algorithms` (Cowrie) |
 | `payload` | `text` (nicht druckbare Bytes als `\xNN`), `bytes`; bei SMTP `mail: true` (Anfang einer Mail, `bytes` = gelesene Größe) |
-| `tls` | `sni` |
+| `tls` | `sni`; TLS-Handshake an einem Klartext-Port (Honeypot ab 0.5.3): `plain: true`, `client_hello` (erster TLS-Record als Hex, höchstens 3.072 Bytes), `bytes` (Länge des Records), `truncated` |
 | `tty` | `shasum`, `size`, `duration_s`: Cowrie hat einen Terminal-Mitschnitt geschrieben. Entsteht nur im Hive (Cowrie-Leser), nie über die Sensor-API |
 
 ## Kompatibilität

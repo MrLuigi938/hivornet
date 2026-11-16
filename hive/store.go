@@ -599,6 +599,9 @@ func (w *Writer) writeBatch(batch []*Event) error {
 			return fmt.Errorf("events: %w", err)
 		}
 		e.ID, _ = res.LastInsertId()
+		if ownHidden(e.SrcIP) { // eigener Test (ownnet.go): nur das Ereignis selbst
+			continue
+		}
 		if _, err := hr.Exec(ms/3600000, e.Service, e.Type, e.Country, e.TarpitMs); err != nil {
 			return fmt.Errorf("hourly: %w", err)
 		}

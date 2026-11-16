@@ -279,7 +279,11 @@ func main() {
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
 	st.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID)
-	go backfillPatterns(st, maxID)
+	if prepareRecount(st) { // neue Zählregeln (0.5.3); ersetzt backfillPatterns
+		go recountTop(st, maxID)
+	} else {
+		go backfillPatterns(st, maxID)
+	}
 	if h.writer, err = NewWriter(st, func(e *Event) { h.broker.Publish(e); h.notifier.OnEvent(e) }); err != nil {
 		log.Fatalf("Datenbank: %v", err)
 	}

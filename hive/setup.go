@@ -511,3 +511,93 @@ func backfillPatterns(st *Store, maxID int64) {
 		log.Printf("Muster für %d ältere Ereignisse nachgezählt", total)
 	}
 }
+
+// ---- Top-Listen nach neuen Regeln neu zählen (Version 0.5.3) ----
+
+// recountFields: Felder der Zähltabelle, die aus Logins, Befehlen und Anfragen entstehen.
+// Seit 0.5.3 gelten neue Regeln (einstufung.go: SNMP, SIP und DNS in eigenen Feldern,
+// TLS-Handshakes keine Befehle, Eingaben an der Login-Abfrage keine Zugangsdaten, eigene
+// Tests nicht gezählt). Die Felder aus Verbindungen (Land, Port, IP …) bleiben.
+var recountFields = []string{"username", "password", "cred", "command", "path", "useragent", "client", "tag", "tool", "url", "snmp", "sip", "dns"}
+
+const recountKey = "top_recounted_053"
+
+// prepareRecount löscht die alten Zähler dieser Felder, einmalig und VOR dem Start des
+// Schreibers; danach zählt recountTop alle Ereignisse bis maxID im Hintergrund neu.
+// Liefert false, wenn nichts zu tun ist. Ersetzt auch backfillPatterns.
+func prepareRecount(st *Store) bool {
+	if _, done := st.GetKV(recountKey); done {
+		return false
+	}
+	q := `DELETE FROM top_hourly WHERE field IN (` + strings.TrimSuffix(strings.Repeat("?,", len(recountFields)), ",") + `)`
+	args := make([]any, len(recountFields))
+	for i, f := range recountFields {
+		args[i] = f
+	}
+	if _, err := st.db.Exec(q, args...); err != nil {
+		log.Printf("Top-Listen neu zählen: %v", err)
+		return false
+	}
+	st.SetKV("patterns_backfilled", "1")
+	return true
+}
+
+func recountTop(st *Store, maxID int64) {
+	want := map[string]bool{}
+	for _, f := range recountFields {
+		want[f] = true
+	}
+	var last, total int64
+	for last < maxID {
+		rows, err := st.db.Query(`SELECT id, ts, service, type, src_ip, username, password, data FROM events
+			WHERE id > ? AND id <= ? AND type NOT IN ('connect','disconnect') ORDER BY id LIMIT 500`, last, maxID)
+		if err != nil {
+			log.Printf("Top-Listen neu zählen: %v", err)
+			return
+		}
+		var evs []*Event
+		for rows.Next() {
+			e := &Event{}
+			var ms int64
+			var data *string
+			if rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &e.SrcIP, &e.Username, &e.Password, &data) != nil {
+				continue
+			}
+			e.TS = time.UnixMilli(ms)
+			if data != nil {
+				e.Data = json.RawMessage(*data)
+			}
+			evs = append(evs, e)
+		}
+		rows.Close()
+		if len(evs) == 0 {
+			break
+		}
+		tx, err := st.db.Begin()
+		if err != nil {
+			return
+		}
+		for _, e := range evs {
+			last = e.ID
+			if ownHidden(e.SrcIP) {
+				continue
+			}
+			for _, k := range topKeys(e) {
+				if want[k[0]] {
+					if _, err := tx.Exec(topUpsert, e.TS.UnixMilli()/3600000, k[0], k[1], k[2]); err != nil {
+						tx.Rollback()
+						log.Printf("Top-Listen neu zählen: %v", err)
+						return
+					}
+				}
+			}
+		}
+		if tx.Commit() != nil {
+			return
+		}
+		total += int64(len(evs))
+		time.Sleep(50 * time.Millisecond)
+	}
+	st.SetKV(recountKey, "1")
+	log.Printf("Top-Listen für %d Ereignisse nach neuen Regeln gezählt", total)
+}

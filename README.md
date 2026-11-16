@@ -167,13 +167,17 @@ Du musst nicht alle weiterleiten. Für den Anfang genügen 22, 23, 80, 443 und 3
 | Live-Karte | große Karte: Gerade aktive Angreifer haben eine rote Linie zum Honeypot, solange sie etwas tun; jede neue Verbindung pulsiert am Ursprung; Laufliste, Angriffe pro Minute |
 | Analyse | erkannte Angriffsmuster (Klick zeigt die passenden Angriffe), benutzte und installierte Programme, Scanner, Nachlade-Adressen |
 | Angreifer | alles zu einer IP: Herkunft, alle Angriffe dieser IP, Angriffsbericht, Reputation (AbuseIPDB, GreyNoise), Ports, Passwörter, Ereignisse |
-| Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen; Klick zeigt die passenden Angriffe |
+| Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen, getrennt davon SNMP-Community-Strings, SIP-Adressen (IP-Adressen darin ersetzt) und DNS-Abfragen; Klick zeigt die passenden Angriffe |
 | Angriffe → Sitzungen | einzelne Verbindungen mit Logins, Befehlen oder Downloads; Ablauf, Angriffsbericht und bei Cowrie der Terminal-Mitschnitt zum Abspielen |
 | Tarpit | wer gerade festgehalten wird (IP, Herkunft, Dienst, seit wann, laufende Dauer), verschwendete Angreiferzeit, Spitzenreiter |
-| Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort, Benutzer; dazu Standort für die Karte, Benachrichtigungen, KI-Auswertung, AbuseIPDB |
+| Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort, Benutzer; dazu Standort für die Karte, **eigene Netze**, Benachrichtigungen, KI-Auswertung, AbuseIPDB |
 | System | Warnungen, Updates, Netzsperre, RAM, Datenbank, GeoIP, Cowrie, Status je Sensor und Port |
 
 Die Oberfläche ist standardmäßig dunkel; im Benutzermenü oben rechts lässt sich auf Hell oder „Wie das System“ umstellen. Dort liegen auch Einstellungen, Protokolle und Abmelden. Auf der Weltkarte zeigt das Überfahren eines Landes Flagge, Namen und die Angriffe im Zeitraum, heute und insgesamt; Mausrad zoomt, Ziehen verschiebt, Doppelklick zeigt wieder die ganze Welt. Änderungen in den Einstellungen übernimmt der Honeypot **innerhalb von 15 Sekunden ohne Neustart**.
+
+**Stufen der Angriffe:** „Befehle ausgeführt“ heißt, dass ein Befehl nach einem angenommenen Login kam (Cowrie, Telnet) oder etwas verändert hätte (Redis `CONFIG SET`, `SLAVEOF`, Docker `create`/`exec` …). Reine Abfragen wie Redis `PING`/`INFO`, FTP `AUTH TLS` oder SMTP `EHLO` gelten als Abtasten, ein TLS-Handshake an einem Klartext-Port ebenso (Muster „TLS auf Klartext-Port“). Tippt ein Bot Befehle wie `enable`, `sh` oder `/bin/busybox …` in die Telnet-Anmeldung, erscheinen sie als „Befehle an der Login-Abfrage“, nicht als Zugangsdaten. Die Regeln stehen in `hive/einstufung.go`.
+
+**Eigene Netze:** Verbindungen aus dem Heimnetz (private Adressen) und aus Netzen, die du unter Einstellungen → Eigene Netze einträgst, gelten als „eigener Test“. Sie werden gespeichert und sind auf der Seite Angriffe über „Eigene Tests zeigen“ einsehbar, zählen aber nicht in Kennzahlen, Top-Listen, „Gerade aktiv“ und Benachrichtigungen (abschaltbar).
 
 ### Modi je Port
 
@@ -335,6 +339,7 @@ Kein Ersatz für Rechtsberatung, aber das solltest du wissen:
 | Problem | Lösung |
 |---|---|
 | Pi: Web-UI nach 10 Minuten nicht erreichbar | Bildschirm an den Pi anschließen: Nach der Installation steht dort die Adresse. Das Installationsprotokoll liegt auf dem Pi unter `/var/log/hivornet-install.log`. Eine Konsolen-Anmeldung und SSH sind absichtlich aus (Port 22 gehört Cowrie). Ist die Web-UI erreichbar, zeigt die Seite **Protokolle** alle Hivornet-Protokolle. |
+| Pi: Warnung „Cowrie-SSH (Port 22) lauscht nicht“ mit Hinweis auf einen Host-Schlüssel | Beim ersten Start fiel vermutlich der Strom aus, und ein SSH-Schlüssel von Cowrie blieb leer. Ab Version 0.5.3 räumt das Image solche Dateien vor jedem Start weg. Ältere Images lassen sich über die Web-UI nicht reparieren: unter **Einstellungen → Sicherung** exportieren, das neue Image aufspielen, die Sicherung wieder einspielen. Telnet und alle übrigen Dienste laufen in der Zwischenzeit weiter. |
 | Pi: Hinweis „Cowrie wird gerade installiert“ oder „Cowrie-Installation gescheitert“ | Die Installation braucht Internet und dauert etwa 10 bis 20 Minuten; ohne Internet versucht es der Pi stündlich erneut. Woran es hängt, zeigt die Seite **Protokolle** (Quelle „Cowrie-Installation“). |
 | Alle Angreifer erscheinen mit einer 172.x-IP und „LAN“; Warnung „aus dem eigenen Docker-Netz“ | Docker leitet die Ports über den Userland-Proxy statt per NAT weiter, dabei geht die echte IP verloren. In der Docker-Konfiguration (`/etc/docker/daemon.json`) `"userland-proxy": false` setzen und Docker neu starten. |
 | „Port is already allocated“ | Port in `.env` ändern und `docker compose up -d` |

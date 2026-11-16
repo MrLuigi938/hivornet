@@ -345,6 +345,7 @@ export async function extrasCards() {
     home: x.home, abuseipdb_key: secrets.abuseipdb_key || "", greynoise_key: secrets.greynoise_key || "",
     notify: { ...x.notify, ntfy_token: secrets.ntfy_token || "", telegram_token: secrets.telegram_token || "" },
     ai: { ...x.ai, api_key: secrets.ai_api_key || "" },
+    own: x.own,
   });
   async function save() {
     try {
@@ -362,12 +363,21 @@ export async function extrasCards() {
   }
 
   const n = x.notify, st = d.notify_status || {};
+  x.own = x.own || { private: true, nets: [], in_stats: false };
   return h("div", { class: "stack" },
     card("Standort für die Karte",
       h("p", { class: "sub" }, "Dorthin zeigen die Angriffslinien auf der Karte. Ein ungefährer Ort genügt; er wird nirgends veröffentlicht."),
       row("Breite", numIn(x.home, "lat", -90, 90, 0.1), "Nordhalbkugel positiv, z. B. 52.5 für Berlin."),
       row("Länge", numIn(x.home, "lon", -180, 180, 0.1), "Östlich von Greenwich positiv, z. B. 13.4 für Berlin."),
       row("Bezeichnung", text(x.home, "label", { maxlength: 40 }))),
+    card("Eigene Netze",
+      h("p", { class: "sub" }, "Verbindungen von hier sind eigene Tests: Sie werden gespeichert und sind auf der Seite Angriffe über den Filter „Eigene Tests“ einsehbar, ",
+        "zählen aber nicht in Kennzahlen, Top-Listen, „Gerade aktiv“ und Benachrichtigungen. Gilt ab dem Speichern."),
+      row("Heimnetz", check(x.own, "private", "Private Adressen (192.168.x.x, 10.x.x.x, 172.16–31.x.x, fd00::/8 …) sind eigene Tests")),
+      row("Weitere Netze", h("textarea", { rows: 3, style: { width: "100%", maxWidth: "460px" }, placeholder: "203.0.113.0/24\n198.51.100.7",
+        onchange: (e) => { x.own.nets = e.target.value.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean); } }, (x.own.nets || []).join("\n")),
+        "Eine Adresse oder ein Netz (CIDR) je Zeile, z. B. die feste IP deines Anschlusses, wenn du von außen testest."),
+      row("Trotzdem zählen", check(x.own, "in_stats", "Eigene Tests in Kennzahlen und Benachrichtigungen mitzählen"))),
     card("Benachrichtigungen",
       h("p", { class: "sub" }, "Meldung aufs Handy, wenn etwas Wichtiges passiert. Je Angreifer und Anlass höchstens eine Meldung in 10 Minuten."),
       row("Aktiv", check(n, "enabled", "Benachrichtigungen senden")),

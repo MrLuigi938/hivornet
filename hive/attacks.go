@@ -61,6 +61,7 @@ type Attack struct {
 	Success       bool           `json:"success,omitempty"`
 	SuccessCred   string         `json:"success_cred,omitempty"`
 	Stufe         int            `json:"stufe"`
+	Own           bool           `json:"own,omitempty"` // eigener Test (ownnet.go)
 	Profile       string         `json:"profile"`
 	TarpitMs      int64          `json:"tarpit_ms,omitempty"`
 	Sessions      []string       `json:"sessions,omitempty"`
@@ -171,6 +172,8 @@ func (a *Attack) add(e *Event) {
 		a.loginSvc[e.Service]++
 		var k string
 		switch {
+		case e.Service == "snmp":
+			k = "SNMP-Community " + e.Password
 		case str("cookie") != "":
 			k = e.Username + " (RDP-Cookie)"
 		case flag("password_hashed"):
@@ -258,6 +261,7 @@ func (a *Attack) finish() {
 		}
 	}
 	a.Stufe = a.stufe()
+	a.Own = ownHidden(a.IP) // eigener Test, der aus Kennzahlen herausgehalten wird
 	a.Profile = a.classify()
 }
 
@@ -301,6 +305,12 @@ func (a *Attack) classify() string {
 			best = a.Services[0]
 		}
 		return strings.ToUpper(svcShort(best)) + "-Einbruch"
+	case a.svc["snmp"] && len(a.svc) == 1:
+		return "SNMP-Abtastung"
+	case a.svc["sip"] && len(a.svc) == 1:
+		return "SIP-Scan"
+	case a.svc["dns"] && len(a.svc) == 1:
+		return "DNS-Abfragen"
 	case c["login"] > 0:
 		best, n := "", 0
 		for s, k := range a.loginSvc {
@@ -475,6 +485,23 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		}
 		list = list[:n]
 	}
+	// Eigene Tests ausblenden, außer own=1 (Filter, Angreifer-Profil)
+	showOwn, nOwn := q.Get("own") == "1", 0
+	{
+		n := 0
+		for _, a := range list {
+			hidden := a.Own
+			if hidden {
+				nOwn++
+			}
+			if hidden && !showOwn {
+				continue
+			}
+			list[n] = a
+			n++
+		}
+		list = list[:n]
+	}
 	// Zähler je Stufe vor den Filtern (für die Filter-Schaltflächen)
 	stufen := make([]int, 5)
 	for _, a := range list {
@@ -505,7 +532,7 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, a)
 	}
-	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated,
+	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
 		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays()})
 }
 
@@ -558,15 +585,24 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 		get("ips")[idx(hr)] += n // Summe je Stunde: eine IP über mehrere Stunden zählt mehrfach, als Verlauf genügt das
 	}
 	succ := `type = 'login' AND (json_extract(data, '$.success') = 1 OR json_extract(data, '$.accepted') = 1)`
-	rs, _ = h.rows(ctx, `SELECT ts / 3600000 AS hour, COUNT(*) AS n FROM events WHERE ts >= ? AND `+succ+` GROUP BY hour`, since.UnixMilli())
-	for _, row := range rs {
-		hr, _ := row["hour"].(int64)
-		n, _ := row["n"].(int64)
-		get("success")[idx(hr)] += n
-	}
 	// Summen jetzt und im Zeitraum davor
 	totals, prev := map[string]int64{}, map[string]int64{}
 	pfrom := since.Add(-d)
+	// angenommene Logins: selten, darum je Ereignis gelesen (eigene Tests heraus, ownnet.go)
+	var okNow, okPrev int64
+	rs, _ = h.rows(ctx, `SELECT ts, src_ip FROM events WHERE ts >= ? AND `+succ+` LIMIT 100000`, pfrom.UnixMilli())
+	for _, row := range rs {
+		ts, _ := row["ts"].(int64)
+		if ownHidden(fmt.Sprint(row["src_ip"])) {
+			continue
+		}
+		if ts < since.UnixMilli() {
+			okPrev++
+			continue
+		}
+		okNow++
+		get("success")[idx(ts/3600000)]++
+	}
 	rs, _ = h.rows(ctx, `SELECT type, SUM(CASE WHEN hour >= ? THEN cnt ELSE 0 END) AS cur, SUM(CASE WHEN hour < ? THEN cnt ELSE 0 END) AS prev
 		FROM hourly WHERE hour >= ? GROUP BY type`, from, from, pfrom.UnixMilli()/3600000)
 	for _, row := range rs {
@@ -574,11 +610,9 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 		totals[t], _ = row["cur"].(int64)
 		prev[t], _ = row["prev"].(int64)
 	}
-	var ipsNow, ipsPrev, okNow, okPrev int64
+	var ipsNow, ipsPrev int64
 	h.st.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT key) FROM top_hourly WHERE field = 'ip' AND hour >= ?`, from).Scan(&ipsNow)
 	h.st.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT key) FROM top_hourly WHERE field = 'ip' AND hour >= ? AND hour < ?`, pfrom.UnixMilli()/3600000, from).Scan(&ipsPrev)
-	h.st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE ts >= ? AND `+succ, since.UnixMilli()).Scan(&okNow)
-	h.st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE ts >= ? AND ts < ? AND `+succ, pfrom.UnixMilli(), since.UnixMilli()).Scan(&okPrev)
 	totals["ips"], prev["ips"], totals["success"], prev["success"] = ipsNow, ipsPrev, okNow, okPrev
 	writeJSON(w, map[string]any{"from": from * 3600000, "bucket_hours": bucket, "series": series, "totals": totals, "prev": prev,
 		"active_tarpits": h.sensors.ActiveTarpits()})
@@ -590,6 +624,14 @@ func (h *Hive) liveStatus(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := qctx(r)
 	defer cancel()
 	var n int64
-	h.st.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT src_ip) FROM events WHERE ts >= ?`, time.Now().Add(-attackGap).UnixMilli()).Scan(&n)
+	if rs, err := h.st.db.QueryContext(ctx, `SELECT DISTINCT src_ip FROM events WHERE ts >= ?`, time.Now().Add(-attackGap).UnixMilli()); err == nil {
+		for rs.Next() {
+			var ip string
+			if rs.Scan(&ip) == nil && !ownHidden(ip) {
+				n++
+			}
+		}
+		rs.Close()
+	}
 	writeJSON(w, map[string]any{"active": n, "tarpits": h.sensors.ActiveTarpits()})
 }

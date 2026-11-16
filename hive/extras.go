@@ -27,6 +27,7 @@ type Extras struct {
 	AI           AIConfig     `json:"ai"`
 	AbuseIPDBKey string       `json:"abuseipdb_key"`
 	GreyNoiseKey string       `json:"greynoise_key"` // optional; ohne Schlüssel geht die Community-API mit kleinem Kontingent
+	Own          OwnNets      `json:"own"`           // eigene Netze (ownnet.go)
 }
 
 type NotifyConfig struct {
@@ -57,6 +58,7 @@ func defaultExtras() Extras {
 	x.Home.Lat, x.Home.Lon, x.Home.Label = 51.1, 10.4, "Honeypot"
 	x.Notify.OnLogin, x.Notify.OnDownload, x.Notify.OnSevere, x.Notify.OnWarning = true, true, true, true
 	x.Notify.MaxPerHour = 20
+	x.Own.Private = true
 	return x
 }
 
@@ -100,6 +102,9 @@ func (x *Extras) Validate() error {
 			return fmt.Errorf("%s ist ungültig", name)
 		}
 	}
+	if err := x.Own.validate(); err != nil {
+		return err
+	}
 	if x.AI.Enabled && (x.AI.BaseURL == "" || x.AI.Model == "") {
 		return fmt.Errorf("KI-Auswertung braucht Adresse und Modell")
 	}
@@ -120,6 +125,7 @@ func (h *Hive) loadExtras() {
 	h.extras.mu.Lock()
 	h.extras.x = x
 	h.extras.mu.Unlock()
+	setOwnNets(x.Own)
 }
 
 func (h *Hive) Extras() Extras {
@@ -166,6 +172,7 @@ func (h *Hive) putExtras(w http.ResponseWriter, r *http.Request) {
 	h.extras.mu.Lock()
 	h.extras.x = x
 	h.extras.mu.Unlock()
+	setOwnNets(x.Own)
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

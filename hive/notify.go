@@ -124,7 +124,7 @@ func origin(e *Event) string {
 // OnEvent wird vom Writer für jedes gespeicherte Ereignis aufgerufen. Darf nicht blockieren.
 func (n *Notifier) OnEvent(e *Event) {
 	c := n.cfg()
-	if !c.Enabled {
+	if !c.Enabled || ownHidden(e.SrcIP) {
 		return
 	}
 	nt := notice{IP: e.SrcIP, Time: e.TS}
