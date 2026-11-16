@@ -6,7 +6,7 @@ import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName 
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
 import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
-import { viewLive, viewAnalysis, reportCard, ttyCard, intelCard, extrasCards, homeLocation } from "./extra.js";
+import { viewLive, viewAnalysis, reportCard, chainCard, ttyCard, intelCard, extrasCards, homeLocation } from "./extra.js";
 
 const app = document.getElementById("app");
 const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null };
@@ -625,6 +625,7 @@ async function viewSession(el, ctx, id) {
       tile("Quelle", h("span", null, ipLink(f.src_ip)), [f.city, f.country_name].filter(Boolean).join(", ")),
       tile("Dienst", svcName(f.service), "Port " + f.dst_port),
       tile("Beginn", fmtDateTime(start)), tile("Dauer", fmtDur(end - start))),
+    chainCard({ session: id }),
     reportCard({ session: id }),
     evs.some((e) => e.type === "tty") ? ttyCard(id) : null,
     card("Ablauf", h("div", { class: "term" }, evs.map(line)))));
@@ -660,6 +661,7 @@ async function viewAttacker(el, ctx, ip) {
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
       card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: `${c.username} / ${c.password}`, n: c.n }))))),
+    chainCard({ ip }),
     reportCard({ ip }),
     intelCard(ip),
     h("section", { class: "card" }, h("details", { class: "more" }, h("summary", null, `Alle Ereignisse einzeln (neueste ${fmtNum(d.events.length)})`), evTable(d.events, { showIP: false })))));

@@ -3,7 +3,7 @@
 //
 // Wie überall gilt: Angreiferdaten werden nur als Text eingefügt (h() aus dom.js).
 // Adressen aus Angreiferdaten werden nie zu Links gemacht.
-import { h, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag } from "./dom.js";
+import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag } from "./dom.js";
 import { worldMap, toplist, svcName, countryName } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME } from "./app.js";
 
@@ -174,6 +174,143 @@ const urlhausText = (d) => d.query_status === "no_results" ? "bei URLhaus unbeka
 const bazaarText = (d) => d.query_status === "hash_not_found" ? "bei MalwareBazaar unbekannt"
   : d.query_status !== "ok" ? "MalwareBazaar: " + d.query_status
   : `MalwareBazaar: ${d.signature || "ohne Familie"} (${d.file_type || "?"})` + (d.tags && d.tags.length ? " · " + d.tags.join(", ") : "") + (d.first_seen ? " · zuerst " + d.first_seen : "");
+
+// ---------- Angriffskette (hive/chain.go) ----------
+//
+// Graph in sechs Phasen-Spalten (Erkundung → … → Ziel). Knoten: Ports, Anmeldungen,
+// Exploits, Befehlsgruppen, Nachlade-Hosts, Dateien, Weiterleitungen; Pfeile: was folgte
+// worauf (je Sitzung) und woher eine Datei kam. Klick auf einen Knoten zeigt Einzelheiten
+// und hebt seine Verbindungen hervor. Angreiferdaten nur als Textknoten (s()/h()).
+const CH = { colW: 204, nodeW: 176, nodeH: 50, gapY: 14, top: 44, left: 8 };
+const KIND_NAME = { service: "Dienst", login: "Anmeldeversuche", login_ok: "Login angenommen", exploit: "Exploit", pattern: "Muster",
+  commands: "Befehle", host: "Nachlade-Host", file: "Datei", forward: "Weiterleitung", prompt: "Login-Abfrage", web: "Web-Anfragen", more: "Sammelknoten" };
+const short = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
+
+// Hauptpfad: von jedem Anfang (Knoten ohne Vorgänger) der stärksten Verbindung folgen;
+// gezeigt wird der Weg, der am weitesten kommt (höchste Phase, dann die meisten Schritte).
+function mainPath(c) {
+  if (!c.nodes.length) return [];
+  const out = new Map(), hasIn = new Set(c.edges.map((e) => e.to));
+  for (const e of c.edges) { if (!out.has(e.from)) out.set(e.from, []); out.get(e.from).push(e); }
+  const byId = new Map(c.nodes.map((n) => [n.id, n]));
+  const walk = (first) => {
+    const path = [first], seen = new Set([first.id]);
+    for (let cur = first; path.length < 12;) {
+      const next = (out.get(cur.id) || []).filter((e) => !seen.has(e.to))
+        .sort((a, b) => (b.n - a.n) || (byId.get(b.to).phase - byId.get(a.to).phase))[0];
+      if (!next) break;
+      cur = byId.get(next.to); seen.add(cur.id); path.push(cur);
+    }
+    return path;
+  };
+  const score = (p) => Math.max(...p.map((n) => n.phase)) * 100 + p.length;
+  const starts = c.nodes.filter((n) => !hasIn.has(n.id));
+  return (starts.length ? starts : [c.nodes[0]]).map(walk).sort((a, b) => score(b) - score(a))[0];
+}
+
+export function chainCard({ ip, session }) {
+  const box = h("div", null, h("p", { class: "muted" }, "Lade Angriffskette …"));
+  const query = ip ? "ip=" + encodeURIComponent(ip) : "session=" + encodeURIComponent(session);
+  api("chain?" + query).then((c) => mount(box, chainView(c))).catch((e) => mount(box, h("div", { class: "msg err" }, "Angriffskette nicht verfügbar: " + e.message)));
+  return card("Angriffskette", box);
+}
+
+function chainView(c) {
+  if (!c.nodes.length) return h("div", { class: "empty" }, "Keine Ereignisse.");
+  const byId = new Map(c.nodes.map((n) => [n.id, n]));
+  const cols = c.phases.map(() => []);
+  for (const n of c.nodes) cols[n.phase].push(n);
+  const pos = new Map();
+  cols.forEach((list, p) => list.forEach((n, i) => pos.set(n.id, { x: CH.left + p * CH.colW, y: CH.top + i * (CH.nodeH + CH.gapY) })));
+  const rows = Math.max(1, ...cols.map((l) => l.length));
+  const Wd = CH.left * 2 + c.phases.length * CH.colW - (CH.colW - CH.nodeW), Ht = CH.top + rows * (CH.nodeH + CH.gapY) + 16;
+
+  // Kanten
+  const maxN = Math.max(1, ...c.edges.map((e) => e.n));
+  const edgeEls = c.edges.map((e) => {
+    const a = pos.get(e.from), b = pos.get(e.to);
+    if (!a || !b) return null;
+    let d;
+    if (b.x > a.x) { // vorwärts: rechts aus A, links in B
+      const x1 = a.x + CH.nodeW, y1 = a.y + CH.nodeH / 2, x2 = b.x - 6, y2 = b.y + CH.nodeH / 2, mx = (x1 + x2) / 2;
+      d = `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+    } else { // gleiche Spalte oder zurück: Bogen rechts herum
+      const x1 = a.x + CH.nodeW, y1 = a.y + CH.nodeH * 0.7, x2 = b.x + CH.nodeW + 6, y2 = b.y + CH.nodeH * 0.3, bulge = 34 + Math.min(60, Math.abs(y2 - y1) / 4);
+      // zurück: unten aus A heraus, unter den Knoten entlang, von unten in B hinein
+      const low = Math.max(a.y, b.y) + CH.nodeH + 10;
+      d = b.x < a.x ? `M${a.x + CH.nodeW / 2},${a.y + CH.nodeH} C${a.x + CH.nodeW / 2},${low} ${b.x + CH.nodeW / 2},${low} ${b.x + CH.nodeW / 2},${b.y + CH.nodeH + 6}`
+        : `M${x1},${y1} C${x1 + bulge},${y1} ${x2 + bulge},${y2} ${x2},${y2}`;
+    }
+    const w = 1.2 + 2.8 * Math.log1p(e.n) / Math.log1p(maxN);
+    return s("path", { class: "ch-edge" + (e.label ? " ch-flow" : ""), d, "stroke-width": w.toFixed(2), "marker-end": "url(#ch-arrow)", "data-from": e.from, "data-to": e.to },
+      s("title", null, `${byId.get(e.from).label} → ${byId.get(e.to).label}${e.label ? " (" + e.label + ")" : ""}: ${e.n}×`));
+  });
+
+  const detail = h("div", { class: "ch-detail" }, h("p", { class: "muted" }, "Einen Knoten anklicken, um Einzelheiten und Verbindungen zu sehen."));
+  let selected = null;
+  const svg = s("svg", { class: "ch-svg", viewBox: `0 0 ${Wd} ${Ht}`, width: Wd, height: Ht, role: "img", "aria-label": "Angriffskette nach Phasen" },
+    s("defs", null, s("marker", { id: "ch-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "7", markerHeight: "7", orient: "auto-start-reverse" },
+      s("path", { d: "M0,0 L10,5 L0,10 z", class: "ch-arrowhead" }))),
+    c.phases.map((p, i) => s("g", null,
+      s("rect", { class: "ch-col" + (cols[i].length ? "" : " empty"), x: CH.left + i * CH.colW - 4, y: 4, width: CH.nodeW + 8, height: Ht - 8, rx: 10 }),
+      s("text", { class: "ch-phase", x: CH.left + i * CH.colW + CH.nodeW / 2, y: 26, "text-anchor": "middle" }, `${i + 1}. ${p}`),
+      cols[i].length ? null : s("text", { class: "ch-none", x: CH.left + i * CH.colW + CH.nodeW / 2, y: CH.top + 26, "text-anchor": "middle" }, "–"))),
+    s("g", null, edgeEls),
+    c.nodes.map((n) => {
+      const p = pos.get(n.id);
+      const g = s("g", { class: "ch-node sev" + Math.min(4, n.sev), tabindex: 0, role: "button", "data-id": n.id, transform: `translate(${p.x},${p.y})` },
+        s("title", null, `${n.label}${n.sub ? " – " + n.sub : ""} (${n.n}×)`),
+        s("rect", { class: "ch-box", width: CH.nodeW, height: CH.nodeH, rx: 8 }),
+        s("rect", { class: "ch-bar", width: 5, height: CH.nodeH, rx: 2 }),
+        s("text", { class: "ch-label", x: 13, y: 20 }, short(n.label, 21)),
+        s("text", { class: "ch-sub", x: 13, y: 38 }, short(n.sub || KIND_NAME[n.kind] || "", 24)),
+        s("text", { class: "ch-n", x: CH.nodeW - 8, y: 20, "text-anchor": "end" }, n.n > 1 ? "×" + fmtNum(n.n) : ""));
+      const pick = () => select(n.id);
+      g.addEventListener("click", pick);
+      g.addEventListener("keydown", (ev) => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); pick(); } });
+      return g;
+    }));
+
+  function select(id) {
+    selected = selected === id ? null : id;
+    svg.classList.toggle("focus", !!selected);
+    svg.querySelectorAll(".ch-node").forEach((g) => g.classList.toggle("on", g.dataset.id === selected));
+    const linked = new Set([selected]);
+    svg.querySelectorAll(".ch-edge").forEach((p) => {
+      const on = !!selected && (p.dataset.from === selected || p.dataset.to === selected);
+      p.classList.toggle("on", on);
+      if (on) { linked.add(p.dataset.from); linked.add(p.dataset.to); }
+    });
+    svg.querySelectorAll(".ch-node").forEach((g) => g.classList.toggle("near", !!selected && linked.has(g.dataset.id)));
+    if (!selected) { mount(detail, h("p", { class: "muted" }, "Einen Knoten anklicken, um Einzelheiten und Verbindungen zu sehen.")); return; }
+    const n = byId.get(selected);
+    const ins = c.edges.filter((e) => e.to === n.id), outs = c.edges.filter((e) => e.from === n.id);
+    const link = (id, extra) => h("button", { class: "linklike", onclick: () => select(id) }, byId.get(id).label, extra ? h("span", { class: "muted" }, " " + extra) : null);
+    mount(detail,
+      h("div", { class: "ch-dhead" }, h("span", { class: "badge stufe", style: { "--c": `var(--sev${Math.min(4, n.sev)})` } }, c.phases[n.phase]),
+        h("strong", null, n.label), n.sub ? h("span", { class: "mono muted" }, n.sub) : null, h("span", { class: "badge" }, fmtNum(n.n) + "×")),
+      h("p", { class: "muted" }, `${KIND_NAME[n.kind] || n.kind} · ${fmtDateTime(n.first)}` + (n.last > n.first ? ` bis ${fmtDateTime(n.last)}` : "")),
+      n.mitre && n.mitre.length ? h("p", null, "MITRE ATT&CK: ", n.mitre.map((m) => [h("a", { class: "badge", href: "https://attack.mitre.org/techniques/" + m.replace(".", "/") + "/", target: "_blank", rel: "noopener noreferrer" }, m), " "])) : null,
+      n.kind === "exploit" && /^CVE-/.test(n.label) ? h("p", null, h("a", { href: "https://nvd.nist.gov/vuln/detail/" + n.label, target: "_blank", rel: "noopener noreferrer" }, n.label + " in der NVD")) : null,
+      h("div", { class: "grid two" },
+        h("div", null, h("h3", null, "Folgte auf"), ins.length ? h("ul", { class: "plain" }, ins.map((e) => h("li", null, link(e.from, `${e.label ? e.label + ", " : ""}${e.n}×`)))) : h("p", { class: "muted" }, "Beginn")),
+        h("div", null, h("h3", null, "Führte zu"), outs.length ? h("ul", { class: "plain" }, outs.map((e) => h("li", null, link(e.to, `${e.label ? e.label + ", " : ""}${e.n}×`)))) : h("p", { class: "muted" }, "Ende"))),
+      n.examples && n.examples.length ? [h("h3", null, n.kind === "host" ? "Adressen (nicht aufrufen)" : "Beispiele"), h("div", { class: "term" }, n.examples.map((x) => h("div", null, x)))] : null);
+  }
+
+  const path = mainPath(c);
+  const reached = Math.max(...c.nodes.map((n) => n.phase));
+  return h("div", null,
+    h("p", { class: "sub" }, `${fmtNum(c.events)} Ereignisse in ${fmtNum(c.sessions)} Sitzungen; erreicht bis Phase ${reached + 1} (${c.phases[reached]}).`,
+      c.truncated ? " Nur die neuesten 5.000 Ereignisse." : ""),
+    path.length > 1 ? h("div", { class: "ch-path" }, h("span", { class: "muted" }, "Hauptpfad: "),
+      path.map((n, i) => [i ? h("span", { class: "ch-sep" }, " → ") : null, h("button", { class: "linklike", onclick: () => select(n.id) }, n.label)])) : null,
+    h("div", { class: "ch-wrap" }, svg),
+    h("div", { class: "ch-legend muted" }, "Farbe = Schwere wie die Stufen ",
+      [0, 1, 2, 3, 4].map((i) => h("i", { class: "ch-dot", style: { background: `var(--sev${i})` } })),
+      " · Strichstärke = Häufigkeit · orange Pfeile = Herkunft einer Datei bzw. Adresse"),
+    detail);
+}
 
 // ---------- Angriffsbericht ----------
 

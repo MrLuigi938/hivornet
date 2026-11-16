@@ -430,3 +430,34 @@ pre.log { background: var(--code-bg); padding: 12px; border-radius: 8px; margin:
   .top .seg { max-width: 100%; overflow-x: auto; }
   .atk .right { margin-left: 0; width: 100%; }
 }
+
+/* ---------- Angriffskette (extra.js: chainView) ---------- */
+.ch-wrap { overflow-x: auto; margin: 6px -4px 0; padding-bottom: 4px; }
+.ch-svg { display: block; min-width: 980px; max-width: none; font-family: inherit; }
+.ch-col { fill: var(--surface-2); }
+.ch-col.empty { fill: none; stroke: var(--border); stroke-dasharray: 4 4; }
+.ch-phase { fill: var(--text-2); font-size: 12px; font-weight: 600; letter-spacing: .02em; }
+.ch-none { fill: var(--muted); font-size: 13px; }
+.ch-edge { fill: none; stroke: var(--axis); opacity: .9; transition: opacity .15s, stroke .15s; }
+.ch-edge.ch-flow { stroke: var(--live); stroke-dasharray: 5 3; }
+.ch-arrowhead { fill: var(--axis); }
+.ch-node { cursor: pointer; outline: none; transition: opacity .15s; }
+.ch-box { fill: var(--surface); stroke: var(--border); }
+.ch-node:hover .ch-box, .ch-node:focus-visible .ch-box { stroke: var(--accent); }
+.ch-node.on .ch-box { stroke: var(--accent); stroke-width: 2; }
+.ch-label { fill: var(--text); font-size: 12.5px; font-weight: 600; }
+.ch-sub { fill: var(--muted); font-size: 11px; }
+.ch-n { fill: var(--text-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+.ch-node.sev0 .ch-bar { fill: var(--sev0); } .ch-node.sev1 .ch-bar { fill: var(--sev1); } .ch-node.sev2 .ch-bar { fill: var(--sev2); }
+.ch-node.sev3 .ch-bar { fill: var(--sev3); } .ch-node.sev4 .ch-bar { fill: var(--sev4); }
+.ch-svg.focus .ch-node:not(.near) { opacity: .28; }
+.ch-svg.focus .ch-edge:not(.on) { opacity: .12; }
+.ch-edge.on { stroke: var(--accent); opacity: 1; }
+.ch-path { margin: 4px 0 2px; line-height: 1.9; }
+.ch-sep { color: var(--muted); }
+.ch-legend { font-size: 12px; margin: 6px 0 10px; }
+.ch-dot { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin: 0 2px -1px; }
+.ch-detail { border-top: 1px solid var(--border); padding-top: 10px; }
+.ch-dhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.linklike { background: none; border: 0; padding: 0; color: var(--accent); cursor: pointer; font: inherit; }
+.linklike:hover { text-decoration: underline; }
