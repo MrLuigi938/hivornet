@@ -346,15 +346,19 @@ func topKeys(e *Event) [][3]string {
 		add("client", dataString(e.Data, "version"), e.Service)
 	}
 	// Muster, Werkzeuge und Nachlade-Adressen (analyze.go) für die Ansicht "Analyse"
-	text, on := eventText(e)
-	for _, id := range matchPatterns(text, on) {
+	text, on, revealed := analysisText(e)
+	for _, id := range matchAll(text, on, revealed) {
 		add("tag", id, patternByID[id].Name)
 	}
 	for _, t := range eventTools(e) {
 		add("tool", t, "")
 	}
-	if e.Type == "command" || e.Type == "download" {
-		for _, u := range urlRe.FindAllString(text, 4) {
+	if e.Type == "command" || e.Type == "download" || len(revealed) > 0 {
+		src := text
+		if e.Type == "request" {
+			src = ""
+		}
+		for _, u := range allURLs(src, revealed, 4) {
 			add("url", clip(u, 300), e.Service)
 		}
 	}

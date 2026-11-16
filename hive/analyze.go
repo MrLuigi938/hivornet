@@ -59,6 +59,8 @@ var patterns = []Pattern{
 		`history\s+-c|unset\s+HISTFILE|HISTFILE=/dev/null|rm\s+-rf?\s+/var/log|\bchattr\b|>\s*/var/log/|\.bash_history`),
 	pat("kill_rivals", "Konkurrenz beenden", "Beendet fremde Prozesse, oft andere Schadsoftware.", "cmd", 2,
 		`\b(pkill|killall)\b|\bkill\s+-9\b`),
+	pat("obfuscation", "Verschleierung", "Versteckt Befehle oder Adressen in Base64, Hex- oder Oktal-Kodierung; Hivornet zeigt den entschlüsselten Inhalt.", "cmd", 2,
+		`\bbase64\s+(-d|--decode|-D)\b|\bfrombase64string\b|\batob\(|(\\x[0-9a-f]{2}){4,}|(\\[0-7]{3}){4,}|\bxxd\s+-r\b|\bopenssl\s+(enc\s+)?-?base64\s+-d`),
 	pat("recon", "Erkundung", "Fragt System, Hardware und Benutzer ab.", "cmd", 1,
 		`\buname\b|/proc/cpuinfo|\b(nproc|lscpu|whoami|uptime|ifconfig|lspci|dmidecode)\b|\bfree\s+-|\bdf\s+-|\bcat\s+/etc/(passwd|issue|os-release)|\bip\s+a(ddr)?\b|\bps\s+(aux|-ef)|^\s*(id|w|ls)\s*$`),
 	pat("data_theft", "Daten suchen", "Sucht nach Zugangsdaten, Wallets oder Messenger-Daten.", "cmd", 2,
@@ -241,6 +243,8 @@ type Report struct {
 	Hashes    []string  `json:"hashes"`
 	Files     []string  `json:"files"`
 	Commands  []string  `json:"commands"`
+	Decoded   []string  `json:"decoded"` // entschlüsselte Inhalte (Base64, Hex …)
+	Timeline  []string  `json:"-"`       // Ablauf für die KI-Auswertung
 	Requests  []Count   `json:"requests"`
 	Clients   []string  `json:"clients"`
 	TarpitMs  int64     `json:"tarpit_ms"`
@@ -250,9 +254,74 @@ type Report struct {
 }
 
 const (
-	reportMaxList = 40
-	reportMaxText = 400 // Zeichen je Befehl bzw. Beispiel
+	reportMaxList     = 40
+	reportMaxText     = 400 // Zeichen je Befehl bzw. Beispiel
+	reportMaxTimeline = 600 // Zeilen im Ablauf (für die KI-Auswertung)
 )
+
+// timelineLine beschreibt ein Ereignis in einer Zeile für den Ablauf. Verbindungsende
+// und reine Fingerabdrücke fehlen; entschlüsselte Inhalte stehen dahinter.
+func timelineLine(e *Event, text string, revealed []string, loc *time.Location) string {
+	var d string
+	switch e.Type {
+	case "disconnect", "fingerprint", "tls":
+		return ""
+	case "connect":
+		d = "Verbindung"
+	case "login":
+		switch {
+		case dataString(e.Data, "cookie") != "":
+			d = "Login-Versuch (RDP, nur Benutzername) " + e.Username
+		case dataBool(e.Data, "password_hashed"):
+			d = "Login-Versuch " + e.Username + " / (Passwort nur als Hash übertragen)"
+		default:
+			d = "Login-Versuch " + e.Username + " / " + e.Password
+		}
+		if dataBool(e.Data, "success") || dataBool(e.Data, "accepted") {
+			d += " → vom Honeypot angenommen"
+		}
+	case "command":
+		d = "Befehl: " + text
+	case "request":
+		d = "Anfrage: " + strings.TrimSpace(dataString(e.Data, "method")+" "+dataString(e.Data, "path"))
+		if ua := dataString(e.Data, "user_agent"); ua != "" {
+			d += " (User-Agent: " + clip(ua, 120) + ")"
+		}
+		if b := strings.TrimSpace(dataString(e.Data, "body")); b != "" {
+			d += " Body: " + clip(b, 300)
+		}
+	case "download":
+		d = "Download: " + nonEmptyFirst(dataString(e.Data, "url"), dataString(e.Data, "filename"))
+		if h := dataString(e.Data, "sha256"); h != "" {
+			d += " (SHA-256 " + h + ")"
+		}
+		if strings.Contains(string(e.Data), `"failed":true`) {
+			d += " (fehlgeschlagen)"
+		}
+	case "client_version":
+		d = "Client: " + dataString(e.Data, "version")
+	case "payload":
+		d = "Daten: " + text
+	case "tty":
+		d = "Terminal-Mitschnitt vorhanden"
+	default:
+		d = e.Type + ": " + text
+	}
+	d = clip(strings.ReplaceAll(strings.TrimSpace(d), "\n", " "), reportMaxText)
+	for _, r := range revealed {
+		d += "\n      entschlüsselt: " + clip(strings.ReplaceAll(r, "\n", " ⏎ "), reportMaxText)
+	}
+	return fmt.Sprintf("%s [%s:%d] %s", e.TS.In(loc).Format("15:04:05"), e.Service, e.DstPort, d)
+}
+
+func nonEmptyFirst(s ...string) string {
+	for _, x := range s {
+		if x != "" {
+			return x
+		}
+	}
+	return ""
+}
 
 type counter struct {
 	n     map[string]int
@@ -302,7 +371,10 @@ func (c *counter) keys(max int) []string {
 // BuildReport wertet Ereignisse aus (aufsteigend nach Zeit). subject ist die Überschrift.
 func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}}
-	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions counter
+	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions, decoded counter
+	loc, _ := time.LoadLocation("Local")
+	var lastBody, lastLine string
+	repeat := 0
 	tags := map[string]*TagHit{}
 	maxSev := 0
 	for _, e := range evs {
@@ -320,8 +392,22 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		}
 		sessions.add(e.Session)
 		r.TarpitMs += e.TarpitMs
-		text, on := eventText(e)
-		for _, id := range matchPatterns(text, on) {
+		text, on, revealed := analysisText(e)
+		for _, d := range revealed {
+			decoded.add(clip(d, reportMaxText*2))
+		}
+		if line := timelineLine(e, text, revealed, loc); line != "" {
+			// gleiche Zeile direkt hintereinander (ohne Uhrzeit) nur einmal, mit Zähler
+			body := line[8:]
+			if n := len(r.Timeline); n > 0 && lastBody == body {
+				repeat++
+				r.Timeline[n-1] = lastLine + fmt.Sprintf("  (×%d bis %s)", repeat, e.TS.In(loc).Format("15:04:05"))
+			} else if len(r.Timeline) < reportMaxTimeline {
+				r.Timeline = append(r.Timeline, line)
+				lastBody, lastLine, repeat = body, line, 1
+			}
+		}
+		for _, id := range matchAll(text, on, revealed) {
 			p := patternByID[id]
 			t := tags[id]
 			if t == nil {
@@ -334,7 +420,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		for _, t := range eventTools(e) {
 			tools.add(t)
 		}
-		for _, u := range urlRe.FindAllString(text, 8) {
+		for _, u := range allURLs(text, revealed, 8) {
 			urls.add(clip(u, 300))
 		}
 		switch e.Type {
@@ -342,7 +428,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			services.add(fmt.Sprintf("%s:%d", e.Service, e.DstPort))
 		case "login":
 			r.Logins++
-			if strings.Contains(string(e.Data), `"success":true`) {
+			if dataBool(e.Data, "success") || dataBool(e.Data, "accepted") {
 				r.LoginsOK++
 				maxSev = max(maxSev, 2)
 			}
@@ -384,6 +470,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r.Services, r.Creds, r.Tools = services.top(20), creds.top(reportMaxList), tools.top(reportMaxList)
 	r.URLs, r.Hashes, r.Files = urls.keys(reportMaxList), hashes.keys(reportMaxList), files.keys(reportMaxList)
 	r.Commands, r.Requests, r.Clients = cmds.keys(80), reqs.top(reportMaxList), clients.keys(12)
+	r.Decoded = decoded.keys(reportMaxList)
 	for _, t := range tags {
 		r.Tags = append(r.Tags, *t)
 	}
@@ -455,6 +542,9 @@ func (r *Report) summarize() []string {
 	if len(r.Tools) > 0 {
 		s = append(s, "Benutzte Werkzeuge: "+countList(r.Tools, 12)+".")
 	}
+	if len(r.Decoded) > 0 {
+		s = append(s, fmt.Sprintf("Verschleierte Inhalte entschlüsselt: %d (siehe Liste).", len(r.Decoded)))
+	}
 	if len(r.URLs) > 0 {
 		s = append(s, fmt.Sprintf("Nachlade-Adressen: %d (siehe Liste).", len(r.URLs)))
 	}
@@ -505,11 +595,19 @@ func (r *Report) Text() string {
 	sec("Beispiele je Muster", ex)
 	sec("Zugangsdaten", cl(r.Creds))
 	sec("Befehle (in Reihenfolge)", r.Commands)
+	sec("Entschlüsselte Inhalte (Base64, Hex, URL-Kodierung)", r.Decoded)
 	sec("Anfragen", cl(r.Requests))
 	sec("Werkzeuge", cl(r.Tools))
 	sec("Adressen", r.URLs)
 	sec("Dateien", r.Files)
 	sec("SHA-256 der Downloads", r.Hashes)
 	sec("Clients", r.Clients)
+	if len(r.Timeline) > 0 {
+		title := "Ablauf (Uhrzeit [Dienst:Port] Ereignis; gleiche Zeilen hintereinander zusammengefasst)"
+		if len(r.Timeline) >= reportMaxTimeline {
+			title += fmt.Sprintf("; nur die ersten %d Zeilen", reportMaxTimeline)
+		}
+		sec(title, r.Timeline)
+	}
 	return b.String()
 }

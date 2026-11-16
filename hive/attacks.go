@@ -20,7 +20,7 @@ import (
 
 const (
 	attackGap     = 15 * time.Minute
-	attackScanMax = 300000 // höchstens so viele Ereignisse je Abfrage lesen
+	attackScanMax = 500000 // höchstens so viele Ereignisse je Abfrage lesen (die neuesten)
 )
 
 // Stufen: was der Angreifer höchstens erreicht hat.
@@ -54,6 +54,7 @@ type Attack struct {
 	PathsDistinct int            `json:"paths_distinct,omitempty"`
 	Commands      []string       `json:"commands,omitempty"`
 	URLs          []string       `json:"urls,omitempty"`
+	Decoded       []string       `json:"decoded,omitempty"` // entschlüsselte Inhalte (Base64, Hex …)
 	Clients       []string       `json:"clients,omitempty"`
 	Tags          []Count        `json:"tags,omitempty"` // erkannte Muster (Key = ID, Label = Name)
 	Success       bool           `json:"success,omitempty"`
@@ -118,47 +119,75 @@ func (a *Attack) add(e *Event) {
 	if e.Type != "disconnect" && len(a.Strip) < stripMax {
 		a.Strip = append(a.Strip, stripEvent{ms, e.Type})
 	}
+	if e.Type == "connect" || e.Type == "disconnect" {
+		return // häufigste Ereignisse: nichts weiter auszuwerten
+	}
+	var d map[string]any // Daten nur einmal lesen
+	if len(e.Data) > 0 {
+		json.Unmarshal(e.Data, &d)
+	}
+	str := func(k string) string { s, _ := d[k].(string); return s }
+	flag := func(k string) bool { b, _ := d[k].(bool); return b }
 	switch e.Type {
 	case "login":
 		a.loginSvc[e.Service]++
 		var k string
 		switch {
-		case dataString(e.Data, "cookie") != "":
+		case str("cookie") != "":
 			k = e.Username + " (RDP-Cookie)"
-		case dataBool(e.Data, "password_hashed"):
+		case flag("password_hashed"):
 			k = e.Username + " / (gehasht)"
 		default:
 			k = e.Username + " / " + e.Password
 		}
 		a.creds[clip(k, 200)]++
-		if dataBool(e.Data, "success") || dataBool(e.Data, "accepted") {
+		if flag("success") || flag("accepted") {
 			a.Success, a.SuccessCred = true, clip(k, 200)
 		}
+		return
 	case "request":
-		p := dataString(e.Data, "path")
-		if m := dataString(e.Data, "method"); m != "" && m != "GET" {
+		p := str("path")
+		if m := str("method"); m != "" && m != "GET" {
 			p = m + " " + p
 		}
 		a.paths[clip(p, 300)]++
 	case "command":
-		c := clip(dataString(e.Data, "input"), 500)
+		c := clip(str("input"), 500)
 		if c != "" && !a.seenCmd[c] && len(a.Commands) < 30 {
 			a.seenCmd[c] = true
 			a.Commands = append(a.Commands, c)
 		}
 	case "download":
-		if u := dataString(e.Data, "url"); u != "" && len(a.URLs) < 10 && !slices.Contains(a.URLs, u) {
+		if u := str("url"); u != "" && len(a.URLs) < 10 && !slices.Contains(a.URLs, u) {
 			a.URLs = append(a.URLs, clip(u, 300))
 		}
 	case "client_version":
-		if v := dataString(e.Data, "version"); v != "" && !a.seenCli[v] && len(a.Clients) < 5 {
+		if v := str("version"); v != "" && !a.seenCli[v] && len(a.Clients) < 5 {
 			a.seenCli[v] = true
 			a.Clients = append(a.Clients, clip(v, 120))
 		}
+		return
 	}
-	text, on := eventText(e)
-	for _, id := range matchPatterns(text, on) {
+	text, on, revealed := analysisText(e)
+	for _, id := range matchAll(text, on, revealed) {
 		a.tags[id]++
+	}
+	for _, d := range revealed {
+		if len(a.Decoded) < 10 && !slices.Contains(a.Decoded, clip(d, 500)) {
+			a.Decoded = append(a.Decoded, clip(d, 500))
+		}
+	}
+	// Nachlade-Adressen auch aus Befehlen (wget, curl …) und aus entschlüsselten Inhalten
+	src := text
+	if e.Type == "request" {
+		src = "" // Pfade sind oft nur Proben; nur entschlüsselte Adressen zählen
+	}
+	if e.Type == "command" || e.Type == "payload" || e.Type == "request" {
+		for _, u := range allURLs(src, revealed, 6) {
+			if len(a.URLs) < 10 && !slices.Contains(a.URLs, clip(u, 300)) {
+				a.URLs = append(a.URLs, clip(u, 300))
+			}
+		}
 	}
 }
 
@@ -273,6 +302,16 @@ func svcShort(s string) string {
 // bündelt sie zu Angriffen, neueste Aktivität zuerst. truncated: es gab mehr Ereignisse,
 // als gelesen wurden.
 func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) ([]*Attack, bool, error) {
+	truncated := false
+	if len(ips) == 0 {
+		// Mehr Ereignisse als lesbar? Dann erst ab dem Zeitpunkt lesen, ab dem es die neuesten
+		// attackScanMax sind. So fehlen nur die ältesten Angriffe, nicht beliebige IPs.
+		var ts int64
+		err := h.st.db.QueryRowContext(ctx, `SELECT ts FROM events WHERE ts >= ? ORDER BY ts DESC LIMIT 1 OFFSET ?`, since.UnixMilli(), attackScanMax).Scan(&ts)
+		if err == nil {
+			since, truncated = time.UnixMilli(ts+1), true
+		}
+	}
 	where, args := "ts >= ?", []any{since.UnixMilli()}
 	if len(ips) > 0 {
 		where += " AND src_ip IN (" + strings.TrimSuffix(strings.Repeat("?,", len(ips)), ",") + ")"
@@ -316,7 +355,7 @@ func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) (
 		a.finish()
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Last > out[j].Last })
-	return out, n > attackScanMax, nil
+	return out, truncated || n > attackScanMax, nil
 }
 
 func (a *Attack) matches(q string) bool {
@@ -335,6 +374,7 @@ func (a *Attack) matches(q string) bool {
 	}
 	parts = append(parts, a.Commands...)
 	parts = append(parts, a.URLs...)
+	parts = append(parts, a.Decoded...)
 	parts = append(parts, a.Clients...)
 	for _, t := range a.Tags {
 		parts = append(parts, t.Label)
@@ -347,14 +387,17 @@ func (a *Attack) matches(q string) bool {
 //	range=1h|24h|7d     Zeitraum (Standard 24h)
 //	active=1            nur Angriffe mit Aktivität in den letzten 15 Minuten
 //	ip=a,b,c            nur diese IPs (für Live-Aktualisierung)
-//	stufe=2,3 service=ssh q=text before=<ms> limit=50
+//	stufe=2,3 service=ssh success=1 q=text before=<ms> limit=50
 func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	q := r.URL.Query()
-	since, _ := rangeSince(r)
-	if rng := q.Get("range"); rng != "1h" && rng != "24h" && rng != "7d" {
-		since = time.Now().Add(-24 * time.Hour)
+	since := time.Now().Add(-24 * time.Hour)
+	switch rng := q.Get("range"); rng {
+	case "1h", "24h", "7d", "30d", "90d":
+		since, _ = rangeSince(r)
+	case "all": // alles, was die Aufbewahrung hält
+		since = time.Now().AddDate(0, 0, -max(h.retentionDays(), 1))
 	}
 	active := q.Get("active") == "1"
 	if active {
@@ -403,12 +446,13 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	svc, text := q.Get("service"), strings.ToLower(strings.TrimSpace(q.Get("q")))
+	onlyOK := q.Get("success") == "1" // nur Angriffe mit angenommenem Login
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 	limit := qInt(r, "limit", 50, 500)
 	out := make([]*Attack, 0, limit)
 	matched := 0
 	for _, a := range list {
-		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || !a.matches(text) {
+		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matches(text) {
 			continue
 		}
 		matched++
@@ -418,7 +462,7 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		out = append(out, a)
 	}
 	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated,
-		"gap_ms": attackGap.Milliseconds()})
+		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays()})
 }
 
 // series: Verläufe für die Kennzahlen des Dashboards und Vergleich zum Zeitraum davor.
@@ -494,4 +538,14 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 	totals["ips"], prev["ips"], totals["success"], prev["success"] = ipsNow, ipsPrev, okNow, okPrev
 	writeJSON(w, map[string]any{"from": from * 3600000, "bucket_hours": bucket, "series": series, "totals": totals, "prev": prev,
 		"active_tarpits": h.sensors.ActiveTarpits()})
+}
+
+// liveStatus: Zahlen für die Live-Anzeige in der Kopfleiste (jede Seite fragt regelmäßig):
+// Angreifer mit Aktivität in den letzten 15 Minuten und gerade festgehaltene Verbindungen.
+func (h *Hive) liveStatus(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := qctx(r)
+	defer cancel()
+	var n int64
+	h.st.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT src_ip) FROM events WHERE ts >= ?`, time.Now().Add(-attackGap).UnixMilli()).Scan(&n)
+	writeJSON(w, map[string]any{"active": n, "tarpits": h.sensors.ActiveTarpits()})
 }

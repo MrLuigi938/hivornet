@@ -63,8 +63,9 @@ export async function viewLive(el, ctx) {
   };
 
   mount(el, h("div", { class: "stack" },
-    h("p", { class: "sub" }, "Jede Linie ist eine neue Verbindung: vom Ursprung des Angreifers zum Honeypot (",
-      home.label || "Honeypot", "). Die Farbe zeigt den angegriffenen Dienst. Den Standort stellst du unter Einstellungen ein."),
+    h("p", { class: "sub" }, "Jede rote Linie ist ein gerade aktiver Angreifer: vom Ursprung zum Honeypot (",
+      home.label || "Honeypot", "). Sie bleibt stehen, solange er etwas tut, und verschwindet kurz nach seiner letzten Verbindung. ",
+      "Der kurze Puls am Ursprung zeigt jede neue Verbindung, seine Farbe den Dienst. Den Standort stellst du unter Einstellungen ein."),
     h("div", { class: "live-grid" },
       h("div", { class: "stack" },
         h("section", { class: "card" }, h("div", { class: "head" }, h("h2", null, "Herkunft, letzte 24 Stunden"), h("div", { class: "grow" }), map.controls), map.el),
@@ -75,8 +76,8 @@ export async function viewLive(el, ctx) {
   refresh();
 
   ctx.live((e) => {
+    map.track(e); // Linie bleibt, solange der Angreifer aktiv ist
     if (e.type === "connect") {
-      map.attack(e.lat, e.lon, e.service, e.country);
       stamps.push(Date.now());
       if (e.country && e.country !== "LAN") seen.set(e.country, Date.now());
       bySvc.set(e.service, (bySvc.get(e.service) || 0) + 1);
@@ -127,6 +128,46 @@ const SEV = { hoch: "Einstufung: hoch", mittel: "Einstufung: mittel", niedrig: "
 const monoList = (items) => h("ul", { class: "mono-list" }, items.map((x) => h("li", null, x)));
 const sha256 = /^[0-9a-f]{64}$/;
 
+// Antwort der KI als einfaches Markdown darstellen: Überschriften, Listen, **fett**, `Code`,
+// Code-Blöcke. Alles als Textknoten (h()), nie als HTML: die Antwort kann Angreifertext enthalten.
+function inlineMd(line) {
+  const out = [];
+  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
+  let last = 0, m;
+  while ((m = re.exec(line))) {
+    if (m.index > last) out.push(line.slice(last, m.index));
+    const t = m[0];
+    out.push(t.startsWith("**") ? h("strong", null, t.slice(2, -2)) : h("code", null, t.slice(1, -1)));
+    last = m.index + t.length;
+  }
+  if (last < line.length) out.push(line.slice(last));
+  return out;
+}
+function renderMd(text) {
+  const out = [];
+  let list = null, code = null;
+  for (const raw of String(text).split("\n")) {
+    const line = raw.replace(/\s+$/, "");
+    if (line.trim().startsWith("```")) {
+      if (code) { out.push(h("pre", { class: "plain mono" }, code.join("\n"))); code = null; } else { code = []; list = null; }
+      continue;
+    }
+    if (code) { code.push(raw); continue; }
+    const hd = line.match(/^#{1,4}\s+(.*)$/);
+    const li = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
+    if (hd) { list = null; out.push(h("h4", { class: "md-h" }, inlineMd(hd[1]))); continue; }
+    if (li) {
+      if (!list) { list = h("ul", { class: "plain" }); out.push(list); }
+      list.append(h("li", null, inlineMd(li[1])));
+      continue;
+    }
+    list = null;
+    if (line.trim()) out.push(h("p", { class: "md-p" }, inlineMd(line)));
+  }
+  if (code) out.push(h("pre", { class: "plain mono" }, code.join("\n")));
+  return h("div", { class: "md" }, out);
+}
+
 // reportCard lädt den Bericht nach, damit die Seite sofort erscheint.
 export function reportCard({ ip, session }) {
   const body = h("div", null, h("p", { class: "muted" }, "Bericht wird erstellt …"));
@@ -135,7 +176,7 @@ export function reportCard({ ip, session }) {
 
   const aiBox = h("div");
   const showAI = (ai) => mount(aiBox, h("h3", null, "KI-Auswertung", ai.at ? h("span", { class: "muted" }, " · ", relTime(ai.at)) : null),
-    h("pre", { class: "plain" }, ai.text),
+    renderMd(ai.text),
     h("p", { class: "muted" }, "Von einem Sprachmodell erzeugt; kann Fehler enthalten. Grundlage ist der Bericht oben."));
 
   api("report?" + query).then((d) => {
@@ -163,6 +204,9 @@ export function reportCard({ ip, session }) {
         r.tools.length ? h("div", null, h("h3", null, "Werkzeuge"), toplist(r.tools)) : null,
         r.creds.length ? h("div", null, h("h3", null, "Zugangsdaten"), toplist(r.creds.slice(0, 15))) : null,
         r.requests.length ? h("div", null, h("h3", null, "Anfragen"), toplist(r.requests.slice(0, 15))) : null),
+      r.decoded && r.decoded.length ? [h("h3", null, "Entschlüsselte Inhalte (Base64, Hex, URL-Kodierung)"),
+        h("p", { class: "muted", style: { margin: "0 0 6px" } }, "Der Angreifer hat diese Stellen verschleiert; so sehen sie im Klartext aus."),
+        h("div", { class: "term" }, r.decoded.map((c) => h("div", null, c)))] : null,
       r.urls.length ? [h("h3", null, "Nachlade-Adressen (nicht aufrufen)"), monoList(r.urls)] : null,
       r.files.length ? [h("h3", null, "Dateien"), monoList(r.files)] : null,
       r.hashes.length ? [h("h3", null, "SHA-256 der Downloads"), monoList(r.hashes.map((x) => (sha256.test(x)

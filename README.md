@@ -164,12 +164,12 @@ Du musst nicht alle weiterleiten. Für den Anfang genügen 22, 23, 80, 443 und 3
 |---|---|
 | Dashboard | Warnungen; Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor; Weltkarte (Länder nach Anzahl eingefärbt, Orte, Zoom, Regionen, Live-Angriffe); **Gerade aktiv**: Angreifer der letzten 15 Minuten, nach IP gebündelt; Verlauf nach Dienst und Top-Listen |
 | Angriffe | **gebündelt:** eine Karte je Angriff (Ereignisse einer IP mit weniger als 15 Minuten Pause) mit Stufe (Abtasten → Versuche → Login angenommen → Befehle → Datei nachgeladen), vermuteter Art (z. B. „SSH-Brute-Force“, „Web-Scanner“), Zugangsdaten, Pfaden, Befehlen, erkannten Mustern und Zeitstreifen; Filter nach Stufe und Dienst, Suche. **Einzelne Ereignisse:** alle Ereignisse in Echtzeit, Wiederholungen als eine Zeile mit Zähler (×10); Export als CSV/JSON, Blockliste und STIX 2.1 (für MISP, OpenCTI) |
-| Live-Karte | große Karte: Jede neue Verbindung zeichnet eine Linie vom Ursprung zum Honeypot; Laufliste, Angriffe pro Minute |
+| Live-Karte | große Karte: Gerade aktive Angreifer haben eine rote Linie zum Honeypot, solange sie etwas tun; jede neue Verbindung pulsiert am Ursprung; Laufliste, Angriffe pro Minute |
 | Analyse | erkannte Angriffsmuster (Klick zeigt die passenden Angriffe), benutzte und installierte Programme, Scanner, Nachlade-Adressen |
 | Angreifer | alles zu einer IP: Herkunft, alle Angriffe dieser IP, Angriffsbericht, Reputation (AbuseIPDB, GreyNoise), Ports, Passwörter, Ereignisse |
 | Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen; Klick zeigt die passenden Angriffe |
 | Angriffe → Sitzungen | einzelne Verbindungen mit Logins, Befehlen oder Downloads; Ablauf, Angriffsbericht und bei Cowrie der Terminal-Mitschnitt zum Abspielen |
-| Tarpit | verschwendete Angreiferzeit, gerade festgehaltene Verbindungen, Spitzenreiter |
+| Tarpit | wer gerade festgehalten wird (IP, Herkunft, Dienst, seit wann, laufende Dauer), verschwendete Angreiferzeit, Spitzenreiter |
 | Einstellungen | Ports an/aus, Modus je Port, Tarpit-Tempo, Aufbewahrung, Admin-Passwort, Benutzer; dazu Standort für die Karte, Benachrichtigungen, KI-Auswertung, AbuseIPDB |
 | System | Warnungen, Updates, Netzsperre, RAM, Datenbank, GeoIP, Cowrie, Status je Sensor und Port |
 
@@ -199,7 +199,9 @@ Die Muster erkennt Hivornet nach festen Regeln, ohne fremde Dienste. Beispiele: 
 | LM Studio | `http://<Rechner>:1234/v1` | wie oben |
 | OpenRouter | `https://openrouter.ai/api/v1` | braucht einen API-Schlüssel und kostet je Anfrage; IP-Adressen, Zugangsdaten und Befehle der Angreifer verlassen dabei dein Netz |
 
-Die Auswertung stammt von einem Sprachmodell und kann Fehler enthalten. Der Bericht darüber ist die Grundlage.
+Die KI bekommt den ganzen Bericht samt zeitlichem Ablauf und entschlüsselten Inhalten (bis etwa 48.000 Zeichen) und antwortet gegliedert. Bei lokalen Modellen sollte das Kontextfenster dafür mindestens 16.000 Token groß sein (Ollama: `num_ctx`), sonst schneidet das Modell den Bericht ab. Die Auswertung stammt von einem Sprachmodell und kann Fehler enthalten. Der Bericht darüber ist die Grundlage.
+
+**Verschleierte Befehle:** Base64, Hex-/Oktal-Escapes und URL-Kodierung in Befehlen und Anfragen entschlüsselt Hivornet automatisch (auch verschachtelt). Der Klartext steht auf der Angriffskarte und im Bericht; Nachlade-Adressen darin werden wie normale behandelt.
 
 ### Benachrichtigungen
 

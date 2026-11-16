@@ -91,6 +91,8 @@ func (s *Session) Tarpit(prefix []byte, next func() []byte) {
 	defer s.rl.tarpitting.Add(-1)
 	s.tarpitted = true
 	s.tarpitStart = time.Now()
+	s.m.pits.Store(s, TarpitConn{IP: s.SrcIP, SrcPort: s.SrcPort, Port: s.DstPort, Service: s.Service, Mode: s.Mode, Since: s.tarpitStart})
+	defer s.m.pits.Delete(s)
 
 	// Eingaben des Angreifers verwerfen und erkennen, wann er auflegt.
 	gone := make(chan struct{})

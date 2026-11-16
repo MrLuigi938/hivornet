@@ -52,6 +52,32 @@ type Manager struct {
 
 	proxyGateways []net.IP     // Gateway-Adressen der Docker-Netze (Erkennung Userland-Proxy)
 	proxied       atomic.Int64 // Verbindungen, die aus dem eigenen Docker-Netz zu kommen scheinen
+
+	pits sync.Map // *Session -> TarpitConn: gerade festgehaltene Verbindungen (für die UI)
+}
+
+// TarpitConn ist eine gerade festgehaltene Verbindung (im Lebenszeichen an den Hive).
+type TarpitConn struct {
+	IP      string    `json:"ip"`
+	SrcPort int       `json:"src_port"`
+	Port    int       `json:"port"`
+	Service string    `json:"service"`
+	Mode    string    `json:"mode"`
+	Since   time.Time `json:"since"`
+}
+
+// HeldTarpits liefert die festgehaltenen Verbindungen, die ältesten zuerst (höchstens max).
+func (m *Manager) HeldTarpits(max int) []TarpitConn {
+	out := []TarpitConn{}
+	m.pits.Range(func(_, v any) bool {
+		out = append(out, v.(TarpitConn))
+		return true
+	})
+	sort.Slice(out, func(i, j int) bool { return out[i].Since.Before(out[j].Since) })
+	if len(out) > max {
+		out = out[:max]
+	}
+	return out
 }
 
 func NewManager(em *Emitter, bind string, lowOffset int) *Manager {

@@ -45,6 +45,7 @@ async function boot() {
   }
   renderShell();
   startStream();
+  startLivePoll();
   route();
 }
 
@@ -172,7 +173,7 @@ function startStream() {
     for (const fn of state.liveFns) { try { fn(ev); } catch (e) { console.error(e); } }
   };
 }
-function stopStream() { if (state.es) state.es.close(); state.es = null; }
+function stopStream() { if (state.es) state.es.close(); state.es = null; clearInterval(liveTimer); }
 function setLive(on) {
   const d = document.getElementById("live");
   if (!d) return;
@@ -180,14 +181,27 @@ function setLive(on) {
   d.dataset.state = on ? "live" : "getrennt";
   renderLiveText();
 }
-// Zusatz in der Live-Anzeige (z. B. "7 aktiv · 2 im Tarpit"), gesetzt vom Dashboard
-let liveExtra = "";
-function setLiveInfo(text) { liveExtra = text || ""; renderLiveText(); }
+// Live-Anzeige in der Kopfleiste, auf jeder Seite: aktive Angreifer (letzte 15 Minuten)
+// und gerade festgehaltene Verbindungen, beides anklickbar. Alle 15 s vom Hive geholt.
+let liveStat = null, liveTimer = null;
+async function pollLive() {
+  try { liveStat = await api("stats/live", { noAuthRedirect: true }); } catch { /* nächster Versuch */ }
+  renderLiveText();
+}
+function startLivePoll() {
+  clearInterval(liveTimer);
+  pollLive();
+  liveTimer = setInterval(() => { if (!document.hidden) pollLive(); }, 15000);
+}
 function renderLiveText() {
   const d = document.getElementById("live");
   if (!d) return;
   const st = d.dataset.state || "verbinde …";
-  d.lastChild.textContent = st === "live" ? ["LIVE", liveExtra].filter(Boolean).join(" · ") : st;
+  if (st !== "live") { mount(d.lastChild, st); return; }
+  mount(d.lastChild, "LIVE", liveStat ? [
+    " · ", h("a", { href: "#/attacks", title: "Angreifer mit Aktivität in den letzten 15 Minuten" }, `${fmtNum(liveStat.active)} aktiv`),
+    liveStat.tarpits ? [" · ", h("a", { href: "#/tarpit", title: "Gerade im Tarpit festgehalten: wer, seit wann" }, `${fmtNum(liveStat.tarpits)} im Tarpit`)] : null,
+  ] : null);
 }
 function onLive(fn) { state.liveFns.add(fn); return () => state.liveFns.delete(fn); }
 
@@ -239,7 +253,7 @@ function header(title, { range = false, extra = null } = {}) {
 }
 
 const routes = [
-  [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed$/, viewFeed], [/^#\/sessions$/, viewSessions],
+  [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings$/, viewSettings], [/^#\/system$/, viewSystem],
   [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/logs(\?.*)?$/, viewLogs],
@@ -256,7 +270,6 @@ async function route() {
     const href = a.getAttribute("href");
     a.classList.toggle("on", href === "#/" ? navHash === "#/" || navHash === "" : navHash.startsWith(href));
   }
-  setLiveInfo("");
   const [, view, m] = routes.map(([re, v]) => [re, v, hash.match(re)]).find(([, , m]) => m) || [null, viewDashboard, []];
   // Jede Ansicht zeichnet in ihren eigenen Behälter. Wird inzwischen weiternavigiert,
   // landet eine verspätete Ansicht in einem Behälter, der nicht mehr angezeigt wird,
@@ -384,15 +397,20 @@ async function viewDashboard(el, ctx) {
 
   // ---- Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor ----
   const tiles = {};
+  // Jede Kennzahl führt zur passenden Liste (Zeitraum wie im Dashboard)
   const KPIS = [
-    ["connect", "Verbindungen"], ["ips", "Angreifer-IPs"], ["login", "Login-Versuche"], ["request", "Web-Anfragen"],
-    ["success", "Logins angenommen", true], ["download", "Downloads", true],
+    ["connect", "Verbindungen", false, `#/attacks?range=${r}`],
+    ["ips", "Angreifer-IPs", false, `#/attacks?range=${r}`],
+    ["login", "Login-Versuche", false, `#/feed?type=login`],
+    ["request", "Web-Anfragen", false, `#/feed?type=request`],
+    ["success", "Logins angenommen", true, `#/attacks?range=${r}&success=1`],
+    ["download", "Downloads", true, `#/attacks?range=${r}&stufe=4`],
   ];
-  const kpi = ([key, label, alarm]) => {
+  const kpi = ([key, label, alarm, href]) => {
     const v = Number(ser.totals[key] || 0), p = Number(ser.prev[key] || 0);
     const delta = p ? Math.round(((v - p) / p) * 100) : null;
     const value = h("span", null, fmtNum(v));
-    const t = h("div", { class: "card tile" + (alarm && v ? " alarm" : ""), title: p ? `Zeitraum davor: ${fmtNum(p)}` : null },
+    const t = h("a", { class: "card tile link" + (alarm && v ? " alarm" : ""), href, title: (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + "Klick zeigt die Liste dazu." },
       h("div", { class: "label" }, label),
       h("div", { class: "value num" }, value, delta !== null && delta !== 0 ? h("small", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : null),
       sparkline(ser.series[key] || []));
@@ -411,7 +429,6 @@ async function viewDashboard(el, ctx) {
   const rowEls = new Map();
   const setActInfo = () => {
     actCount.textContent = active.size ? `${active.size} Angreifer, nach IP gebündelt` : "";
-    setLiveInfo(`${active.size} aktiv` + (ser.active_tarpits ? ` · ${ser.active_tarpits} im Tarpit` : ""));
   };
   const renderActive = () => {
     const now = Date.now();
@@ -440,7 +457,7 @@ async function viewDashboard(el, ctx) {
       h("div", { class: "legend", style: { marginTop: "8px", marginBottom: 0 } },
         h("span", null, h("i", { class: "swatch", style: { background: "var(--heat)" } }), "Land: Verbindungen im Zeitraum"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--dot)", borderRadius: "50%" } }), "Ort"),
-        h("span", null, h("i", { class: "swatch", style: { background: "var(--live)" } }), "neuer Angriff, Linie zum Honeypot (Farbe = Dienst)"),
+        h("span", null, h("i", { class: "swatch", style: { background: "var(--attack)" } }), "gerade aktiver Angreifer (Linie zum Honeypot)"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--good)", borderRadius: "50%" } }), home.label || "Honeypot"),
         h("a", { href: "#/live" }, "Große Live-Karte"))),
     h("aside", { class: "card act" }, h("div", { class: "head" }, h("h2", null, "Gerade aktiv"), h("div", { class: "grow" }), actCount), actList,
@@ -458,8 +475,8 @@ async function viewDashboard(el, ctx) {
   renderActive();
 
   ctx.live((e) => {
+    map.track(e); // Puls, Linie aktiver Angreifer, Länderzähler
     if (e.type === "connect") {
-      map.attack(e.lat, e.lon, e.service, e.country);
       const t = tiles.connect;
       t.n++;
       t.value.textContent = fmtNum(t.n);
@@ -475,8 +492,9 @@ async function viewDashboard(el, ctx) {
 
 // ---------- Einzelne Ereignisse ----------
 
-async function viewFeed(el, ctx) {
-  const f = { service: "", type: "", q: "", country: "", port: "", hideNoise: store("hideNoise") !== "0", paused: false };
+async function viewFeed(el, ctx, query = "") {
+  const qp = new URLSearchParams(query.replace(/^\?/, ""));
+  const f = { service: qp.get("service") || "", type: TYPE_NAME[qp.get("type")] ? qp.get("type") : "", q: "", country: "", port: "", hideNoise: store("hideNoise") !== "0", paused: false };
   const body = h("tbody");
   const info = h("span", { class: "muted" });
   const more = h("button", { class: "btn", onclick: () => load(true) }, "Ältere laden");
@@ -525,7 +543,7 @@ async function viewFeed(el, ctx) {
     && (!f.q || JSON.stringify(e).toLowerCase().includes(f.q.toLowerCase()));
 
   const sel = (opts, key, label) => h("select", { "aria-label": label, onchange: (e) => { f[key] = e.target.value; load(); } },
-    h("option", { value: "" }, label), opts.map(([v, l]) => h("option", { value: v }, l)));
+    h("option", { value: "" }, label), opts.map(([v, l]) => h("option", { value: v, selected: f[key] === v }, l)));
   let qTimer;
   // Export mit den aktuellen Filtern (Download über den angemeldeten Browser)
   const exRange = h("select", { "aria-label": "Zeitraum für den Export" },
@@ -682,12 +700,30 @@ async function viewTarpit(el, ctx) {
   const d = await api("tarpit?range=" + state.range);
   const active = [];
   for (const s of d.sensors) for (const l of s.listeners || []) if (l.mode !== "emulate") active.push({ ...l, sensor: s.sensor });
+  // Wer gerade festgehalten wird, mit mitlaufender Dauer
+  const held = d.held || [];
+  const clock = (ms) => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
+  const timer = (since) => h("span", { class: "num tick", "data-since": since }, clock(Date.now() - since));
+  const heldCard = card("Gerade festgehalten" + (held.length ? ` (${fmtNum(held.length)})` : ""),
+    held.length ? h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["Angreifer", "Herkunft", "Dienst", "Modus", "Festgehalten seit", "Dauer"].map((t) => h("th", null, t)))),
+      h("tbody", null, held.map((x) => h("tr", null,
+        h("td", null, ipLink(x.ip), x.src_port ? h("span", { class: "muted" }, ":" + x.src_port) : null),
+        h("td", null, cc(x.country, x.country_name), " ", [x.city, x.as_org].filter(Boolean).join(" · ") || h("span", { class: "muted" }, "unbekannt")),
+        h("td", null, svcBadge(x.service, x.port)),
+        h("td", null, MODE_NAME[x.mode] || x.mode),
+        h("td", { class: "num" }, fmtTime(x.since)),
+        h("td", null, h("b", null, timer(x.since))))))))
+      : h("div", { class: "empty" }, d.active ? "Der Honeypot meldet die festgehaltenen Verbindungen erst ab Version 0.5.2 einzeln. Nach dem Update erscheinen sie hier."
+        : "Gerade hängt niemand im Tarpit."),
+    held.length && !d.held_complete ? h("p", { class: "muted" }, "Ein Sensor mit älterer Version meldet nur die Anzahl, nicht wer festgehalten wird.") : null);
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Im Tarpit-Modus bekommen Angreifer extrem langsam endlose Daten. Jede Sekunde hier ist Zeit, in der ihr Scanner nichts anderes angreift."),
     h("div", { class: "grid kpi" },
       tile("Verschwendete Angreiferzeit", fmtDur(d.total_ms)),
       tile("Festgehaltene Verbindungen", fmtNum(d.connections), "beendet im Zeitraum"),
-      tile("Gerade festgehalten", fmtNum(d.active))),
+      tile("Gerade festgehalten", fmtNum(d.active), "Liste darunter")),
+    heldCard,
     card("Ports mit Tarpit oder Hybrid (jetzt)", active.length ? h("div", { class: "tablewrap" }, h("table", null,
       h("thead", null, h("tr", null, ["Sensor", "Port", "Dienst", "Modus", "Gerade festgehalten", "Offen", "Verbindungen seit Start"].map((t) => h("th", null, t)))),
       h("tbody", null, active.map((l) => h("tr", null, h("td", null, l.sensor), h("td", { class: "num" }, l.port), h("td", null, svcName(l.service)),
@@ -702,6 +738,7 @@ async function viewTarpit(el, ctx) {
         link: (x) => "#/attacker/" + encodeURIComponent(x.key), fmt: fmtDur,
       }))),
     card("Gesamtzeit nach Port", toplist(d.by_port.map((r) => ({ key: `${r.dst_port} · ${svcName(r.service)} (${fmtNum(r.n)} Verbindungen)`, n: r.tarpit_ms })), { fmt: fmtDur }))));
+  ctx.every(1000, () => { el.querySelectorAll(".tick").forEach((t) => { t.textContent = clock(Date.now() - Number(t.dataset.since)); }); });
   ctx.every(10000, () => { if (!document.hidden && location.hash === "#/tarpit") route(); });
 }
 

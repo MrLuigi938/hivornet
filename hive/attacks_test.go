@@ -83,6 +83,12 @@ func TestAttacksGrouping(t *testing.T) {
 	if got := get("stufe=4"); len(got.Attacks) != 1 || got.Attacks[0].Stufe != 4 {
 		t.Errorf("Filter Stufe: %+v", got.Attacks)
 	}
+	if got := get("success=1"); len(got.Attacks) != 1 || !got.Attacks[0].Success {
+		t.Errorf("Filter Login angenommen: %+v", got.Attacks)
+	}
+	if got := get("range=all"); got.Total != 3 {
+		t.Errorf("Zeitraum alles: %d", got.Total)
+	}
 	if got := get("q=toor"); len(got.Attacks) != 1 || got.Attacks[0].IP != a {
 		t.Errorf("Suche: %+v", got.Attacks)
 	}
@@ -150,5 +156,32 @@ func TestAttackClassify(t *testing.T) {
 	}
 	if a := mk(evAt(now, "login", "mysql", ip, 3306, map[string]any{"password_hashed": true})); a.Creds[0].Key != " / (gehasht)" {
 		t.Errorf("gehasht: %q", a.Creds[0].Key)
+	}
+}
+
+func TestTarpitHeldAndLiveStatus(t *testing.T) {
+	h := testHive(t)
+	now := time.Now()
+	h.st.db.Exec(`INSERT INTO attackers(ip,first_seen,last_seen,events,country,country_name,city) VALUES('203.0.113.70',?,?,1,'CN','China','Peking')`, now.UnixMilli(), now.UnixMilli())
+	h.st.db.Exec(`INSERT INTO events(ts,type,src_ip) VALUES(?, 'connect', '203.0.113.70')`, now.UnixMilli())
+	h.sensors.Put(Heartbeat{Sensor: "pi", Tarpits: 1, HeldTarpits: []HeldTarpit{{IP: "203.0.113.70", Port: 22, Service: "ssh-tarpit", Mode: "tarpit", Since: now.Add(-90 * time.Second)}}})
+	h.sensors.Put(Heartbeat{Sensor: "alt", Tarpits: 2}) // ältere Honeypot-Version ohne Liste
+	rec := httptest.NewRecorder()
+	h.tarpit(rec, httptest.NewRequest("GET", "/api/tarpit?range=24h", nil))
+	var d struct {
+		Held         []map[string]any
+		HeldComplete bool `json:"held_complete"`
+		Active       int
+	}
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if len(d.Held) != 1 || d.Held[0]["country"] != "CN" || d.Held[0]["city"] != "Peking" || d.Held[0]["sensor"] != "pi" || d.HeldComplete || d.Active != 3 {
+		t.Fatalf("Tarpit: %s", rec.Body)
+	}
+	rec = httptest.NewRecorder()
+	h.liveStatus(rec, httptest.NewRequest("GET", "/api/stats/live", nil))
+	var l struct{ Active, Tarpits int }
+	json.Unmarshal(rec.Body.Bytes(), &l)
+	if l.Active != 1 || l.Tarpits != 3 {
+		t.Fatalf("Live: %s", rec.Body)
 	}
 }

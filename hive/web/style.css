@@ -20,7 +20,7 @@
   --grid: #222832; --axis: #2f3642; --border: rgba(255, 255, 255, 0.08);
   --accent: #4c8dff; --live: #ff7a45; --land: #1d232c; --heat: #ff7a45; --dot: #ffd166; --map-bg: #0e1218;
   --s1: #4c8dff; --s2: #ff7a45; --s3: #2fd2a5; --s4: #f5b83d; --s5: #ec6fa8; --s6: #6ccf3c; --s7: #9b8cff; --s8: #ff5c5c; --other: #5d6675;
-  --sev0: #6b7586; --sev1: #4c8dff; --sev2: #f5b83d; --sev3: #ff7a45; --sev4: #ff4d5e;
+  --sev0: #6b7586; --sev1: #4c8dff; --sev2: #f5b83d; --sev3: #ff7a45; --sev4: #ff4d5e; --attack: #ff2d55;
   --good: #2fd27a; --good-text: #2fd27a; --warning: #f5b83d; --critical: #ff4d5e;
   --code-bg: #0e1116; --on-accent: #fff; --shadow: 0 8px 28px rgba(0, 0, 0, .35);
   --radius: 12px;
@@ -33,7 +33,7 @@
   --grid: #e8eaee; --axis: #d0d5dd; --border: rgba(16, 24, 40, 0.10);
   --accent: #3b5bdb; --live: #e8590c; --land: #e4e7ec; --heat: #d9480f; --dot: #3b5bdb; --map-bg: #f8f9fb;
   --s1: #3b5bdb; --s2: #e8590c; --s3: #0ca678; --s4: #e8a100; --s5: #d6336c; --s6: #37b24d; --s7: #7048e8; --s8: #e03131; --other: #98a2b3;
-  --sev0: #98a2b3; --sev1: #3b5bdb; --sev2: #e8a100; --sev3: #e8590c; --sev4: #e03131;
+  --sev0: #98a2b3; --sev1: #3b5bdb; --sev2: #e8a100; --sev3: #e8590c; --sev4: #e03131; --attack: #e11d48;
   --good: #12b76a; --good-text: #067647; --warning: #e8a100; --critical: #d92d20;
   --code-bg: #f2f4f7; --shadow: 0 8px 24px rgba(16, 24, 40, .10);
 }
@@ -45,7 +45,7 @@
     --grid: #e8eaee; --axis: #d0d5dd; --border: rgba(16, 24, 40, 0.10);
     --accent: #3b5bdb; --live: #e8590c; --land: #e4e7ec; --heat: #d9480f; --dot: #3b5bdb; --map-bg: #f8f9fb;
     --s1: #3b5bdb; --s2: #e8590c; --s3: #0ca678; --s4: #e8a100; --s5: #d6336c; --s6: #37b24d; --s7: #7048e8; --s8: #e03131; --other: #98a2b3;
-    --sev0: #98a2b3; --sev1: #3b5bdb; --sev2: #e8a100; --sev3: #e8590c; --sev4: #e03131;
+    --sev0: #98a2b3; --sev1: #3b5bdb; --sev2: #e8a100; --sev3: #e8590c; --sev4: #e03131; --attack: #e11d48;
     --good: #12b76a; --good-text: #067647; --warning: #e8a100; --critical: #d92d20;
     --code-bg: #f2f4f7; --shadow: 0 8px 24px rgba(16, 24, 40, .10);
   }
@@ -81,6 +81,8 @@ h3 { font-size: 13px; margin: 16px 0 8px; font-weight: 600; color: var(--text-2)
   padding: 5px 12px; border-radius: 999px; white-space: nowrap; border: 1px solid var(--border); }
 .livepill i { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
 .livepill.on i { background: var(--good); animation: blink 2s infinite; }
+.livepill a { color: var(--text); font-weight: 600; }
+.livepill a:hover { color: var(--accent); text-decoration: none; }
 @keyframes blink { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--good) 60%, transparent); } 100% { box-shadow: 0 0 0 8px transparent; } }
 .usermenu { position: relative; }
 .usermenu > button { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text);
@@ -145,6 +147,9 @@ label.inline { display: inline-flex; align-items: center; gap: 6px; color: var(-
 .tile .value { font-size: 26px; font-weight: 650; margin: 2px 0 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -.01em; display: flex; align-items: baseline; gap: 8px; }
 .tile .value small { font-size: 12px; font-weight: 500; }
 .tile .hint { font-size: 12px; color: var(--muted); }
+a.tile.link { color: inherit; display: block; transition: border-color .15s, transform .15s; }
+a.tile.link:hover { text-decoration: none; border-color: color-mix(in srgb, var(--accent) 55%, transparent); transform: translateY(-1px); }
+a.tile.link.alarm:hover { border-color: var(--sev4); }
 .tile .up { color: var(--sev3); } .tile .down { color: var(--good); }
 .tile.alarm { border-color: color-mix(in srgb, var(--sev4) 50%, transparent); background: color-mix(in srgb, var(--sev4) 7%, var(--surface)); }
 .tile.alarm .value { color: var(--sev4); }
@@ -218,8 +223,20 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 8px; overfl
 .map .country.k4 { fill: color-mix(in oklab, var(--heat) 76%, var(--land)); }
 .map .country.k5 { fill: var(--heat); }
 .map .country:hover { stroke: var(--text); }
-.map .pt { fill: var(--dot); fill-opacity: .85; stroke: var(--page); }
-.map .pt:hover { fill-opacity: 1; stroke: var(--text); }
+.map .pt { fill: var(--dot); fill-opacity: .9; stroke: var(--page); pointer-events: none; }
+.map .pt-hit { fill: transparent; cursor: pointer; }
+.map .ptg:hover .pt { fill-opacity: 1; stroke: var(--text); }
+.map svg.mode-orte .country { pointer-events: none; }
+/* Linien gerade aktiver Angreifer (rot, wandernde Striche Richtung Honeypot) */
+.map .arc-glow { fill: none; stroke: var(--attack); stroke-linecap: round; opacity: .22; }
+.map .arc-live { fill: none; stroke: var(--attack); stroke-linecap: round; }
+.map .arc-src { fill: var(--attack); }
+.map .active-line { animation: linein .5s ease-out; }
+.map .active-line.flash { animation: lineflash .9s ease-out; }
+.map .active-line.ending { transition: opacity .8s; opacity: 0; }
+.map .active-line:hover .arc-glow { opacity: .45; }
+@keyframes linein { from { opacity: 0; } to { opacity: 1; } }
+@keyframes lineflash { 0% { filter: brightness(1.8); } 100% { filter: none; } }
 .map .pulse { fill: none; animation: pulse 2.2s ease-out forwards; transform-box: fill-box; transform-origin: center; }
 @keyframes pulse { from { transform: scale(0.3); opacity: 1; } to { transform: scale(3.2); opacity: 0; } }
 .map .arc { fill: none; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; animation: arc 2.5s ease-out forwards; }
@@ -229,7 +246,7 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 8px; overfl
 @keyframes homering { 0%, 100% { transform: scale(1); opacity: .9; } 50% { transform: scale(1.6); opacity: .3; } }
 @media (prefers-reduced-motion: reduce) {
   .map .arc { animation: none; stroke-dashoffset: 0; opacity: 0.6; }
-  .map .home-ring, .map .pulse, .livepill.on i { animation: none; }
+  .map .home-ring, .map .pulse, .livepill.on i, .map .active-line { animation: none; }
 }
 
 /* ---------- Dashboard ---------- */
@@ -283,6 +300,7 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 8px; overfl
 .pill { background: var(--surface-2); border-radius: 5px; padding: 1px 6px; font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pill.hot { background: color-mix(in srgb, var(--sev4) 14%, transparent); color: var(--sev4); }
 .pill.tag { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--text); }
+.pill.decoded { background: color-mix(in srgb, var(--sev3) 14%, transparent); color: var(--text); white-space: pre-wrap; overflow-wrap: anywhere; max-width: 100%; }
 .atk .foot { margin-top: 12px; display: flex; gap: 16px; font-size: 13px; flex-wrap: wrap; }
 .atk .foot button { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font: inherit; }
 .atk .evs { margin-top: 10px; border-top: 1px dashed var(--border); padding-top: 8px; }
@@ -314,6 +332,11 @@ ul.plain li { margin: 3px 0; }
 .taglist code { display: block; background: var(--code-bg); border-radius: 6px; padding: 4px 6px; margin-top: 4px; white-space: pre-wrap; }
 .mono-list { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 .mono-list li { padding: 3px 0; }
+.md { background: var(--code-bg); border-radius: 8px; padding: 4px 16px 12px; margin-top: 8px; line-height: 1.55; }
+.md .md-h { font-size: 14px; margin: 14px 0 4px; color: var(--text); }
+.md .md-p { margin: 6px 0; }
+.md code { background: var(--surface-2); padding: 1px 5px; border-radius: 4px; overflow-wrap: anywhere; }
+.md ul.plain li { margin: 2px 0; }
 pre.plain { background: var(--code-bg); padding: 12px; border-radius: 8px; white-space: pre-wrap; word-break: break-word; margin: 8px 0 0; font-family: inherit; font-size: 13.5px; line-height: 1.5; }
 .btnrow { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 12px; }
 .term .in { color: var(--good-text); font-weight: 600; }

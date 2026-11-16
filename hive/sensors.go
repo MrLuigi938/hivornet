@@ -113,6 +113,7 @@ type Heartbeat struct {
 	Listeners       json.RawMessage `json:"listeners"`
 	Connections     int             `json:"connections"`
 	Tarpits         int             `json:"tarpits"`
+	HeldTarpits     []HeldTarpit    `json:"held_tarpits"` // gerade festgehaltene Verbindungen (ab Honeypot 0.5.2)
 	EventsSent      int64           `json:"events_sent"`
 	EventsDropped   int64           `json:"events_dropped"`
 	EventsThrottled int64           `json:"events_throttled"`
@@ -123,6 +124,16 @@ type Heartbeat struct {
 	MemBytes        uint64          `json:"mem_bytes"`
 	Goroutines      int             `json:"goroutines"`
 	Seen            time.Time       `json:"seen"`
+}
+
+// HeldTarpit ist eine Verbindung, die ein Sensor gerade im Tarpit festhält.
+type HeldTarpit struct {
+	IP      string    `json:"ip"`
+	SrcPort int       `json:"src_port"`
+	Port    int       `json:"port"`
+	Service string    `json:"service"`
+	Mode    string    `json:"mode"`
+	Since   time.Time `json:"since"`
 }
 
 type Sensors struct {
@@ -149,6 +160,31 @@ func (s *Sensors) All() []Heartbeat {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Sensor < out[j].Sensor })
 	return out
+}
+
+// Held liefert die festgehaltenen Verbindungen aller Sensoren mit frischem Lebenszeichen und
+// ob jeder dieser Sensoren die Liste überhaupt meldet (ältere Honeypot-Versionen nicht).
+func (s *Sensors) Held() (out []map[string]any, complete bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	complete = true
+	for _, hb := range s.last {
+		if time.Since(hb.Seen) >= time.Minute {
+			continue
+		}
+		if hb.HeldTarpits == nil && hb.Tarpits > 0 {
+			complete = false
+		}
+		for _, t := range hb.HeldTarpits {
+			if len(out) >= 500 {
+				break
+			}
+			out = append(out, map[string]any{"sensor": hb.Sensor, "ip": clip(t.IP, 64), "src_port": t.SrcPort, "port": t.Port,
+				"service": clip(t.Service, 32), "mode": clip(t.Mode, 16), "since": t.Since.UnixMilli()})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i]["since"].(int64) < out[j]["since"].(int64) })
+	return out, complete
 }
 
 // ActiveTarpits zählt festgehaltene Verbindungen aller Sensoren mit frischem Lebenszeichen.

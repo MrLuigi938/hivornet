@@ -129,6 +129,26 @@ func TestHTTPTarpitImmediate(t *testing.T) {
 	}
 }
 
+// Festgehaltene Verbindungen stehen in HeldTarpits (für die UI), nach dem Auflegen nicht mehr.
+func TestHeldTarpitsListed(t *testing.T) {
+	m := testManager()
+	c, _ := run(t, m, "http", "tarpit")
+	c.SetReadDeadline(time.Now().Add(2 * time.Second))
+	bufio.NewReader(c).ReadString('\n')
+	held := m.HeldTarpits(10)
+	if len(held) != 1 || held[0].Service != "http" || held[0].Mode != "tarpit" || held[0].Since.IsZero() {
+		t.Fatalf("festgehaltene Verbindung fehlt: %+v", held)
+	}
+	c.Close()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && len(m.HeldTarpits(10)) > 0 {
+		time.Sleep(50 * time.Millisecond)
+	}
+	if n := len(m.HeldTarpits(10)); n != 0 {
+		t.Fatalf("nach dem Auflegen noch %d festgehalten", n)
+	}
+}
+
 // ---------- Befund 2: Redis begrenzt ----------
 
 func TestRedisLargeArgumentStreamed(t *testing.T) {

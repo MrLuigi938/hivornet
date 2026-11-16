@@ -57,10 +57,12 @@ export function worldMap(points, { home = null, large = false, countries = null,
     }
     land.append(p);
   }
-  const dots = s("g"), live = s("g"), homeG = s("g", { class: "home" });
-  const svg = s("svg", { viewBox: vb.join(" "), preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": "Weltkarte der Angriffsherkunft" }, land, dots, live, homeG);
+  const dots = s("g"), live = s("g"), activeG = s("g", { class: "active-lines" }), homeG = s("g", { class: "home" });
+  const lines = new Map(); // IP -> { path, dot, last, open } (Linien gerade aktiver Angreifer)
+  const svg = s("svg", { viewBox: vb.join(" "), preserveAspectRatio: "xMidYMid meet", role: "img", "aria-label": "Weltkarte der Angriffsherkunft" }, land, dots, activeG, live, homeG);
 
   function paint() {
+    svg.classList.toggle("mode-orte", mode === "orte"); // Länder reagieren dann nicht auf die Maus
     for (const [cc, ps] of paths) {
       const n = counts.get(cc) || 0;
       const lvl = mode === "orte" || !n ? 0 : Math.min(5, 1 + Math.floor(4.999 * Math.sqrt(n / max)));
@@ -72,8 +74,12 @@ export function worldMap(points, { home = null, large = false, countries = null,
     if (mode === "laender") return;
     const f = Math.max(k(), 0.12);
     for (const p of [...pts].sort((a, b) => b.n - a.n)) { // kleine Punkte oben
-      const r = (0.35 + 1.3 * Math.sqrt(p.n / pmax)) * f;
-      const c = s("circle", { class: "pt", cx: (p.lon + 180).toFixed(2), cy: (90 - p.lat).toFixed(2), r: r.toFixed(3), "stroke-width": (0.08 * f).toFixed(3) });
+      // Mindestgröße, damit auch einzelne Verbindungen treffbar sind; höchstens 2,1 Grad bei voller Welt
+      const r = Math.min(2.1, 0.65 + 1.45 * Math.sqrt(p.n / pmax)) * f;
+      const cx = (p.lon + 180).toFixed(2), cy = (90 - p.lat).toFixed(2);
+      const c = s("g", { class: "ptg" },
+        s("circle", { class: "pt-hit", cx, cy, r: (r + 0.7 * f).toFixed(3) }),
+        s("circle", { class: "pt", cx, cy, r: r.toFixed(3), "stroke-width": (0.08 * f).toFixed(3) }));
       hoverTip(c, () => [
         [flag(p.country), " ", [p.city, countryName(p.country)].filter(Boolean).join(", ")],
         [["Verbindungen von hier (Zeitraum)", fmtNum(p.n)], ...(p.country ? countryRows(p.country).slice(1) : [])],
@@ -98,6 +104,11 @@ export function worldMap(points, { home = null, large = false, countries = null,
     land.style.strokeWidth = (0.2 * k()).toFixed(3);
     drawDots();
     drawHome();
+    for (const l of lines.values()) {
+      dashStyle(l.path);
+      l.glow.style.strokeWidth = 2.2 * k();
+      l.dot.setAttribute("r", 1.1 * k());
+    }
   }
   function setView(v, animate = false) {
     const from = [...vb], to = clamp(v);
@@ -177,10 +188,73 @@ export function worldMap(points, { home = null, large = false, countries = null,
     live.append(g);
     setTimeout(() => g.remove(), 2300);
   };
+  // Linie eines aktiven Angreifers: bleibt stehen, solange er etwas tut; verschwindet
+  // 20 s nach seiner letzten Verbindung oder nach 2 Minuten ohne jedes Ereignis.
+  const arcPath = (x1, y1, x2, y2) => {
+    const dist = Math.hypot(x2 - x1, y2 - y1), cx = (x1 + x2) / 2, cy = (y1 + y2) / 2 - Math.min(40, dist * 0.28);
+    return `M${x1.toFixed(2)} ${y1.toFixed(2)}Q${cx.toFixed(2)} ${cy.toFixed(2)} ${x2.toFixed(2)} ${y2.toFixed(2)}`;
+  };
+  // Strichmuster in Karteneinheiten, mit dem Zoom mitskaliert (wandert Richtung Honeypot)
+  const dashStyle = (p) => {
+    const q = k();
+    p.style.strokeWidth = 0.8 * q;
+    p.style.strokeDasharray = `${2.4 * q} ${1.3 * q}`;
+    let an = p.querySelector("animate");
+    if (!an && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      an = s("animate", { attributeName: "stroke-dashoffset", from: "0", dur: "1.4s", repeatCount: "indefinite" });
+      p.append(an);
+    }
+    if (an) an.setAttribute("to", String(-3.7 * q));
+  };
+  const dropLine = (ip) => {
+    const l = lines.get(ip);
+    if (!l) return;
+    lines.delete(ip);
+    l.g.classList.add("ending");
+    setTimeout(() => l.g.remove(), 900);
+  };
+  const sweep = setInterval(() => {
+    if (!svg.isConnected) { clearInterval(sweep); return; }
+    const now = Date.now();
+    for (const [ip, l] of lines) if (now - l.last > (l.open > 0 ? 120000 : 20000)) dropLine(ip);
+  }, 3000);
+  function track(e) {
+    if (!e.src_ip) return;
+    const l = lines.get(e.src_ip);
+    if (e.type === "connect") {
+      if (e.country && e.country !== "LAN") {
+        counts.set(e.country, (counts.get(e.country) || 0) + 1);
+        const st = stats[e.country] || (stats[e.country] = { today: 0, total: 0 });
+        st.today++;
+        st.total++;
+      }
+      if (!e.lat && !e.lon) return;
+      pulse(e.lat, e.lon, svcColor(e.service));
+      if (l) { l.open++; l.last = Date.now(); l.g.classList.remove("flash"); void l.g.getBoundingClientRect(); l.g.classList.add("flash"); return; }
+      if (!home || !(home.lat || home.lon)) return;
+      const x1 = e.lon + 180, y1 = 90 - e.lat, x2 = home.lon + 180, y2 = 90 - home.lat;
+      if (Math.hypot(x2 - x1, y2 - y1) < 1) return;
+      const d = arcPath(x1, y1, x2, y2);
+      const glow = s("path", { class: "arc-glow", d, style: { strokeWidth: 2.2 * k() } });
+      const path = s("path", { class: "arc-live", d });
+      dashStyle(path);
+      const dot = s("circle", { class: "arc-src", cx: x1, cy: y1, r: 1.1 * k() });
+      const g = s("g", { class: "active-line" }, glow, path, dot);
+      hoverTip(g, () => [[flag(e.country), " ", e.src_ip], [["Ort", [e.city, countryName(e.country)].filter(Boolean).join(", ") || "unbekannt"], ["Zuletzt aktiv", new Date(lines.get(e.src_ip)?.last || Date.now()).toLocaleTimeString("de-DE")]]]);
+      activeG.append(g);
+      lines.set(e.src_ip, { g, glow, path, dot, last: Date.now(), open: 1 });
+      return;
+    }
+    if (!l) return;
+    l.last = Date.now();
+    if (e.type === "disconnect") l.open = Math.max(0, l.open - 1);
+  }
   return {
     el,
     controls: ctl,
     setData,
+    track,
+    activeCount: () => lines.size,
     zoom: (name) => setView(REGIONS[name], true),
     pulse,
     // Angriff: Puls am Ursprung und, wenn ein Standort bekannt ist, eine Linie zum Honeypot.

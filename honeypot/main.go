@@ -127,7 +127,7 @@ func main() {
 			egress := map[int32]string{0: "unbekannt", 1: "gesperrt", 2: "offen"}[egressOpen.Load()]
 			hive.Heartbeat(map[string]any{
 				"sensor": sensor, "version": version, "uptime_s": int64(time.Since(started).Seconds()),
-				"config": cfg, "listeners": listeners, "connections": conns, "tarpits": tarpits,
+				"config": cfg, "listeners": listeners, "connections": conns, "tarpits": tarpits, "held_tarpits": mgr.HeldTarpits(300),
 				"events_sent": em.sent.Load(), "events_dropped": em.dropped.Load(), "events_throttled": em.throttled.Load(),
 				"conns_rejected": mgr.limits.rejected.Load(), "proxied_conns": mgr.proxied.Load(), "egress": egress,
 				"last_error": lastErr, "mem_bytes": ms.Sys, "goroutines": runtime.NumGoroutine(),

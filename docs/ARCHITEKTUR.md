@@ -74,7 +74,8 @@ Regeln, die jeder Handler einhalten muss:
 | `cowrie.go` | `CowrieTail`: liest `cowrie.json` mit Rotation und Wiederaufnahme; `handle` übersetzt Cowrie-Ereignisse |
 | `geo.go` | GeoIP (DB-IP Lite), `Enrich`, monatliches Update |
 | `sse.go` | `Broker`: Live-Ereignisse an Browser |
-| `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `Report.Text` |
+| `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `timelineLine` (Ablauf für die KI), `Report.Text` |
+| `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`), `allURLs` |
 | `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `webhookBody` (Felder der Meldung plus `content` für Discord), `watchWarnings`, Testnachricht |
@@ -114,7 +115,8 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `POST /api/backup/export`, `POST /api/backup/import` | verschlüsselte Sicherung herunterladen bzw. einspielen (nur Admin, Passwort nötig) |
 | `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map`, `/countries?today_from=…` | Kennzahlen (`countries`: Angriffe je Land heute und gesamt); `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
 | `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `from`/`to` (ms), `q`, `range`, `hide_noise`, `before`, `limit` |
-| `GET /api/attacks` | Angriffe, neueste Aktivität zuerst; `range` (`1h`, `24h`, `7d`), `active=1` (letzte 15 Min), `ip=a,b` (Live-Aktualisierung), `stufe=…`, `service`, `q`, `before` (ms), `limit`; liefert dazu `stufen` (Anzahl je Stufe), `matched`, `truncated` |
+| `GET /api/attacks` | Angriffe, neueste Aktivität zuerst; `range` (`1h`, `24h`, `7d`, `30d`, `90d`, `all` = Aufbewahrung), `active=1` (letzte 15 Min), `ip=a,b` (Live-Aktualisierung), `stufe=…`, `service`, `success=1`, `q`, `before` (ms), `limit`; liefert dazu `stufen` (Anzahl je Stufe), `matched`, `truncated` (mehr als 500.000 Ereignisse: nur die neuesten gelesen) |
+| `GET /api/stats/live` | Live-Anzeige der Kopfleiste: `active` (IPs mit Ereignis in den letzten 15 Min), `tarpits` |
 | `GET /api/stats/series` | Verläufe je Kennzahl (`connect`, `ips`, `login`, `request`, `command`, `download`, `success`), Summen und Summen des Zeitraums davor, `active_tarpits` |
 | `GET /api/export/events`, `/api/export/blocklist`, `/api/export/stix` | Export (CSV/JSON, Blockliste, STIX 2.1) |
 | `GET /api/stream` | Live-Ereignisse (SSE) |
@@ -123,7 +125,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET /api/report?ip=…` oder `?session=…` (`&format=text`), `POST /api/report/ai` | Angriffsbericht, KI-Auswertung |
 | `GET/PUT /api/settings` | Sensor-Konfiguration, Aufbewahrung |
 | `GET/PUT /api/extras`, `POST /api/extras/test-notify` | Zusatzfunktionen |
-| `GET /api/tarpit`, `GET /api/system`, `GET /healthz`, `GET /metrics` | Tarpit, System, Überwachung |
+| `GET /api/tarpit`, `GET /api/system`, `GET /healthz`, `GET /metrics` | Tarpit (mit `held`: gerade festgehaltene Verbindungen aus den Lebenszeichen, Herkunft aus `attackers`), System, Überwachung |
 
 ## 4. Datenbank
 

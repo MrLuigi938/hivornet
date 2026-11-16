@@ -2,6 +2,20 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+- **Verschleierte Befehle werden entschlüsselt.** Base64 (auch verschachtelt und URL-sicher), Hex- und Oktal-Escapes sowie URL-Kodierung in Befehlen, Web-Anfragen und Daten werden automatisch aufgedeckt. Der Klartext erscheint auf der Angriffskarte („Entschlüsselt“) und im Angriffsbericht; Nachlade-Adressen darin landen bei den Nachlade-Adressen, in der Analyse und in der Suche, und die Angriffsmuster prüfen auch den entschlüsselten Inhalt. Neues Muster „Verschleierung“.
+- **Gerade festgehaltene Angreifer im Tab Tarpit:** IP, Herkunft, Dienst und Port, Modus, seit wann, und eine mitlaufende Dauer. Der Honeypot meldet die Liste mit jedem Lebenszeichen (alle 10 Sekunden).
+- **Live-Anzeige auf jeder Seite:** Oben rechts steht überall „LIVE · N aktiv · N im Tarpit“; beide Angaben sind Links zu den Angriffen bzw. zum Tarpit.
+- **Kennzahlen im Dashboard anklickbar:** Verbindungen und Angreifer-IPs führen zu den Angriffen, Login-Versuche und Web-Anfragen zur gefilterten Einzelansicht, „Logins angenommen“ zu den Angriffen mit angenommenem Login, Downloads zu den Angriffen mit nachgeladener Datei.
+- **Angriffe über längere Zeiträume:** 30 Tage, 90 Tage und „Alles“ (so weit die Aufbewahrung reicht). Bei sehr vielen Daten wertet der Hive die neuesten 500.000 Ereignisse aus und sagt das an.
+- **Live-Karte:** Gerade aktive Angreifer bekommen eine rote Linie zum Honeypot, die stehen bleibt, solange sie etwas tun, und kurz nach ihrer letzten Verbindung verschwindet. Gilt auch für die Karte im Dashboard.
+
+### Geändert
+- **KI-Auswertung ausführlicher:** Die KI bekommt zusätzlich den zeitlichen Ablauf aller Ereignisse (gleiche Zeilen zusammengefasst) und die entschlüsselten Inhalte und antwortet gegliedert: Kurzfassung, Ablauf, Technik im Detail (jeder aufschlussreiche Befehl erklärt), Ziel und Schadsoftware, automatisiert oder von Hand, Indikatoren, Empfehlungen. Bei Einbrüchen bis etwa 900 Wörter. Die Antwort wird mit Überschriften und Listen dargestellt.
+- Karte: Im Modus „Orte“ reagieren die Länder nicht mehr auf die Maus; die Punkte sind größer (mit Obergrenze) und leichter zu treffen.
+
 ## [0.5.1-beta.1] – 2026-11-15
 
 ### Neu

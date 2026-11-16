@@ -143,9 +143,9 @@ func (n *Notifier) OnEvent(e *Event) {
 		nt.Text = fmt.Sprintf("%s von %s\n%s\nSHA-256: %s", e.Service, origin(e),
 			clip(dataString(e.Data, "url")+dataString(e.Data, "filename"), 300), dataString(e.Data, "sha256"))
 	case "command", "request":
-		text, on := eventText(e)
+		text, on, revealed := analysisText(e)
 		severe := ""
-		for _, id := range matchPatterns(text, on) {
+		for _, id := range matchAll(text, on, revealed) {
 			if patternByID[id].Sev >= 3 {
 				severe = patternByID[id].Name
 				break

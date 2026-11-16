@@ -10,7 +10,7 @@ export const STUFE_KURZ = ["Scan", "Versuche", "Login ok", "Befehle", "Download"
 export const sevColor = (n) => `var(--sev${n})`;
 const TYPCOL = { connect: "var(--other)", client_version: "var(--other)", tls: "var(--other)", fingerprint: "var(--other)",
   login: "var(--sev1)", request: "var(--s2)", payload: "var(--s7)", command: "var(--sev3)", download: "var(--sev4)", tty: "var(--sev3)" };
-const RANGES = [["1h", "1 Std"], ["24h", "24 Std"], ["7d", "7 Tage"]];
+const RANGES = [["1h", "1 Std"], ["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"], ["90d", "90 Tage"], ["all", "Alles"]];
 
 // Kurzfassung in einer Zeile
 export function summary(a) {
@@ -92,7 +92,8 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     a.creds && a.creds.length ? ["Zugangsdaten" + (a.creds_distinct > 1 ? ` (${fmtNum(a.creds_distinct)} verschiedene)` : ""), counted(a.creds, 8), a.creds_distinct > 8 ? `+${fmtNum(a.creds_distinct - 8)}` : null] : null,
     a.paths && a.paths.length ? ["Aufgerufene Pfade" + (a.paths_distinct > 1 ? ` (${fmtNum(a.paths_distinct)})` : ""), counted(a.paths, 8), a.paths_distinct > 8 ? `+${fmtNum(a.paths_distinct - 8)}` : null] : null,
     a.commands && a.commands.length ? ["Befehle", a.commands.slice(0, 6), a.commands.length > 6 ? `+${a.commands.length - 6}` : null] : null,
-    a.urls && a.urls.length ? ["Nachgeladen (nicht aufrufen)", a.urls, null, "hot"] : null,
+    a.urls && a.urls.length ? ["Nachlade-Adressen (nicht aufrufen)", a.urls, null, "hot"] : null,
+    a.decoded && a.decoded.length ? ["Entschlüsselt (Base64, Hex …)", a.decoded, null, "decoded"] : null,
     a.tags && a.tags.length ? ["Erkannte Muster", a.tags.map((t) => t.label || t.key), null, "tag"] : null,
     a.clients && a.clients.length ? ["Client", a.clients, null] : null,
   ].filter(Boolean);
@@ -186,7 +187,12 @@ export function liveAttacks(ctx, onUpdate) {
 
 export async function viewAttacks(el, ctx, query = "") {
   const params = new URLSearchParams(query.replace(/^\?/, ""));
-  const f = { range: store("attRange") || "24h", stufe: new Set(), service: "", q: params.get("q") || "", paused: false };
+  // Filter aus dem Link übernehmen (z. B. von den Kennzahlen im Dashboard)
+  const f = {
+    range: RANGES.some(([v]) => v === params.get("range")) ? params.get("range") : store("attRange") || "24h",
+    stufe: new Set((params.get("stufe") || "").split(",").filter((x) => /^[0-4]$/.test(x)).map(Number)),
+    service: params.get("service") || "", q: params.get("q") || "", success: params.get("success") === "1", paused: false,
+  };
   const open = new Set();
   let list = [], matched = 0, stufen = [0, 0, 0, 0, 0], truncated = false;
 
@@ -210,6 +216,7 @@ export async function viewAttacks(el, ctx, query = "") {
     const chip = (on, label, n, color, click) => h("button", { class: "fchip" + (on ? " on" : ""), onclick: click, "aria-pressed": String(on) },
       color ? h("i", { style: { background: color } }) : null, label, n != null ? h("b", null, fmtNum(n)) : null);
     mount(chips,
+      f.success ? chip(true, "Nur angenommene Logins ✕", null, sevColor(2), () => { f.success = false; load(); }) : null,
       STUFE.map((st, i) => chip(f.stufe.has(i), st, stufen[i], sevColor(i), () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); load(); })),
       h("span", { class: "fsep" }),
       ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"].map((sv) => chip(f.service === sv, svcName(sv), null, svcColor(sv), () => { f.service = f.service === sv ? "" : sv; load(); })));
@@ -229,7 +236,7 @@ export async function viewAttacks(el, ctx, query = "") {
     for (const a of [...list].sort((x, y) => x.first - y.first)) { by.set(a.ip, (by.get(a.ip) || 0) + 1); a.seen = by.get(a.ip); }
   };
   const els = new Map(); // Angriff -> Element, damit Live-Updates nur die geänderte Karte ersetzen
-  const setInfo = () => { info.textContent = `${fmtNum(list.length)} von ${fmtNum(matched)} Angriffen angezeigt` + (truncated ? " · Zeitraum zu groß, nicht alle Ereignisse gelesen" : ""); };
+  const setInfo = () => { info.textContent = `${fmtNum(list.length)} von ${fmtNum(matched)} Angriffen angezeigt` + (truncated ? " · sehr viele Daten: nur die neuesten 500.000 Ereignisse ausgewertet" : ""); };
   function render() {
     seenCount();
     renderChips();
@@ -250,6 +257,7 @@ export async function viewAttacks(el, ctx, query = "") {
     const p = new URLSearchParams({ range: f.range, limit: "40" });
     if (f.stufe.size) p.set("stufe", [...f.stufe].join(","));
     if (f.service) p.set("service", f.service);
+    if (f.success) p.set("success", "1");
     if (f.q) p.set("q", f.q);
     if (before) p.set("before", String(before));
     return p.toString();
@@ -277,7 +285,7 @@ export async function viewAttacks(el, ctx, query = "") {
         ". Die Art (z. B. „SSH-Brute-Force“) ist aus dem Verhalten geschätzt.")))));
   await load();
 
-  const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && !f.q;
+  const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && (!f.success || a.success) && !f.q;
   liveAttacks(ctx, (updated) => {
     if (f.paused) return;
     for (const a of updated.sort((x, y) => x.last - y.last)) {

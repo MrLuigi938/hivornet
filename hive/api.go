@@ -415,7 +415,36 @@ func (h *Hive) tarpit(w http.ResponseWriter, r *http.Request) {
 		WHERE type='disconnect' AND tarpit=1 AND ts >= ? GROUP BY src_ip ORDER BY tarpit_ms DESC LIMIT 15`, ms)
 	byPort, _ := h.rows(ctx, `SELECT service, dst_port, SUM(tarpit_ms) AS tarpit_ms, COUNT(*) AS n FROM events
 		WHERE type='disconnect' AND tarpit=1 AND ts >= ? GROUP BY service, dst_port ORDER BY tarpit_ms DESC`, ms)
+	// Wer gerade festgehalten wird: Herkunft aus der Angreifer-Tabelle ergänzen
+	held, complete := h.sensors.Held()
+	if len(held) > 0 {
+		ips, seen := []any{}, map[string]bool{}
+		for _, x := range held {
+			if ip := x["ip"].(string); !seen[ip] {
+				seen[ip] = true
+				ips = append(ips, ip)
+			}
+		}
+		info := map[string]map[string]any{}
+		if rs, err := h.rows(ctx, `SELECT ip, country, country_name, city, asn, as_org FROM attackers WHERE ip IN (`+
+			strings.TrimSuffix(strings.Repeat("?,", len(ips)), ",")+`)`, ips...); err == nil {
+			for _, r := range rs {
+				info[r["ip"].(string)] = r
+			}
+		}
+		for _, x := range held {
+			if r := info[x["ip"].(string)]; r != nil {
+				for _, k := range []string{"country", "country_name", "city", "asn", "as_org"} {
+					x[k] = r[k]
+				}
+			}
+		}
+	}
+	if held == nil {
+		held = []map[string]any{}
+	}
 	writeJSON(w, map[string]any{
+		"held": held, "held_complete": complete,
 		"total_ms": total, "connections": count, "active": h.sensors.ActiveTarpits(),
 		"longest": longest, "by_ip": byIP, "by_port": byPort, "sensors": h.sensors.All(),
 	})
