@@ -120,6 +120,7 @@ export async function viewAnalysis(el) {
     h("div", { class: "grid two" },
       card("SSH- und Client-Versionen", toplist(clients)),
       card("User-Agents", toplist(uas))),
+    await campaignsCard(),
     card("Bekannte Lücken (CVE)", cves.length ? toplist(cves, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })
       : h("div", { class: "empty" }, "Noch keine Ausnutzungsversuche bekannter Lücken erkannt."),
       h("p", { class: "muted" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre.")),
@@ -128,6 +129,31 @@ export async function viewAnalysis(el) {
       card("SSH-Fingerabdrücke (HASSH)", toplist(hassh, { link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })),
       card("Reihenfolge der HTTP-Kopfzeilen", toplist(httpfp, { key: (x) => x.key + "  " + (x.label || ""), link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) }))),
     h("p", { class: "muted" }, "Den vollständigen Ablauf eines einzelnen Angreifers zeigt der Angriffsbericht auf der Seite der jeweiligen IP oder Sitzung.")));
+}
+
+// Kampagnen: IPs mit gleicher Zugangsdatenliste oder Nachlade-Adresse (hive/campaigns.go)
+const STUFE_NAME = ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"];
+async function campaignsCard() {
+  let d;
+  try { d = await api(`campaigns?range=${state.range}`); } catch (e) { return card("Kampagnen", h("div", { class: "msg err" }, e.message)); }
+  const ipLinks = (ips) => ips.slice(0, 12).map((ip) => [h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(ip) }, ip), " "]);
+  return card("Kampagnen",
+    h("p", { class: "sub" }, "Angreifer, die zusammengehören: gleiche Liste von Zugangsdaten oder gleiche Nachlade-Adresse. ",
+      "Gleiche Fingerabdrücke zeigen nur dasselbe Werkzeug und stehen darunter."),
+    d.campaigns.length ? h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["IPs", "Gemeinsam", "Art", "Höchste Stufe", "Herkunft", "Zeitraum", "Beispiele"].map((t) => h("th", null, t)))),
+      h("tbody", null, d.campaigns.slice(0, 30).map((c) => h("tr", null,
+        h("td", null, h("b", null, fmtNum(c.n_ips)), " ", h("div", null, ipLinks(c.ips), c.n_ips > 12 ? h("span", { class: "muted" }, `+${c.n_ips - 12}`) : null)),
+        h("td", null, c.reasons.join(", ")),
+        h("td", null, c.profile),
+        h("td", null, STUFE_NAME[c.stufe] || c.stufe),
+        h("td", null, c.countries.map((x) => [flag(x.key), " ", fmtNum(x.n), " "]), c.n_asns ? h("span", { class: "muted" }, ` · ${fmtNum(c.n_asns)} Netze`) : null),
+        h("td", { class: "num" }, fmtDateTime(c.first), " – ", fmtDateTime(c.last)),
+        h("td", { class: "mono" }, [...(c.urls || []), ...(c.creds || []).slice(0, 4)].join("  ·  ")))))))
+      : h("div", { class: "empty" }, "Im Zeitraum keine zusammengehörigen Angreifer erkannt."),
+    d.tools.length ? [h("h3", null, "Gleiches Werkzeug (Fingerabdruck bei mindestens 3 IPs)"), h("ul", { class: "toplist" }, d.tools.map((f) => h("li", null,
+      h("a", { class: "k mono", href: "#/attacks?q=" + encodeURIComponent(f.fingerprint.split(" ")[1] || f.fingerprint) }, f.fingerprint),
+      h("span", { class: "n" }, `${fmtNum(f.n_ips)} IPs`))))] : null);
 }
 
 // ---------- Angriffsbericht ----------
