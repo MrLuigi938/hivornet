@@ -23,6 +23,14 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Geräteprofile** (Einstellungen → Geräteprofil): Linux-Server, NAS oder Router/Kamera bestimmen Banner und Versionen aller Dienste; „Profil übernehmen“ schaltet dazu passende Dienste ein und setzt den Hostnamen. Bestehende Installationen behalten ihr Verhalten, bis ein Profil gewählt wird.
 - **FTP mit Schein-Verzeichnis:** Anmeldung anonym und mit den Köder-Zugangsdaten, Verzeichnisse und Dateigrößen; `LIST`, `RETR` und `STOR` werden aufgezeichnet, Daten aber nie übertragen (keine Datenverbindung).
 - **Docker-API** listet Container und Images.
+- **Angriffskette** auf der Seite eines Angreifers und einer Sitzung: ein frei beweglicher Graph aus Bubbles (Ports, Anmeldungen, Exploits, Befehlsgruppen, Nachlade-Hosts, Dateien, Weiterleitungen), angeordnet nach Phasen von Erkundung bis Ziel, mit Pfeilen für die Reihenfolge und die Herkunft von Dateien. Verschieben, zoomen, Bubbles umsetzen; ein Klick zeigt Einzelheiten, MITRE-Techniken und Verbindungen; dazu der Hauptpfad in einer Zeile.
+- **Fingerabdrücke:** JA3 und JA4 aus dem TLS-Handshake (HTTPS und Handshakes an Klartext-Ports), Reihenfolge der HTTP-Kopfzeilen, HASSH; am Angriff, im Bericht und in der Analyse.
+- **Kampagnen** (Analyse): Angreifer mit gleicher Zugangsdatenliste oder gleicher Nachlade-Adresse werden zusammengefasst; gleiche Fingerabdrücke bei mehreren IPs zeigen dasselbe Werkzeug.
+- **Bekannte Lücken und MITRE ATT&CK:** 16 Ausnutzungsversuche bekannter Lücken werden mit CVE-Nummer benannt (Log4Shell, PHPUnit, GPON, Huawei HG532 …); jedes Muster ist MITRE-ATT&CK-Techniken zugeordnet.
+- **Angebliche Suchmaschinen-Bots** (Googlebot, Bingbot, Applebot, YandexBot) werden per Rückwärts- und Vorwärtsauflösung geprüft; gefälschte sind gekennzeichnet, echte nicht an AbuseIPDB gemeldet.
+- **URLhaus und MalwareBazaar:** Nachlade-Adressen und Datei-Hashes im Bericht auf Knopfdruck nachschlagen (kostenloser Schlüssel von abuse.ch).
+- **Ungewöhnliche Zugangsdaten** (nicht in gängigen Standard- und Werkslisten) sind in den Top-Listen markiert.
+- **Wochenbericht** montags ab 8 Uhr über ntfy, Telegram oder Webhook (Einstellungen → Benachrichtigungen, mit Vorschau).
 - **Eigene Netze:** Verbindungen aus privaten Adressen und aus einstellbaren Netzen gelten als „eigener Test“: gespeichert und auf der Seite Angriffe einsehbar, aber nicht in Kennzahlen, Top-Listen, Angreiferliste, „Gerade aktiv“ und Benachrichtigungen.
 
 ## [0.5.2-beta.1] – 2026-11-16

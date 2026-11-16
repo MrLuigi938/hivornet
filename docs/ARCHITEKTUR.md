@@ -33,7 +33,7 @@ honeypot <── GET /api/sensor/config (alle 15 s) ── hive      honeypot �
 Ausgehende Verbindungen:
 
 - `honeypot` und `cowrie`: keine (Netzsperre `tools/firewall.sh`, auf dem Pi `hivornet-firewall`); der Honeypot prüft das selbst (`HONEYPOT_EGRESS_PROBE`).
-- `hive`: GeoIP-Download (`download.db-ip.com`), Update-Prüfung (`api.github.com`, abschaltbar) sowie, nur wenn eingerichtet oder auf Knopfdruck, Benachrichtigungen, KI-Schnittstelle, AbuseIPDB (Abfrage und, wenn eingeschaltet, automatische Meldung) und GreyNoise.
+- `hive`: GeoIP-Download (`download.db-ip.com`), Update-Prüfung (`api.github.com`, abschaltbar) sowie, nur wenn eingerichtet oder auf Knopfdruck, Benachrichtigungen, KI-Schnittstelle, AbuseIPDB (Abfrage und, wenn eingeschaltet, automatische Meldung), GreyNoise und abuse.ch (URLhaus, MalwareBazaar). DNS-Auflösung über den Resolver des Systems für die Prüfung angeblicher Suchmaschinen-Bots.
 
 ## 2. Honeypot (`honeypot/`)
 
@@ -80,6 +80,13 @@ Regeln, die jeder Handler einhalten muss:
 | `einstufung.go` | **Einstufung an einer Stelle:** `eventKind` (TLS am Klartext-Port, Eingabe an der Login-Abfrage, Protokoll-Abfrage, Protokoll-Befehl, ausgeführter Befehl), `commandExecuted`, `redisChanging`, `probeCommand`, `promptLines`, `requestKey`/`maskSIP` (SIP/DNS-Schlüssel) |
 | `abusereport.go` | **Automatische Meldung an AbuseIPDB:** `abuseVerdict` (wann und mit welchen Kategorien), `abuseComment`/`scrubComment` (ohne Passwörter, IPs, Hostnamen), `abuseRound` alle 5 Minuten über die Angriffe der letzten 30 Minuten, `sendAbuseReport` (`POST /api/v2/report`, Kontingent aus `X-RateLimit-*`, Pause bei 429), Protokoll in `kv` (`abuse_report_log`), Abstand je IP in `lookups` (`abuse_report`, `abuse_report_dry`) |
 | `bait.go` | Köder-Zugangsdaten wie im Honeypot ableiten, `baitUsed`, `eventPatterns` (Muster plus `bait_used`) |
+| `tlsfp.go` | `parseClientHello`, JA3 und JA4 (TLS-Client, FoxIO-Spezifikation), `headerFingerprint`, `eventFingerprints` |
+| `cve.go` | `cveRules` (CVE je Web-Anfrage), `patternMitre`/`mitreNames` (MITRE ATT&CK je Muster) |
+| `campaigns.go` | Kampagnen über gleiche Zugangsdatenlisten und Nachlade-Hosts (Union-Find), gleiche Fingerabdrücke; `GET /api/campaigns` |
+| `chain.go` | Angriffskette: Knoten je Phase, Kanten (Reihenfolge je Sitzung, Herkunft von Adressen); `GET /api/chain?ip=…|session=…` |
+| `botverify.go` | Suchmaschinen-Bots per Rückwärts- und Vorwärtsauflösung prüfen (Hintergrund, 2/s, `lookups`/`rdns`) |
+| `abusech.go` | URLhaus und MalwareBazaar auf Knopfdruck (`GET /api/lookup/urlhaus`, `/api/lookup/malwarebazaar`) |
+| `weekly.go` | ungewöhnliche Zugangsdaten (`rareCred`), Wochenbericht (`runWeekly`, `GET /api/weekly`) |
 | `scanner.go` | Forschungsscanner (Shodan, Censys …) am AS-Namen und User-Agent erkennen: `researchScanner` |
 | `ownnet.go` | Eigene Netze (`OwnNets` in den Extras): `isOwnIP`, `ownHidden`; der Writer schreibt eigene Tests nur nach `events`, Notifier und `/api/attacks` blenden sie aus |
 | `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |
@@ -133,6 +140,8 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET /api/report?ip=…` oder `?session=…` (`&format=text`), `POST /api/report/ai` | Angriffsbericht, KI-Auswertung |
 | `GET/PUT /api/settings` | Sensor-Konfiguration, Aufbewahrung |
 | `GET/PUT /api/extras`, `POST /api/extras/test-notify` | Zusatzfunktionen |
+| `GET /api/campaigns`, `GET /api/chain`, `GET /api/weekly` | Kampagnen, Angriffskette, Vorschau des Wochenberichts |
+| `GET /api/lookup/urlhaus?url=…`, `GET /api/lookup/malwarebazaar?hash=…` | abuse.ch auf Knopfdruck (nur Adressen und Hashes aus den eigenen Daten) |
 | `GET /api/abuse/log` | Protokoll der AbuseIPDB-Meldungen, Kontingent, letzter Fehler (nur Admin) |
 | `GET /api/tarpit`, `GET /api/system`, `GET /healthz`, `GET /metrics` | Tarpit (mit `held`: gerade festgehaltene Verbindungen aus den Lebenszeichen, Herkunft aus `attackers`), System, Überwachung |
 

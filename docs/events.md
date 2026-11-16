@@ -37,12 +37,12 @@ Geo-Felder (`country`, `city`, `lat`, `lon`, `asn`, `as_org`) ergänzt der Hive 
 | `disconnect` | `bytes_out` |
 | `login` | `success` (Cowrie), `path` (HTTP), `password_hashed`, `auth_hex`, `database`, `plugin` (MySQL); `accepted` (Telnet und FTP des Honeypots: Login wurde zum Schein angenommen); `bait` (Köder-Zugangsdaten benutzt, bei MySQL am Hash erkannt); `password_hashed`, `challenge`, `response` (VNC, Hex); `cookie`, `protocols` (RDP: nur Benutzername aus dem Cookie) |
 | `command` | `input`, optional `truncated`; bei FTP nach dem Login `cwd` und bei `STOR`/`APPE` `upload: true` |
-| `request` | `method`, `path`, `host`, `user_agent`, `version`, `headers`, `body`, `body_truncated`; bei Cowrie `forward_to` |
+| `request` | `method`, `path`, `host`, `user_agent`, `version`, `headers`, `body`, `body_truncated`, `header_order` (Namen der Kopfzeilen in gesendeter Reihenfolge, ab 0.5.3); bei Cowrie `forward_to` |
 | `download` | `url`, `sha256`, `failed`, bzw. `filename`, `upload` |
 | `client_version` | `version`; bei RDP zusätzlich `client_name`, `keyboard_layout` |
 | `fingerprint` | `hassh`, `hassh_algorithms` (Cowrie) |
 | `payload` | `text` (nicht druckbare Bytes als `\xNN`), `bytes`; bei SMTP `mail: true` (Anfang einer Mail, `bytes` = gelesene Größe) |
-| `tls` | `sni`; TLS-Handshake an einem Klartext-Port (Honeypot ab 0.5.3): `plain: true`, `client_hello` (erster TLS-Record als Hex, höchstens 3.072 Bytes), `bytes` (Länge des Records), `truncated` |
+| `tls` | `sni`; ab 0.5.3 bei HTTPS auch `client_hello` (für JA3/JA4); TLS-Handshake an einem Klartext-Port (Honeypot ab 0.5.3): `plain: true`, `client_hello` (erster TLS-Record als Hex, höchstens 3.072 Bytes), `bytes` (Länge des Records), `truncated` |
 | `tty` | `shasum`, `size`, `duration_s`: Cowrie hat einen Terminal-Mitschnitt geschrieben. Entsteht nur im Hive (Cowrie-Leser), nie über die Sensor-API |
 
 ## Kompatibilität
