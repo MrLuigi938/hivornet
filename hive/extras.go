@@ -27,6 +27,7 @@ type Extras struct {
 	AI           AIConfig          `json:"ai"`
 	AbuseIPDBKey string            `json:"abuseipdb_key"`
 	GreyNoiseKey string            `json:"greynoise_key"` // optional; ohne Schlüssel geht die Community-API mit kleinem Kontingent
+	AbuseChKey   string            `json:"abusech_key"`   // URLhaus und MalwareBazaar (abusech.go)
 	Own          OwnNets           `json:"own"`           // eigene Netze (ownnet.go)
 	AbuseReport  AbuseReportConfig `json:"abuse_report"`  // automatische Meldung (abusereport.go)
 }
@@ -68,7 +69,7 @@ func defaultExtras() Extras {
 func (x *Extras) secretFields() map[string]*string {
 	return map[string]*string{
 		"ntfy_token": &x.Notify.NtfyToken, "telegram_token": &x.Notify.TelegramToken,
-		"ai_api_key": &x.AI.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey,
+		"ai_api_key": &x.AI.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey, "abusech_key": &x.AbuseChKey,
 	}
 }
 

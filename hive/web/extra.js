@@ -156,6 +156,25 @@ async function campaignsCard() {
       h("span", { class: "n" }, `${fmtNum(f.n_ips)} IPs`))))] : null);
 }
 
+// Abfrage bei abuse.ch auf Knopfdruck; das Ergebnis erscheint hinter dem Knopf (nur Text).
+function lookupBtn(name, path, fmt) {
+  const out = h("span", { class: "muted" });
+  const b = h("button", { class: "btn small", onclick: async () => {
+    b.disabled = true;
+    out.textContent = " frage " + name + " …";
+    try { const d = await api(path); out.textContent = " " + fmt(d.data); } catch (e) { out.textContent = " " + e.message; }
+    b.disabled = false;
+  } }, name);
+  return h("span", null, b, out);
+}
+const urlhausText = (d) => d.query_status === "no_results" ? "bei URLhaus unbekannt"
+  : `URLhaus: ${d.threat || "gelistet"}, ${d.url_status === "online" ? "noch online" : d.url_status || "Status unbekannt"}` +
+    (d.signatures && d.signatures.length ? ", " + d.signatures.join(", ") : "") + (d.tags && d.tags.length ? " · " + d.tags.join(", ") : "") +
+    (d.date_added ? " · seit " + d.date_added : "");
+const bazaarText = (d) => d.query_status === "hash_not_found" ? "bei MalwareBazaar unbekannt"
+  : d.query_status !== "ok" ? "MalwareBazaar: " + d.query_status
+  : `MalwareBazaar: ${d.signature || "ohne Familie"} (${d.file_type || "?"})` + (d.tags && d.tags.length ? " · " + d.tags.join(", ") : "") + (d.first_seen ? " · zuerst " + d.first_seen : "");
+
 // ---------- Angriffsbericht ----------
 
 const SEV = { hoch: "Einstufung: hoch", mittel: "Einstufung: mittel", niedrig: "Einstufung: niedrig" };
@@ -244,10 +263,11 @@ export function reportCard({ ip, session }) {
       r.decoded && r.decoded.length ? [h("h3", null, "Entschlüsselte Inhalte (Base64, Hex, URL-Kodierung)"),
         h("p", { class: "muted", style: { margin: "0 0 6px" } }, "Der Angreifer hat diese Stellen verschleiert; so sehen sie im Klartext aus."),
         h("div", { class: "term" }, r.decoded.map((c) => h("div", null, c)))] : null,
-      r.urls.length ? [h("h3", null, "Nachlade-Adressen (nicht aufrufen)"), monoList(r.urls)] : null,
+      r.urls.length ? [h("h3", null, "Nachlade-Adressen (nicht aufrufen)"), monoList(r.urls.map((u) => [u, " ", lookupBtn("URLhaus", "lookup/urlhaus?url=" + encodeURIComponent(u), urlhausText)]))] : null,
       r.files.length ? [h("h3", null, "Dateien"), monoList(r.files)] : null,
       r.hashes.length ? [h("h3", null, "SHA-256 der Downloads"), monoList(r.hashes.map((x) => (sha256.test(x)
-        ? [x, " ", h("a", { href: "https://www.virustotal.com/gui/file/" + x, target: "_blank", rel: "noopener noreferrer" }, "bei VirusTotal nachschlagen")] : x)))] : null,
+        ? [x, " ", h("a", { href: "https://www.virustotal.com/gui/file/" + x, target: "_blank", rel: "noopener noreferrer" }, "bei VirusTotal nachschlagen"), " ",
+          lookupBtn("MalwareBazaar", "lookup/malwarebazaar?hash=" + x, bazaarText)] : x)))] : null,
       r.clients.length ? [h("h3", null, "Clients"), monoList(r.clients)] : null,
       r.commands.length ? [h("h3", null, "Befehle in Reihenfolge"), h("div", { class: "term" }, r.commands.map((c) => h("div", null, h("span", { class: "cmd" }, c))))] : null,
       h("div", { class: "btnrow" },
@@ -379,7 +399,7 @@ export async function extrasCards() {
   });
 
   const body = () => ({
-    home: x.home, abuseipdb_key: secrets.abuseipdb_key || "", greynoise_key: secrets.greynoise_key || "",
+    home: x.home, abuseipdb_key: secrets.abuseipdb_key || "", greynoise_key: secrets.greynoise_key || "", abusech_key: secrets.abusech_key || "",
     notify: { ...x.notify, ntfy_token: secrets.ntfy_token || "", telegram_token: secrets.telegram_token || "" },
     ai: { ...x.ai, api_key: secrets.ai_api_key || "" },
     own: x.own, abuse_report: x.abuse_report,
@@ -457,6 +477,10 @@ export async function extrasCards() {
         check(x.abuse_report, "skip_scanners", "Forschungsscanner (Shodan, Censys, Shadowserver …) nicht melden"), h("br"),
         check(x.abuse_report, "include_web_probe", "Auch die Suche nach .env, .git und Anmeldeseiten als Web-Angriff melden"))),
       await abuseLogBox()),
+    card("URLhaus und MalwareBazaar (optional)",
+      h("p", { class: "sub" }, "Mit einem kostenlosen Schlüssel von auth.abuse.ch lassen sich im Angriffsbericht Nachlade-Adressen bei URLhaus und Datei-Hashes bei MalwareBazaar nachschlagen, ",
+        "jeweils nur auf Knopfdruck. Es wird nichts hochgeladen; abuse.ch sieht nur die abgefragte Adresse bzw. den Hash."),
+      row("Auth-Key", secret("abusech_key"))),
     card("GreyNoise (optional)",
       h("p", { class: "sub" }, "Zeigt, ob eine IP als Massen-Scanner oder als harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
       row("API-Schlüssel", secret("greynoise_key"))),
