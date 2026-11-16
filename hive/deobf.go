@@ -40,10 +40,7 @@ func readable(b []byte) bool {
 
 // interesting: lohnt sich die Anzeige? Wörter, Leerzeichen, Pfade oder Adressen, nicht nur Buchstabensalat.
 func interesting(s string) bool {
-	if strings.ContainsAny(s, " /.;|=:") {
-		return true
-	}
-	return false
+	return strings.ContainsAny(s, " /.;|=:")
 }
 
 func decodeB64(tok string) ([]byte, bool) {
