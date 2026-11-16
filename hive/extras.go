@@ -41,9 +41,10 @@ type NotifyConfig struct {
 	WebhookURL    string `json:"webhook_url"` // bekommt JSON {title, text, kind, ip, time}
 	OnLogin       bool   `json:"on_login"`    // erfolgreicher Login (Cowrie)
 	OnDownload    bool   `json:"on_download"`
-	OnCommand     bool   `json:"on_command"` // erster Befehl einer Sitzung
-	OnSevere      bool   `json:"on_severe"`  // Muster mit Schweregrad 3 (Nachladen, Miner, ...)
-	OnWarning     bool   `json:"on_warning"` // kritische Systemwarnung
+	OnCommand     bool   `json:"on_command"`    // erster Befehl einer Sitzung
+	OnSevere      bool   `json:"on_severe"`     // Muster mit Schweregrad 3 (Nachladen, Miner, ...)
+	OnWarning     bool   `json:"on_warning"`    // kritische Systemwarnung
+	WeeklyReport  bool   `json:"weekly_report"` // Wochenbericht montags (weekly.go)
 	MaxPerHour    int    `json:"max_per_hour"`
 }
 

@@ -198,6 +198,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("POST /api/extras/test-notify", a.Require(h.testNotify))
 	ui.HandleFunc("GET /api/abuse/log", a.Require(h.abuseLog))
 	ui.HandleFunc("GET /api/campaigns", a.Require(h.campaigns))
+	ui.HandleFunc("GET /api/weekly", a.Require(h.weeklyPreview))
 	ui.HandleFunc("GET /api/lookup/urlhaus", a.Require(h.lookupURLhaus))
 	ui.HandleFunc("GET /api/lookup/malwarebazaar", a.Require(h.lookupBazaar))
 	ui.HandleFunc("GET /api/tarpit", a.Require(h.tarpit))
@@ -287,6 +288,7 @@ func main() {
 	botVerifier.st = st
 	botVerifier.mu.Unlock()
 	go botVerifier.run(bgStop)
+	go h.runWeekly(bgStop)
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
 	st.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID)

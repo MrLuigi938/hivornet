@@ -675,6 +675,8 @@ async function viewAttacker(el, ctx, ip) {
 
 // ---------- Zugangsdaten ----------
 
+const rareBadge = (x) => (x.rare ? h("span", { class: "badge", title: "Nicht in gängigen Standard- und Werkslisten" }, "ungewöhnlich") : null);
+
 async function viewCreds(el) {
   header("Zugangsdaten und Muster", { range: true });
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
@@ -684,7 +686,9 @@ async function viewCreds(el) {
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Ein Klick auf einen Eintrag zeigt die Angriffe, in denen er vorkam."),
     h("div", { class: "grid three" },
-      card("Benutzernamen", toplist(users, { link: find })), card("Passwörter", toplist(pws, { link: find })), card("Kombinationen", toplist(combos, { link: find }))),
+      card("Benutzernamen", toplist(users, { link: find, extra: rareBadge })), card("Passwörter", toplist(pws, { link: find, extra: rareBadge })),
+      card("Kombinationen", toplist(combos, { link: find, extra: rareBadge }))),
+    h("p", { class: "muted" }, "„ungewöhnlich“: steht in keiner gängigen Standard- oder Werksliste; deutet auf gezielte Angriffe oder abgeflossene Zugangsdaten hin."),
     h("div", { class: "grid two" },
       card("Befehle", toplist(cmds, { link: find })),
       card("HTTP-Pfade", toplist(paths, { link: find, extra: (x) => h("span", { class: "muted" }, svcName(x.label)) }))),

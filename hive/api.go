@@ -260,8 +260,28 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	since, _ := rangeSince(r)
-	h.sendRows(w, r, `SELECT key, MAX(label) AS label, SUM(n) AS n FROM top_hourly WHERE field = ? AND hour >= ?
-		GROUP BY key ORDER BY n DESC LIMIT ?`, field, since.UnixMilli()/3600000, qInt(r, "limit", 10, 100))
+	q := `SELECT key, MAX(label) AS label, SUM(n) AS n FROM top_hourly WHERE field = ? AND hour >= ?
+		GROUP BY key ORDER BY n DESC LIMIT ?`
+	if field == "username" || field == "password" || field == "cred" { // ungewöhnliche hervorheben (weekly.go)
+		ctx, cancel := qctx(r)
+		defer cancel()
+		rows, err := h.rows(ctx, q, field, since.UnixMilli()/3600000, qInt(r, "limit", 10, 100))
+		if err != nil {
+			httpErr(w, 500, err.Error())
+			return
+		}
+		for _, row := range rows {
+			if rareRow(field, fmt.Sprint(row["key"])) {
+				row["rare"] = true
+			}
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		writeJSON(w, rows)
+		return
+	}
+	h.sendRows(w, r, q, field, since.UnixMilli()/3600000, qInt(r, "limit", 10, 100))
 }
 
 // countryStats liefert Angriffe (Verbindungen) je Land: heute und insgesamt.

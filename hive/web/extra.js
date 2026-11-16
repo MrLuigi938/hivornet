@@ -449,7 +449,9 @@ export async function extrasCards() {
         check(n, "on_download", "Datei geladen"), h("br"),
         check(n, "on_severe", "Schweres Angriffsmuster (Nachladen, Miner, Übernahme)"), h("br"),
         check(n, "on_command", "Erster Befehl einer Sitzung"), h("br"),
-        check(n, "on_warning", "Kritische Systemwarnung (Sensor still, Netzsperre fehlt)"))),
+        check(n, "on_warning", "Kritische Systemwarnung (Sensor still, Netzsperre fehlt)"), h("br"),
+        check(n, "weekly_report", "Wochenbericht (montags ab 8 Uhr)"))),
+      h("details", null, h("summary", null, "Vorschau des Wochenberichts (letzte 7 Tage)"), weeklyBox()),
       row("Höchstens pro Stunde", numIn(n, "max_per_hour", 1, 500, 1), "Darüber wird nur gezählt."),
       h("p", { class: "muted" }, `Bisher gesendet: ${fmtNum(st.sent)}, unterdrückt: ${fmtNum(st.suppressed)}.`,
         st.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + st.last_error) : null),
@@ -508,6 +510,12 @@ async function abuseLogBox() {
         h("td", null, h("span", { class: "badge " + (e.status === "ok" ? "ok" : e.status === "error" ? "err" : ""), title: e.error || "" }, st[e.status] || e.status)),
         h("td", null, (e.categories || []).map((c) => ABUSE_CAT[c] || c).join(", ")),
         h("td", { class: "mono" }, e.comment)))))) : h("div", { class: "empty" }, "Noch keine Meldungen."));
+}
+
+function weeklyBox() {
+  const pre = h("pre", { class: "mono", style: { whiteSpace: "pre-wrap" } }, "Lade …");
+  api("weekly").then((d) => { pre.textContent = d.text; }).catch((e) => { pre.textContent = e.message; });
+  return pre;
 }
 
 // ---------- Benutzer (nur für Admins) ----------

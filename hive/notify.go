@@ -179,6 +179,15 @@ func (n *Notifier) OnEvent(e *Event) {
 	n.push(nt, nt.IP, c.MaxPerHour)
 }
 
+// Report verschickt einen Bericht (Wochenbericht) über die eingerichteten Wege.
+func (n *Notifier) Report(title, text string) {
+	c := n.cfg()
+	if !c.Enabled {
+		return
+	}
+	n.push(notice{Kind: "report", Title: title, Text: text, Time: time.Now()}, "report", c.MaxPerHour+1)
+}
+
 // Warn meldet eine kritische Systemwarnung (Sensor still, Netzsperre fehlt ...).
 func (n *Notifier) Warn(text string) {
 	c := n.cfg()
