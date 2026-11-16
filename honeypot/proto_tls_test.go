@@ -111,3 +111,29 @@ func TestNoTLSFalsePositive(t *testing.T) {
 		t.Fatal("PING als TLS erkannt")
 	}
 }
+
+// HTTPS: Der ClientHello wird vor dem Handshake mitgelesen; der Handshake gelingt trotzdem.
+func TestHTTPSClientHelloCaptured(t *testing.T) {
+	m := testManager()
+	c := DefaultConfig()
+	m.Apply(c)
+	defer m.StopAll()
+	cl, done := run(t, m, "https", "emulate")
+	tc := tls.Client(cl, &tls.Config{ServerName: "nas.example", InsecureSkipVerify: true})
+	tc.SetDeadline(time.Now().Add(5 * time.Second))
+	if err := tc.Handshake(); err != nil {
+		t.Fatalf("Handshake: %v", err)
+	}
+	tc.Write([]byte("GET / HTTP/1.1\r\nHost: nas.example\r\nUser-Agent: test\r\nAccept: */*\r\nConnection: close\r\n\r\n"))
+	io.Copy(io.Discard, tc)
+	tc.Close()
+	waitDone(t, done, 5*time.Second)
+	evs := events(m)
+	ev := find(evs, "tls")
+	if ev == nil || ev.Data["sni"] != "nas.example" || !strings.HasPrefix(ev.Data["client_hello"].(string), "1603") {
+		t.Fatalf("tls-Ereignis: %+v", ev)
+	}
+	if r := find(evs, "request"); r == nil || r.Data["header_order"] != "Host,User-Agent,Accept,Connection" {
+		t.Fatalf("Reihenfolge der Kopfzeilen: %+v", r)
+	}
+}

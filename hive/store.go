@@ -364,11 +364,24 @@ func topKeys(e *Event) [][3]string {
 		}
 	case "client_version":
 		add("client", dataString(e.Data, "version"), e.Service)
+	case "tls":
+		if j3s, j3, j4, ok := tlsFingerprints(e); ok { // Fingerabdrücke (tlsfp.go)
+			add("ja4", j4, e.Service)
+			add("ja3", j3, j3s)
+		}
+	case "fingerprint":
+		add("hassh", dataString(e.Data, "hassh"), e.Service)
+	}
+	if h, order := headerFingerprint(e); h != "" {
+		add("httpfp", h, order)
 	}
 	// Muster, Werkzeuge und Nachlade-Adressen (analyze.go) für die Ansicht "Analyse"
 	text, on, revealed := analysisText(e)
 	for _, id := range eventPatterns(e, text, on, revealed) {
 		add("tag", id, patternByID[id].Name)
+	}
+	for _, r := range eventCVEs(text, on) {
+		add("cve", r.CVE, r.Name)
 	}
 	for _, t := range eventTools(e) {
 		add("tool", t, "")

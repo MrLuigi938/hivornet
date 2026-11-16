@@ -57,7 +57,10 @@ type Attack struct {
 	URLs          []string       `json:"urls,omitempty"`
 	Decoded       []string       `json:"decoded,omitempty"` // entschlüsselte Inhalte (Base64, Hex …)
 	Clients       []string       `json:"clients,omitempty"`
-	Tags          []Count        `json:"tags,omitempty"` // erkannte Muster (Key = ID, Label = Name)
+	Fingerprints  []string       `json:"fingerprints,omitempty"` // JA4, JA3, HASSH, HTTP-Kopfzeilen (tlsfp.go)
+	Tags          []Count        `json:"tags,omitempty"`         // erkannte Muster (Key = ID, Label = Name)
+	CVEs          []Count        `json:"cves,omitempty"`         // bekannte Lücken (cve.go; Key = CVE, Label = Name)
+	Mitre         []string       `json:"mitre,omitempty"`        // MITRE-ATT&CK-Techniken der Muster
 	Success       bool           `json:"success,omitempty"`
 	SuccessCred   string         `json:"success_cred,omitempty"`
 	Stufe         int            `json:"stufe"`
@@ -70,6 +73,7 @@ type Attack struct {
 	Strip         []stripEvent `json:"strip,omitempty"` // Zeitstreifen: höchstens stripMax Ereignisse
 	// nur zum Aufbau
 	creds, paths, tags, loginSvc map[string]int
+	cves                         map[string]int
 	svc                          map[string]bool
 	port                         map[int]bool
 	seenCmd, seenSess, seenCli   map[string]bool
@@ -86,7 +90,7 @@ const stripMax = 400
 func newAttack(e *Event) *Attack {
 	ms := e.TS.UnixMilli()
 	return &Attack{ID: e.SrcIP + "@" + strconv.FormatInt(ms, 10), IP: e.SrcIP, First: ms, Last: ms, Counts: map[string]int{},
-		creds: map[string]int{}, paths: map[string]int{}, tags: map[string]int{}, loginSvc: map[string]int{},
+		creds: map[string]int{}, paths: map[string]int{}, tags: map[string]int{}, loginSvc: map[string]int{}, cves: map[string]int{},
 		svc: map[string]bool{}, port: map[int]bool{}, seenCmd: map[string]bool{}, seenSess: map[string]bool{}, seenCli: map[string]bool{},
 		okSess: map[string]bool{}}
 }
@@ -144,6 +148,11 @@ func (a *Attack) add(e *Event) {
 	}
 	if e.Type == "connect" || e.Type == "disconnect" {
 		return // häufigste Ereignisse: nichts weiter auszuwerten
+	}
+	for _, f := range eventFingerprints(e) {
+		if len(a.Fingerprints) < 8 && !slices.Contains(a.Fingerprints, f) {
+			a.Fingerprints = append(a.Fingerprints, f)
+		}
 	}
 	var d map[string]any // Daten nur einmal lesen
 	if len(e.Data) > 0 {
@@ -214,6 +223,9 @@ func (a *Attack) add(e *Event) {
 	for _, id := range eventPatterns(e, text, on, revealed) {
 		a.tags[id]++
 	}
+	for _, r := range eventCVEs(text, on) {
+		a.cves[r.CVE]++
+	}
 	for _, d := range revealed {
 		if len(a.Decoded) < 10 && !slices.Contains(a.Decoded, clip(d, 500)) {
 			a.Decoded = append(a.Decoded, clip(d, 500))
@@ -267,6 +279,15 @@ func (a *Attack) finish() {
 		if p := patternByID[a.Tags[i].Key]; p != nil {
 			a.Tags[i].Label = p.Name
 		}
+		for _, m := range patternMitre[a.Tags[i].Key] {
+			if !slices.Contains(a.Mitre, m) {
+				a.Mitre = append(a.Mitre, m)
+			}
+		}
+	}
+	a.CVEs = topCounts(a.cves, 8)
+	for i := range a.CVEs {
+		a.CVEs[i].Label = cveByID[a.CVEs[i].Key].Name
 	}
 	a.Stufe = a.stufe()
 	a.Own = ownHidden(a.IP) // eigener Test, der aus Kennzahlen herausgehalten wird
@@ -441,8 +462,12 @@ func (a *Attack) matches(q string) bool {
 	parts = append(parts, a.URLs...)
 	parts = append(parts, a.Decoded...)
 	parts = append(parts, a.Clients...)
+	parts = append(parts, a.Fingerprints...)
 	for _, t := range a.Tags {
 		parts = append(parts, t.Label)
+	}
+	for _, c := range a.CVEs {
+		parts = append(parts, c.Key, c.Label)
 	}
 	return strings.Contains(strings.ToLower(strings.Join(parts, "\n")), q)
 }

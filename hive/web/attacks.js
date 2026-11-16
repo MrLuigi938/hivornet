@@ -101,7 +101,10 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     a.urls && a.urls.length ? ["Nachlade-Adressen (nicht aufrufen)", a.urls, null, "hot"] : null,
     a.decoded && a.decoded.length ? ["Entschlüsselt (Base64, Hex …)", a.decoded, null, "decoded"] : null,
     a.tags && a.tags.length ? ["Erkannte Muster", a.tags.map((t) => t.label || t.key), null, "tag"] : null,
+    a.cves && a.cves.length ? ["Bekannte Lücken", a.cves.map((c) => `${c.key} ${c.label || ""}`.trim()), null, "hot"] : null,
     a.clients && a.clients.length ? ["Client", a.clients, null] : null,
+    a.fingerprints && a.fingerprints.length ? ["Fingerabdrücke", a.fingerprints, null] : null,
+    a.mitre && a.mitre.length ? ["MITRE ATT&CK", a.mitre, null] : null,
   ].filter(Boolean);
   const el = h("article", { class: "atk" + (fresh ? " fresh" : ""), style: { "--c": sevColor(a.stufe) } },
     h("div", { class: "l1" },

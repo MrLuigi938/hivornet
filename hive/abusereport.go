@@ -116,6 +116,9 @@ func abuseVerdict(a *Attack, cfg AbuseReportConfig) (cats []int, why string) {
 			set[catIoT] = true
 		}
 	}
+	if len(a.CVEs) > 0 {
+		set[catWebApp] = true
+	}
 	for _, t := range a.Tags {
 		if webExploitTags[t.Key] || cfg.IncludeWebProbe && (t.Key == "secret_hunt" || t.Key == "cms_login") {
 			set[catWebApp] = true
@@ -191,6 +194,13 @@ func abuseComment(a *Attack, scrub []string) string {
 	}
 	if len(tags) > 0 {
 		parts = append(parts, "detected: "+strings.Join(tags, ", "))
+	}
+	if len(a.CVEs) > 0 {
+		var ids []string
+		for _, c := range a.CVEs {
+			ids = append(ids, c.Key)
+		}
+		parts = append(parts, "exploit attempt "+strings.Join(ids, ", "))
 	}
 	if n := a.Counts["command"]; n > 0 {
 		parts = append(parts, fmt.Sprintf("%d commands", n))

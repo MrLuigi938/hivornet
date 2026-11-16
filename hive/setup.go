@@ -518,7 +518,7 @@ func backfillPatterns(st *Store, maxID int64) {
 // Seit 0.5.3 gelten neue Regeln (einstufung.go: SNMP, SIP und DNS in eigenen Feldern,
 // TLS-Handshakes keine Befehle, Eingaben an der Login-Abfrage keine Zugangsdaten, eigene
 // Tests nicht gezählt). Die Felder aus Verbindungen (Land, Port, IP …) bleiben.
-var recountFields = []string{"username", "password", "cred", "command", "path", "useragent", "client", "tag", "tool", "url", "snmp", "sip", "dns"}
+var recountFields = []string{"username", "password", "cred", "command", "path", "useragent", "client", "tag", "tool", "url", "snmp", "sip", "dns", "ja3", "ja4", "hassh", "httpfp", "cve"}
 
 const recountKey = "top_recounted_053"
 

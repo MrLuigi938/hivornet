@@ -232,12 +232,13 @@ type Count struct {
 }
 
 type TagHit struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Desc    string `json:"desc"`
-	Sev     int    `json:"sev"`
-	N       int    `json:"n"`
-	Example string `json:"example"`
+	ID      string   `json:"id"`
+	Mitre   []string `json:"mitre,omitempty"` // MITRE-ATT&CK-Techniken (cve.go)
+	Name    string   `json:"name"`
+	Desc    string   `json:"desc"`
+	Sev     int      `json:"sev"`
+	N       int      `json:"n"`
+	Example string   `json:"example"`
 }
 
 // Report fasst zusammen, was ein Angreifer (eine IP oder eine Sitzung) getan hat.
@@ -262,6 +263,7 @@ type Report struct {
 	Timeline  []string  `json:"-"`       // Ablauf für die KI-Auswertung
 	Requests  []Count   `json:"requests"`
 	Clients   []string  `json:"clients"`
+	CVEs      []Count   `json:"cves"` // bekannte Lücken (cve.go)
 	TarpitMs  int64     `json:"tarpit_ms"`
 	Severity  string    `json:"severity"` // niedrig | mittel | hoch
 	Summary   []string  `json:"summary"`
@@ -400,7 +402,7 @@ func (c *counter) keys(max int) []string {
 // BuildReport wertet Ereignisse aus (aufsteigend nach Zeit). subject ist die Überschrift.
 func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}}
-	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions, decoded counter
+	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions, decoded, cves counter
 	loc, _ := time.LoadLocation("Local")
 	var lastBody, lastLine string
 	repeat := 0
@@ -442,7 +444,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			p := patternByID[id]
 			t := tags[id]
 			if t == nil {
-				t = &TagHit{ID: id, Name: p.Name, Desc: p.Desc, Sev: p.Sev, Example: clip(strings.TrimSpace(text), reportMaxText)}
+				t = &TagHit{ID: id, Name: p.Name, Desc: p.Desc, Sev: p.Sev, Example: clip(strings.TrimSpace(text), reportMaxText), Mitre: patternMitre[id]}
 				tags[id] = t
 			}
 			t.N++
@@ -450,6 +452,10 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		}
 		for _, t := range eventTools(e) {
 			tools.add(t)
+		}
+		for _, c := range eventCVEs(text, on) {
+			cves.add(c.CVE)
+			maxSev = 3
 		}
 		for _, u := range allURLs(text, revealed, 8) {
 			urls.add(clip(u, 300))
@@ -511,10 +517,9 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			}
 		case "client_version":
 			clients.add(clip(dataString(e.Data, "version"), 120))
-		case "fingerprint":
-			if h := dataString(e.Data, "hassh"); h != "" {
-				clients.add("HASSH " + h)
-			}
+		}
+		for _, f := range eventFingerprints(e) {
+			clients.add(f)
 		}
 	}
 	r.Sessions = len(sessions.order)
@@ -522,6 +527,10 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r.URLs, r.Hashes, r.Files = urls.keys(reportMaxList), hashes.keys(reportMaxList), files.keys(reportMaxList)
 	r.Commands, r.Requests, r.Clients = cmds.keys(80), reqs.top(reportMaxList), clients.keys(12)
 	r.Decoded = decoded.keys(reportMaxList)
+	r.CVEs = cves.top(reportMaxList)
+	for i := range r.CVEs {
+		r.CVEs[i].Label = cveByID[r.CVEs[i].Key].Name
+	}
 	for _, t := range tags {
 		r.Tags = append(r.Tags, *t)
 	}
@@ -590,6 +599,9 @@ func (r *Report) summarize() []string {
 	for _, t := range r.Tags {
 		s = append(s, fmt.Sprintf("%s (%d×): %s", t.Name, t.N, t.Desc))
 	}
+	for _, c := range r.CVEs {
+		s = append(s, fmt.Sprintf("Versuch, eine bekannte Lücke auszunutzen: %s, %s (%d×).", c.Key, c.Label, c.N))
+	}
 	if len(r.Tools) > 0 {
 		s = append(s, "Benutzte Werkzeuge: "+countList(r.Tools, 12)+".")
 	}
@@ -641,9 +653,18 @@ func (r *Report) Text() string {
 	}
 	var ex []string
 	for _, t := range r.Tags {
-		ex = append(ex, t.Name+": "+t.Example)
+		l := t.Name + ": " + t.Example
+		if len(t.Mitre) > 0 {
+			l += " [MITRE ATT&CK " + strings.Join(t.Mitre, ", ") + "]"
+		}
+		ex = append(ex, l)
 	}
 	sec("Beispiele je Muster", ex)
+	var cl2 []string
+	for _, c := range r.CVEs {
+		cl2 = append(cl2, fmt.Sprintf("%s %s (%d×)", c.Key, c.Label, c.N))
+	}
+	sec("Bekannte Lücken (CVE)", cl2)
 	sec("Zugangsdaten", cl(r.Creds))
 	sec("Befehle (in Reihenfolge)", r.Commands)
 	sec("Entschlüsselte Inhalte (Base64, Hex, URL-Kodierung)", r.Decoded)

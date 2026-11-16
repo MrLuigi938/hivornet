@@ -98,7 +98,8 @@ export async function viewLive(el, ctx) {
 export async function viewAnalysis(el) {
   header("Analyse", { range: true });
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
-  const [tags, tools, urls, clients, uas] = await Promise.all([q("tag"), q("tool", 60), q("url"), q("client", 15), q("useragent", 15)]);
+  const [tags, tools, urls, clients, uas, cves, ja4, hassh, httpfp] = await Promise.all([q("tag"), q("tool", 60), q("url"), q("client", 15), q("useragent", 15),
+    q("cve", 20), q("ja4", 15), q("hassh", 15), q("httpfp", 15)]);
   const installed = tools.filter((t) => t.key.startsWith("installiert: ")).map((t) => ({ key: t.key.slice(13), n: t.n }));
   const scanners = tools.filter((t) => t.key.startsWith("Scanner: ") || t.key.startsWith("SSH-Client: "));
   const programs = tools.filter((t) => !t.key.includes(": "));
@@ -119,6 +120,13 @@ export async function viewAnalysis(el) {
     h("div", { class: "grid two" },
       card("SSH- und Client-Versionen", toplist(clients)),
       card("User-Agents", toplist(uas))),
+    card("Bekannte Lücken (CVE)", cves.length ? toplist(cves, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })
+      : h("div", { class: "empty" }, "Noch keine Ausnutzungsversuche bekannter Lücken erkannt."),
+      h("p", { class: "muted" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre.")),
+    h("div", { class: "grid three" },
+      card("TLS-Fingerabdrücke (JA4)", toplist(ja4, { link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })),
+      card("SSH-Fingerabdrücke (HASSH)", toplist(hassh, { link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })),
+      card("Reihenfolge der HTTP-Kopfzeilen", toplist(httpfp, { key: (x) => x.key + "  " + (x.label || ""), link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) }))),
     h("p", { class: "muted" }, "Den vollständigen Ablauf eines einzelnen Angreifers zeigt der Angriffsbericht auf der Seite der jeweiligen IP oder Sitzung.")));
 }
 
@@ -199,7 +207,10 @@ export function reportCard({ ip, session }) {
       h("ul", { class: "plain" }, r.summary.map((l) => h("li", null, l))),
       r.tags.length ? [h("h3", null, "Erkannte Muster"), h("ul", { class: "taglist" }, r.tags.map((t) => h("li", null,
         h("strong", null, t.name), " ", h("span", { class: "badge" }, fmtNum(t.n) + "×"),
+        (t.mitre || []).map((m) => [" ", h("a", { class: "badge", href: "https://attack.mitre.org/techniques/" + m.replace(".", "/") + "/", target: "_blank", rel: "noopener noreferrer", title: "MITRE ATT&CK" }, m)]),
         h("div", { class: "desc" }, t.desc), h("code", null, t.example))))] : null,
+      r.cves && r.cves.length ? [h("h3", null, "Bekannte Lücken (CVE)"), h("ul", { class: "plain" }, r.cves.map((c) => h("li", null,
+        h("a", { class: "mono", href: "https://nvd.nist.gov/vuln/detail/" + c.key, target: "_blank", rel: "noopener noreferrer" }, c.key), " ", c.label, " ", h("span", { class: "badge" }, fmtNum(c.n) + "×"))))] : null,
       h("div", { class: "grid three" },
         r.tools.length ? h("div", null, h("h3", null, "Werkzeuge"), toplist(r.tools)) : null,
         r.creds.length ? h("div", null, h("h3", null, "Zugangsdaten"), toplist(r.creds.slice(0, 15))) : null,

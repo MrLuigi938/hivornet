@@ -2,8 +2,10 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -33,17 +35,72 @@ func handleHTTPS(s *Session) {
 	if tc == nil {
 		return
 	}
-	conn := tls.Server(s.Conn, tc)
+	// ClientHello vor dem Handshake mitlesen (für JA3/JA4 im Hive), dann normal weiter
+	s.ReadDeadline(10 * time.Second)
+	br := bufio.NewReaderSize(s.Conn, tlsHelloMax)
+	hello := peekClientHello(br)
+	conn := tls.Server(&readerConn{Conn: s.Conn, r: br}, tc)
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
-	if err := conn.Handshake(); err != nil {
+	err := conn.Handshake()
+	data := map[string]any{}
+	if len(hello) > 0 {
+		data["client_hello"] = hex.EncodeToString(hello)
+	}
+	if st := conn.ConnectionState(); st.ServerName != "" {
+		data["sni"] = printable([]byte(st.ServerName), budgetShort)
+	}
+	if len(data) > 0 {
+		s.Emit(Event{Type: "tls", Data: data})
+	}
+	if err != nil {
 		return
 	}
 	conn.SetDeadline(time.Time{})
-	if st := conn.ConnectionState(); st.ServerName != "" {
-		s.Emit(Event{Type: "tls", Data: map[string]any{"sni": printable([]byte(st.ServerName), budgetShort)}})
-	}
 	s.Conn = conn
 	serveHTTP(s, false)
+}
+
+// readerConn liest aus einem vorgeschalteten Puffer (der den ClientHello schon kennt).
+type readerConn struct {
+	net.Conn
+	r io.Reader
+}
+
+func (c *readerConn) Read(p []byte) (int, error) { return c.r.Read(p) }
+
+// peekClientHello liefert den ersten TLS-Record (Handshake), ohne ihn zu verbrauchen;
+// höchstens tlsHelloMax Bytes.
+func peekClientHello(br *bufio.Reader) []byte {
+	h, err := br.Peek(5)
+	if err != nil || h[0] != 0x16 || h[1] != 3 {
+		return nil
+	}
+	n := min(5+(int(h[3])<<8|int(h[4])), tlsHelloMax)
+	b, _ := br.Peek(n)
+	return append([]byte(nil), b...)
+}
+
+// headerOrder: Namen der Kopfzeilen in der gesendeten Reihenfolge (aus dem Puffer, bevor
+// http.ReadRequest sie in eine Map sortiert). Leer, wenn der Kopf nicht ganz im Puffer liegt.
+func headerOrder(br *bufio.Reader) string {
+	if _, err := br.Peek(1); err != nil {
+		return ""
+	}
+	b, _ := br.Peek(br.Buffered())
+	end := bytes.Index(b, []byte("\r\n\r\n"))
+	if end < 0 {
+		return ""
+	}
+	var names []string
+	for i, line := range bytes.Split(b[:end], []byte("\r\n")) {
+		if i == 0 {
+			continue
+		}
+		if k, _, ok := bytes.Cut(line, []byte(":")); ok && len(names) < 40 {
+			names = append(names, string(k))
+		}
+	}
+	return pr(strings.Join(names, ","), 512)
 }
 
 func httpTarpit(s *Session) {
@@ -68,6 +125,7 @@ func serveHTTP(s *Session, docker bool) {
 		if i == 0 && s.sniffTLS(br) { // HTTPS-Client am HTTP-Port
 			return
 		}
+		order := headerOrder(br)
 		req, err := http.ReadRequest(br)
 		if err != nil {
 			if err != io.EOF && !errors.Is(err, io.ErrUnexpectedEOF) && !isTimeout(err) {
@@ -112,6 +170,9 @@ func serveHTTP(s *Session, docker bool) {
 			hdr.WriteString(k + ": " + strings.Join(req.Header[k], ", ") + "\n")
 		}
 		info["headers"] = pr(strings.TrimSuffix(hdr.String(), "\n"), httpBudgetHdr)
+		if order != "" {
+			info["header_order"] = order
+		}
 		if len(body) > 0 {
 			info["body"] = printable(body, httpBudgetBdy)
 		}
