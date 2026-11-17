@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"io"
+	"net"
 	"net/http"
 	"strconv"
 	"strings"
@@ -257,21 +258,22 @@ func TestB2SizeAndTarpit(t *testing.T) {
 		m := testManager()
 		c, done := run(t, m, svc, "emulate")
 		go io.Copy(io.Discard, c)
-		go func() { c.Write(bin); c.Close() }()
+		go func(c net.Conn) { c.Write(bin); c.Close() }(c) // eigene Kopie: c wird unten nicht mehr neu belegt
 		waitDone(t, done, 10*time.Second)
 		for _, b := range rawEvents(m) {
 			if len(b) > maxEventBytes {
 				t.Errorf("%s: Ereignis %d Bytes", svc, len(b))
 			}
 		}
-		m = testManager()
-		c, done = run(t, m, svc, "tarpit")
-		c.SetReadDeadline(time.Now().Add(3 * time.Second))
-		if n, err := c.Read(make([]byte, 64)); err != nil || n == 0 {
+		// Tarpit mit eigenen Variablen (die Goroutine oben liest c noch; Race-Detector)
+		m2 := testManager()
+		ct, doneT := run(t, m2, svc, "tarpit")
+		ct.SetReadDeadline(time.Now().Add(3 * time.Second))
+		if n, err := ct.Read(make([]byte, 64)); err != nil || n == 0 {
 			t.Errorf("%s: Tarpit sendet nichts: %v", svc, err)
 		}
-		c.Close()
-		waitDone(t, done, 5*time.Second)
+		ct.Close()
+		waitDone(t, doneT, 5*time.Second)
 	}
 }
 
