@@ -2,9 +2,10 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.6.0-beta.1] – 2026-11-17
 
 ### Behoben
+- **Web-UI springt nicht mehr:** Dashboard, Tarpit und System aktualisieren sich jetzt unauffällig im Hintergrund (neue Fassung unsichtbar aufbauen, dann an derselben Scrollstelle austauschen, kein „Lade …“). Das Dashboard aktualisiert sich nicht, solange die Karte hineingezoomt oder ein Angriff aufgeklappt ist. Auf der Seite Angriffe bleibt beim Herunterscrollen der gelesene Angriff stehen, während oben neue dazukommen.
 - **Raspberry Pi: SSH (Port 22) blieb nach einem Stromausfall beim ersten Start dauerhaft zu.** Eine leere Host-Schlüsseldatei ließ Cowrie beim Start abbrechen, Telnet lief weiter. Vor jedem Start entfernt jetzt `hivornet-cowrie-keycheck` leere oder beschädigte Schlüssel; Cowrie erzeugt sie neu. Braucht ein neues Image (Sicherung exportieren, Image aufspielen, Sicherung einspielen).
 - **Stufe „Befehle ausgeführt“ nur noch für echte Befehle:** nach einem angenommenen Login oder bei verändernden Befehlen (Redis `CONFIG SET`, `SLAVEOF`, Docker `create`/`exec` …). Protokoll-Abfragen von Forschungsscannern (Redis `PING`/`INFO`, FTP `AUTH TLS`, SMTP `EHLO`) sind Abtasten. Die Angriffskarte trennt „Befehle (ausgeführt)“ und „Protokoll-Befehle“. Alle Regeln an einer Stelle: `hive/einstufung.go`.
 - **TLS-Handshakes an Klartext-Ports** (FTP, Redis, SMTP, Telnet, HTTP, MySQL …) sind keine Befehle und keine „Verschleierung“ mehr, sondern ein Ereignis `tls` mit `plain: true` und den Rohdaten (für Fingerabdrücke). Ältere Einträge erkennt der Hive ebenso.

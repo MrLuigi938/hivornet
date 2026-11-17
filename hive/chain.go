@@ -317,7 +317,8 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 func (h *Hive) chain(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := qctx(r)
 	defer cancel()
-	where, args := "", []any{}
+	var where string
+	var args []any
 	switch {
 	case r.URL.Query().Get("session") != "":
 		where, args = "session = ?", []any{r.URL.Query().Get("session")}

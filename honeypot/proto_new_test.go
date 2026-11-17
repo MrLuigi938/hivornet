@@ -94,7 +94,9 @@ func TestTelnetRejectsLikeRealDevice(t *testing.T) {
 	if acc("203.0.113.1", "geheim") || acc("203.0.113.1", "geheim2") || acc("203.0.113.1", "geheim3") {
 		t.Fatal("Passwort außerhalb der Liste angenommen")
 	}
-	if acc("203.0.113.1", l[5]) || acc("203.0.113.1", l[5]) || acc("203.0.113.1", l[6]) {
+	first := acc("203.0.113.1", l[5])
+	again := acc("203.0.113.1", l[5]) // Wiederholung desselben Passworts zählt nicht als weiteres
+	if first || again || acc("203.0.113.1", l[6]) {
 		t.Fatal("zu früh angenommen (Wiederholung zählt nicht)")
 	}
 	if !acc("203.0.113.1", l[7]) {

@@ -256,6 +256,7 @@ export function worldMap(points, { home = null, large = false, countries = null,
     track,
     activeCount: () => lines.size,
     zoom: (name) => setView(REGIONS[name], true),
+    zoomed: () => vb[2] < 359, // hineingezoomt: Seite nicht automatisch neu aufbauen
     pulse,
     // Angriff: Puls am Ursprung und, wenn ein Standort bekannt ist, eine Linie zum Honeypot.
     attack(lat, lon, service, country) {

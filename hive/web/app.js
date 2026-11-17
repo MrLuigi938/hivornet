@@ -244,12 +244,13 @@ function renderShell() {
   window.onhashchange = route;
 }
 
+let topTarget = null; // bei stiller Aktualisierung baut header() unsichtbar vor
 function header(title, { range = false, extra = null } = {}) {
   const seg = range ? h("div", { class: "seg", role: "group", "aria-label": "Zeitraum" },
     RANGES.map(([v, l]) => h("button", {
       class: state.range === v ? "on" : "", onclick: () => { state.range = v; store("range", v); route(); },
     }, l))) : null;
-  mount(topEl, h("h1", null, title), h("div", { class: "grow" }), extra, seg);
+  mount(topTarget || topEl, h("h1", null, title), h("div", { class: "grow" }), extra, seg);
 }
 
 const routes = [
@@ -259,8 +260,12 @@ const routes = [
   [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/logs(\?.*)?$/, viewLogs],
 ];
 
-async function route() {
+// route({ quiet: true }) aktualisiert die aktuelle Seite unauffällig: Die neue Fassung wird
+// unsichtbar aufgebaut und erst dann ausgetauscht, an derselben Scrollstelle, ohne "Lade …".
+// Das nutzen die regelmäßigen Aktualisierungen (Dashboard, Tarpit, System).
+async function route(opts = {}) {
   if (!mainEl) return;
+  const quiet = opts.quiet === true && mainEl.firstChild;
   if (state.cleanup) { state.cleanup(); state.cleanup = null; }
   hideTip(); // Tooltip der vorigen Ansicht nicht stehen lassen
   const hash = location.hash || "#/";
@@ -275,8 +280,9 @@ async function route() {
   // landet eine verspätete Ansicht in einem Behälter, der nicht mehr angezeigt wird,
   // und ihre Live-Handler und Timer werden sofort wieder abgeräumt.
   const seq = ++routeSeq;
-  const host = h("div", null, h("p", { class: "muted" }, "Lade …"));
-  mount(mainEl, host);
+  const host = h("div", null, quiet ? null : h("p", { class: "muted" }, "Lade …"));
+  if (quiet) topTarget = h("div");
+  else { topTarget = null; mount(mainEl, host); }
   const cleanups = [];
   const cleanupAll = () => cleanups.splice(0).forEach((f) => f());
   state.cleanup = cleanupAll;
@@ -288,9 +294,20 @@ async function route() {
     };
     await view(host, ctx, ...(m || []).slice(1).map((x) => (x == null ? "" : decodeURIComponent(x))));
     if (seq !== routeSeq) cleanupAll();
+    else if (quiet) {
+      // erst jetzt austauschen; Scrollstelle und Höhe halten, damit nichts springt
+      const y = window.scrollY;
+      mainEl.style.minHeight = mainEl.offsetHeight + "px";
+      mount(topEl, [...topTarget.childNodes]);
+      topTarget = null;
+      mount(mainEl, host);
+      window.scrollTo(0, y);
+      requestAnimationFrame(() => { mainEl.style.minHeight = ""; window.scrollTo(0, y); });
+    }
   } catch (e) {
     cleanupAll();
     if (seq !== routeSeq) return;
+    if (quiet) { topTarget = null; return; } // stille Aktualisierung fehlgeschlagen: alte Fassung stehen lassen
     if (e instanceof AuthError) return showLogin("Bitte erneut anmelden.");
     mount(host, h("div", { class: "msg err" }, "Fehler: " + e.message));
   }
@@ -436,6 +453,8 @@ async function viewDashboard(el, ctx) {
     const list = [...active.values()].sort((x, y) => y.last - x.last);
     rowEls.clear();
     setActInfo();
+    const keep = actList.scrollTop;
+    requestAnimationFrame(() => { actList.scrollTop = keep; });
     mount(actList, list.length ? list.map((a) => { const r = attackRow(a, { open: openRows }); rowEls.set(a.id, r); return r; })
       : h("div", { class: "empty" }, "Gerade ist niemand aktiv. Neue Angriffe erscheinen hier sofort."));
   };
@@ -487,7 +506,7 @@ async function viewDashboard(el, ctx) {
   });
   ctx.every(5000, () => { document.querySelectorAll(".alist [data-rel]").forEach((x) => { x.textContent = relTime(Number(x.dataset.rel)); }); });
   ctx.every(30000, () => { if (!document.hidden) renderActive(); });
-  ctx.every(120000, () => { if (!document.hidden && location.hash.replace("#", "").replace("/", "") === "") route(); });
+  ctx.every(120000, () => { if (!document.hidden && location.hash.replace("#", "").replace("/", "") === "" && !openRows.size && !map.zoomed()) route({ quiet: true }); });
 }
 
 // ---------- Einzelne Ereignisse ----------
@@ -750,7 +769,7 @@ async function viewTarpit(el, ctx) {
       }))),
     card("Gesamtzeit nach Port", toplist(d.by_port.map((r) => ({ key: `${r.dst_port} · ${svcName(r.service)} (${fmtNum(r.n)} Verbindungen)`, n: r.tarpit_ms })), { fmt: fmtDur }))));
   ctx.every(1000, () => { el.querySelectorAll(".tick").forEach((t) => { t.textContent = clock(Date.now() - Number(t.dataset.since)); }); });
-  ctx.every(10000, () => { if (!document.hidden && location.hash === "#/tarpit") route(); });
+  ctx.every(10000, () => { if (!document.hidden && location.hash === "#/tarpit") route({ quiet: true }); });
 }
 
 // ---------- Einstellungen ----------
@@ -1148,7 +1167,7 @@ async function viewSystem(el, ctx) {
           h("td", null, l.running ? h("span", { class: "badge ok" }, "läuft") : h("span", { class: "badge err", title: l.error || "" }, l.error ? "Fehler: " + l.error : "aus")),
           h("td", { class: "num" }, fmtNum(l.active)), h("td", { class: "num" }, fmtNum(l.total)), h("td", { class: "num" }, fmtNum(l.rejected || 0)))))))))
       : card("Sensoren", h("div", { class: "empty" }, "Noch kein Sensor hat sich gemeldet."))));
-  ctx.every(15000, () => { if (!document.hidden && location.hash === "#/system" && ctx.current()) route(); });
+  ctx.every(15000, () => { if (!document.hidden && location.hash === "#/system" && ctx.current() && !document.activeElement?.closest?.("form, select, input, textarea")) route({ quiet: true }); });
 }
 
 // Netzsperre und Verwaltungsanschluss auf dem Pi (USB-Adapter ins Heimnetz, nur Web-UI)

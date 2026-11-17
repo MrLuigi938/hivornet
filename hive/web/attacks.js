@@ -260,13 +260,27 @@ export async function viewAttacks(el, ctx, query = "") {
     mount(feed, list.length ? list.map((a) => { const e = attackCard(a, { open }); els.set(a.id, e); return e; }) : h("div", { class: "card empty" }, "Keine Angriffe für diese Auswahl."));
     renderSide();
   }
+  // Hält den Inhalt an der Stelle, die man gerade liest: Ist man heruntergescrollt, wird
+  // nach dem Einfügen um die Höhenänderung oberhalb des Ankers nachgescrollt.
+  function keepAnchor(change) {
+    const cards = [...feed.children];
+    const anchor = window.scrollY > feed.offsetTop ? cards.find((c) => c.getBoundingClientRect().bottom > 70) : null;
+    const before = anchor ? anchor.getBoundingClientRect().top : 0;
+    change();
+    if (anchor && anchor.isConnected) {
+      const diff = anchor.getBoundingClientRect().top - before;
+      if (diff) window.scrollBy(0, diff);
+    }
+  }
   function upsert(a) {
     seenCount();
     const old = els.get(a.id), el = attackCard(a, { fresh: true, open });
-    els.set(a.id, el);
-    if (old) old.remove();
-    if (!list.length || feed.querySelector(".empty")) feed.replaceChildren();
-    feed.prepend(el);
+    keepAnchor(() => {
+      els.set(a.id, el);
+      if (old) old.remove();
+      if (!list.length || feed.querySelector(".empty")) feed.replaceChildren();
+      feed.prepend(el);
+    });
   }
   const qs = (before) => {
     const p = new URLSearchParams({ range: f.range, limit: "40" });

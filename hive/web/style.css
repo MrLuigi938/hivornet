@@ -279,7 +279,7 @@ pre.json { background: var(--code-bg); padding: 10px; border-radius: 8px; overfl
 /* ---------- Angriffe (gebündelt) ---------- */
 .angriffe { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 18px; align-items: start; }
 .angriffe .side { display: flex; flex-direction: column; gap: 14px; position: sticky; top: 68px; }
-.feed { display: flex; flex-direction: column; gap: 10px; }
+.feed { display: flex; flex-direction: column; gap: 10px; overflow-anchor: none; } /* Nachscrollen macht attacks.js selbst */
 .atk { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 12px 20px; position: relative; overflow: hidden; }
 .atk::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
 .atk.fresh { animation: freshcard 1.8s ease-out; }
