@@ -33,7 +33,7 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_NETLINK
 RestrictNamespaces=yes
 LockPersonality=yes
 SystemCallArchitectures=native
-# Weitere Einengung für den Fall einer Codeausführung im Prozess (zweites Audit, Hinweise)
+# Weitere Einengung für den Fall einer Codeausführung im Prozess
 MemoryDenyWriteExecute=yes
 RestrictRealtime=yes
 RestrictSUIDSGID=yes

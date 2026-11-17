@@ -16,8 +16,8 @@
 #       werden können. Der Go-Honeypot bleibt gesperrt.
 #
 # Auch das interne Netz "ingest" (Bridge hv-ingest, Honeypot -> Hive) darf die NAS selbst
-# nicht erreichen: Docker gibt der Bridge die Gateway-Adresse 172.30.250.1 auf dem Host
-# (zweites Audit, M3). Honeypot und Hive sprechen dort nur untereinander.
+# nicht erreichen: Docker gibt der Bridge die Gateway-Adresse 172.30.250.1 auf dem Host.
+# Honeypot und Hive sprechen dort nur untereinander.
 #
 # Die Regeln überleben keinen Neustart der NAS. Siehe README: beim Systemstart
 # ausführen (Synology: Aufgabenplaner, sonst tools/hivornet-firewall.service).

@@ -22,8 +22,7 @@ import (
 // Rechnername, Build und Tastaturlayout des Clients gelesen. Dort endet die Emulation.
 //
 // Grenze: kein CredSSP/NLA. Clients, die NLA verlangen, bekommen TLS angeboten und
-// brechen meist ab; Benutzername und Passwort aus NLA werden nicht erfasst
-// (docs/UEBERARBEITUNG.md, Punkt P9).
+// brechen meist ab; Benutzername und Passwort aus NLA werden nicht erfasst.
 
 const (
 	rdpProtoSSL    = 1

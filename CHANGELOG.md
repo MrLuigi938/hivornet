@@ -2,6 +2,14 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.7.0-beta.2] – 2026-11-17
+
+### Behoben
+- CI: Tests der Sprachmodell-Antworten im Honeypot meldeten unter dem Race-Detector einen Wettlauf (nur Testcode, das Programm war nicht betroffen).
+
+### Geändert
+- Interne Arbeitsdokumente (Prüfberichte, Protokolle, Vorschläge) liegen nicht mehr im Repository. Hinweise für Mitentwickler zum Windows-Virenscanner stehen jetzt in `docs/ENTWICKLUNG.md`.
+
 ## [0.7.0-beta.1] – 2026-11-17
 
 **Update:** Raspberry Pi per Knopf (System → Updates, Kanal „Vorabversionen“), kein neues Image nötig; die neuen Dienste unter Einstellungen → Ports und Modi über „Port hinzufügen“ ergänzen. Docker: `sh update.sh`, danach `sudo sh tools/firewall.sh`.
@@ -22,7 +30,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Suchsprache** auf der Seite Angriffe, z. B. `service:ssh stufe>=3 cmd:*wget* -scanner:ja`, mit **gespeicherten Suchen**. Freier Text sucht wie bisher.
 - **Wie Shodan dich sieht** (System): fragt Shodan InternetDB nach der öffentlichen Adresse ab und zeigt offene Ports, Software, Lücken und ob Shodan das Gerät als Honeypot führt.
 
-### Sicherheit (zweites Audit, docs/AUDIT-2.md)
+### Sicherheit
 - **Blockliste und AbuseIPDB gegen gefälschte Ereignisse geschützt:** Sensoren mit eigenem Token speisen beides erst, wenn du ihnen vertraust (Einstellungen → Weitere Sensoren); öffentliche DNS-Resolver und eine eigene Liste „Nie sperren“ sind immer ausgenommen; höchstens 300 neue Adressen je Stunde (einstellbar), darüber Warnung.
 - **Docker:** Das interne Netz zwischen Honeypot und Hive heißt jetzt `hv-ingest` und darf die NAS nicht erreichen; mit `ALLOW_DOWNLOADS=1` darf nur noch Cowrie ins Internet. **Nach dem Update `sudo sh tools/firewall.sh` ausführen.** `update.sh` legt die Netze dafür bei Bedarf neu an.
 - **Leserolle** sieht keine Adressen von ntfy oder Webhooks mehr in Fehlermeldungen und kann keine Abfragen bei Dritten oder Probenanalysen mehr auslösen.
@@ -184,7 +192,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [0.3.0] – 2026-11-14
 
-Überarbeitung nach 0.2.0; Einzelheiten in `docs/UEBERARBEITUNG.md`, Aufbau in `docs/ARCHITEKTUR.md`. Die Datenbank wird beim ersten Start auf Schema-Version 4 gebracht. Bestehende Installationen bekommen die neuen Dienste automatisch in ihre Port-Konfiguration ergänzt (Port 5900 wird von `raw` zu `vnc`; SMTP, Telnet und RDP kommen auf freie Ports dazu).
+Überarbeitung nach 0.2.0; Aufbau in `docs/ARCHITEKTUR.md`. Die Datenbank wird beim ersten Start auf Schema-Version 4 gebracht. Bestehende Installationen bekommen die neuen Dienste automatisch in ihre Port-Konfiguration ergänzt (Port 5900 wird von `raw` zu `vnc`; SMTP, Telnet und RDP kommen auf freie Ports dazu).
 
 ### Neu
 - **Vier weitere Protokolle im Honeypot:**
@@ -209,7 +217,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Update-Prüfung:** Der Hive sieht zweimal täglich bei GitHub nach einer neueren Version; die Fußzeile weist darauf hin. Wo ein Updater läuft (Pi-Image), gibt es den Knopf „Jetzt aktualisieren" mit Prüfsumme und Rückfall auf die alte Version (`HIVE_UPDATE_CHECK`, `HIVE_UPDATE_REQUEST`).
 - **Fußzeile** mit Name, Version und Urheber.
 - **Betrieb:** `HIVE_FLUSH_MS` bündelt Schreibvorgänge (schont SD-Karten); `HIVE_DIRECT_PORTS` für den Betrieb ohne Docker; `tools/check.sh` führt alle Prüfungen in einem Aufruf aus.
-- **Dokumentation:** `docs/ARCHITEKTUR.md`, `docs/UEBERARBEITUNG.md`.
+- **Dokumentation:** `docs/ARCHITEKTUR.md`.
 
 ### Geändert
 - Telnet verhält sich wie ein echtes Gerät: je Konto genau ein (geräteabhängiges) Werkspasswort, sonst „Login incorrect" nach kurzer Pause, höchstens drei Versuche. Dazu eine glaubwürdigere BusyBox-Shell (`echo -e`, `/proc/cpuinfo`, `ps`, `uname -a`).
@@ -226,7 +234,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [0.2.0] – 2026-11-14
 
-Umsetzung des Audits (`docs/AUDIT.md`). Datenbanken aus 0.1.0 werden beim ersten Start automatisch migriert. Bestehende Sitzungen werden dabei ungültig: Einmal neu anmelden.
+Umsetzung einer Sicherheitsprüfung. Datenbanken aus 0.1.0 werden beim ersten Start automatisch migriert. Bestehende Sitzungen werden dabei ungültig: Einmal neu anmelden.
 
 ### Sicherheit
 - **Speichergrenzen gegen Absturz durch einzelne Verbindungen:** HTTP-Kopf und Body je 64 KB, Redis-Befehle 64 KB (lange Argumente werden gestreamt), Body wird nicht mehr bis zum Ende gelesen.

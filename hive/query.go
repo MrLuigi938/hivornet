@@ -78,7 +78,7 @@ func parseQuery(q string) []qTerm {
 		if t.val == "" {
 			continue
 		}
-		// Grenzen gegen teure Muster (zweites Audit, N8)
+		// Grenzen gegen teure Muster
 		if len(t.val) > 200 {
 			t.val = t.val[:200]
 		}
@@ -241,7 +241,7 @@ func (h *Hive) loadSearches() []savedSearch {
 	return list
 }
 
-// searchesMu: Lesen, Ändern und Schreiben der gespeicherten Suchen am Stück (zweites Audit, N8).
+// searchesMu: Lesen, Ändern und Schreiben der gespeicherten Suchen am Stück.
 var searchesMu sync.Mutex
 
 func (h *Hive) searches(w http.ResponseWriter, r *http.Request) {

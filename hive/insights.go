@@ -96,7 +96,7 @@ type Family struct {
 	New       bool     `json:"new"`     // erst in den letzten 24 Stunden aufgetaucht
 }
 
-// maxFamilies begrenzt den Aufwand (Vergleich je Angriff gegen alle Familien; zweites Audit, M4):
+// maxFamilies begrenzt den Aufwand (Vergleich je Angriff gegen alle Familien):
 // Ist die Grenze erreicht, kommt ein Angriff zur ähnlichsten vorhandenen Familie.
 const maxFamilies = 400
 
@@ -321,7 +321,7 @@ func buildHandoffs(list []*Attack) []Handoff {
 
 type insightsCache struct {
 	mu      sync.Mutex
-	compute sync.Mutex // immer nur eine Berechnung gleichzeitig (zweites Audit, M4)
+	compute sync.Mutex // immer nur eine Berechnung gleichzeitig
 	key     string
 	at      time.Time
 	val     map[string]any

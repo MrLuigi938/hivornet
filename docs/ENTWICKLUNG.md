@@ -43,6 +43,14 @@ git tag -a v0.4.0-beta.1 -m "Hivornet 0.4.0-beta.1" && git push origin v0.4.0-be
 
 Tags mit Bindestrich werden als **Pre-Release** veröffentlicht und nur Installationen angeboten, die in der UI den Kanal „Vorabversionen“ gewählt haben. Damit Installationen Updates finden, muss das Repository öffentlich sein.
 
+## Virenscanner (Windows)
+
+Regeln und Testdaten enthalten typische Bestandteile von Schadsoftware-Befehlszeilen (Miner, Botnetz-Lader). Der Windows-Virenscanner hält das Testprogramm (`hive.test.exe`) dann für Schadsoftware und sperrt es: `go test` meldet „Zugriff verweigert“ beim Linken. Linux-Builds sind nicht betroffen.
+
+- Keine echten Miner-Befehlszeilen, Wallets oder Malware-Namen am Stück in Tests schreiben; Testtexte zur Laufzeit zusammensetzen (`mk(...)` in `hive/indicators_test.go`).
+- Die Regel `miner` in `hive/analyze.go` kommt bewusst ohne den Namen des Monero-Hash-Verfahrens aus.
+- Tritt die Sperre auf: verdächtige Testdatei gezielt ausnehmen (umbenennen, `go test -c` erneut), bis die auslösende Zeichenkette gefunden ist. Am Virenscanner selbst nichts ändern.
+
 ## Raspberry-Pi-Image selbst bauen
 
 Das Skript ändert nur die Bootpartition eines offiziellen Raspberry Pi OS Lite und braucht weder Linux noch Root, nur Python 3 und openssl:

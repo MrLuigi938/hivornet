@@ -32,7 +32,7 @@ type FeedConfig struct {
 	Range        string `json:"range"`         // 24h, 7d, 30d
 	MinStufe     int    `json:"min_stufe"`     // 0 Abtasten … 4 Datei nachgeladen
 	SkipScanners bool   `json:"skip_scanners"` // Forschungsscanner und echte Suchmaschinen-Bots auslassen
-	// Schutz gegen gefälschte Ereignisse (protect.go, zweites Audit M1)
+	// Schutz gegen gefälschte Ereignisse (protect.go)
 	NeverBlock    []string `json:"never_block"`      // Adressen/Netze, die nie in die Liste kommen
 	MaxNewPerHour int      `json:"max_new_per_hour"` // höchstens so viele neue Adressen je Stunde
 }

@@ -19,8 +19,8 @@ services:
     <<: *hardening
     build:
       context: ./hive
-      args: { VERSION: "${HIVORNET_VERSION:-0.7.0-beta.1}" }
-    image: hivornet/hive:${HIVORNET_VERSION:-0.7.0-beta.1}
+      args: { VERSION: "${HIVORNET_VERSION:-0.7.0-beta.2}" }
+    image: hivornet/hive:${HIVORNET_VERSION:-0.7.0-beta.2}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -88,8 +88,8 @@ services:
     <<: *hardening
     build:
       context: ./honeypot
-      args: { VERSION: "${HIVORNET_VERSION:-0.7.0-beta.1}" }
-    image: hivornet/honeypot:${HIVORNET_VERSION:-0.7.0-beta.1}
+      args: { VERSION: "${HIVORNET_VERSION:-0.7.0-beta.2}" }
+    image: hivornet/honeypot:${HIVORNET_VERSION:-0.7.0-beta.2}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -209,7 +209,7 @@ networks:
   ingest: # Honeypot -> Hive, ohne Internetzugang
     internal: true
     driver_opts:
-      # fester Name: tools/firewall.sh sperrt darüber den Weg zur NAS selbst (Audit 2, M3)
+      # fester Name: tools/firewall.sh sperrt darüber den Weg zur NAS selbst
       com.docker.network.bridge.name: hv-ingest
     ipam:
       config: [{ subnet: 172.30.250.0/24 }]

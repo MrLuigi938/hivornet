@@ -50,7 +50,7 @@ func contains(list []string, s string) bool {
 	return false
 }
 
-// reservedPort: Ports, die ein Honeypot-Dienst nie belegen darf (zweites Audit, Hinweise):
+// reservedPort: Ports, die ein Honeypot-Dienst nie belegen darf:
 // Web-UI und Sensor-API des Hive, auf dem Raspberry Pi zusätzlich Cowrie (SSH 22, Telnet 23).
 func reservedPort(p int) string {
 	switch {

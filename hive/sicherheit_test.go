@@ -1,6 +1,6 @@
 package main
 
-// Tests zu den Befunden des zweiten Audits (docs/AUDIT-2.md).
+// Tests zur Absicherung: Blockliste, Fehlertexte, Einstufung, reservierte Ports, Leserolle.
 
 import (
 	"fmt"
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// M2: Fehlertexte enthalten weder ntfy-Thema noch Webhook-Token.
+// Fehlertexte enthalten weder ntfy-Thema noch Webhook-Token.
 func TestNotifyErrorRedacted(t *testing.T) {
 	n := NewNotifier(func() NotifyConfig { return NotifyConfig{} })
 	n.http = &http.Client{Timeout: time.Second}
@@ -27,7 +27,7 @@ func TestNotifyErrorRedacted(t *testing.T) {
 	}
 }
 
-// M1: geschützte Adressen, Vertrauen je Sensor, Obergrenze für neue Einträge.
+// geschützte Adressen, Vertrauen je Sensor, Obergrenze für neue Einträge.
 func TestFeedProtection(t *testing.T) {
 	h := testHive(t)
 	h.auth = NewAuth(h.st, "gemeinsam", false)
@@ -85,7 +85,7 @@ func TestSensorTrustEndpoint(t *testing.T) {
 	}
 }
 
-// N4: Content-Type aus der Modellantwort nur aus einer festen Liste.
+// Content-Type aus der Modellantwort nur aus einer festen Liste.
 func TestSafeContentType(t *testing.T) {
 	for in, want := range map[string]string{
 		"text/html\r\nSet-Cookie: x=1": "text/html; charset=utf-8",
@@ -99,7 +99,7 @@ func TestSafeContentType(t *testing.T) {
 	}
 }
 
-// N6: nur wirksame Anfragen an die HTTP-APIs gelten als "Befehl ausgeführt".
+// nur wirksame Anfragen an die HTTP-APIs gelten als "Befehl ausgeführt".
 func TestAPIChanging(t *testing.T) {
 	for _, c := range []struct {
 		svc, in string

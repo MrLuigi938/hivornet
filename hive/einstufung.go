@@ -88,7 +88,7 @@ func commandExecuted(service, input string, loggedIn bool) bool {
 	case "adb": // Shell-Befehle und Datei-Ablagen (proto_iot.go)
 		return true
 	case "kubernetes", "ollama", "elasticsearch":
-		// Nur Anfragen mit Wirkung; Webscanner mit POST an diese Ports sind Versuche (zweites Audit, N6)
+		// Nur Anfragen mit Wirkung; Webscanner mit POST an diese Ports sind Versuche
 		return apiChanging(service, input)
 	case "mqtt": // Nachricht veröffentlichen ändert etwas, Abonnieren nicht
 		return strings.HasPrefix(input, "publish ")

@@ -128,7 +128,7 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, bool) {
 	if a.Status == 0 {
 		a.Status = 200
 	}
-	// Landet roh in einer Kopfzeile: nur einfache Zeichen, sonst Standard (zweites Audit, N4)
+	// Landet roh in einer Kopfzeile: nur einfache Zeichen, sonst Standard
 	if a.ContentType == "" || len(a.ContentType) > 80 || strings.IndexFunc(a.ContentType, func(r rune) bool {
 		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || strings.ContainsRune("/+.;= -", r))
 	}) >= 0 {

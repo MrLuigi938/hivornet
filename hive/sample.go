@@ -162,7 +162,7 @@ func analyzeSample(b []byte) SampleInfo {
 
 var errNoSample = errors.New("Datei nicht (mehr) vorhanden")
 
-// sampleSem: höchstens eine Untersuchung gleichzeitig (bis zu 16 MB je Datei; zweites Audit, M4).
+// sampleSem: höchstens eine Untersuchung gleichzeitig (bis zu 16 MB je Datei).
 var sampleSem = make(chan struct{}, 1)
 
 func (h *Hive) loadSample(hash string) (SampleInfo, error) {
@@ -183,7 +183,7 @@ func (h *Hive) loadSample(hash string) (SampleInfo, error) {
 		return SampleInfo{}, errors.New("gerade wird schon eine Datei untersucht, bitte gleich noch einmal")
 	}
 	path := filepath.Join(h.cowrieLibDir, "downloads", hash)
-	// Nur reguläre Dateien, keine Verweise oder FIFOs (zweites Audit, N5): Wer Cowrie übernimmt,
+	// Nur reguläre Dateien, keine Verweise oder FIFOs: Wer Cowrie übernimmt,
 	// könnte sonst einen Symlink auf andere Dateien des Hive legen.
 	lst, err := os.Lstat(path)
 	if err != nil {

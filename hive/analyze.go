@@ -40,7 +40,7 @@ var patterns = []Pattern{
 		`\b(wget|curl|tftp|ftpget|fetch)\b[^\n]*(\|\s*(ba|a)?sh\b|chmod\b|;\s*\./|&&\s*\./|\bsh\s+\S|\bbash\s+\S|\bpython\S*\s+\S)`),
 	// Bewusst ohne den Namen des Hash-Verfahrens: Zusammen mit den übrigen Begriffen hält der
 	// Windows-Virenscanner das fertige Programm selbst für einen Miner und sperrt Build und Tests
-	// auf dem Entwicklungsrechner (docs/UEBERARBEITUNG.md, Abschnitt Risiken).
+	// auf dem Entwicklungsrechner (docs/ENTWICKLUNG.md, Abschnitt Virenscanner).
 	pat("miner", "Krypto-Miner", "Hinweise auf Mining-Software oder Mining-Pools.", "cmd", 3,
 		`xmrig|minerd|cpuminer|stratum\+(tcp|ssl)|monero|c3pool|nanopool|kinsing|kdevtmpfsi|\bxmr\b`),
 	pat("iot_botnet", "IoT-Botnetz (Mirai-Art)", "Typische Probe- und Ladebefehle von Mirai, Gafgyt und Verwandten.", "cmd", 3,

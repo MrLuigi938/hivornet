@@ -31,7 +31,7 @@ jobs:
       - name: go vet
         run: go vet ./...
       - name: go vet für 32-Bit-Pi (armv7)
-        # Überläufe von Konstanten in int fallen auf amd64 nicht auf (Audit 2, H1)
+        # Überläufe von Konstanten in int fallen auf amd64 nicht auf
         run: GOOS=linux GOARCH=arm GOARM=7 go vet ./...
       - name: Tests auf 32 Bit (386)
         if: matrix.module == 'honeypot'

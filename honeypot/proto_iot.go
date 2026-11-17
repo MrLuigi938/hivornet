@@ -169,7 +169,7 @@ func handleADB(s *Session) {
 			if sync[local] {
 				// sync-Protokoll: "SEND" + Länge + "pfad,modus" leitet eine Datei-Ablage ein
 				if len(m.data) >= 8 && string(m.data[:4]) == "SEND" {
-					// Länge ohne int-Überlauf (32 Bit; zweites Audit, N1)
+					// Länge ohne int-Überlauf (32 Bit)
 					end := len(m.data)
 					if n := binary.LittleEndian.Uint32(m.data[4:8]); uint64(n) < uint64(end-8) {
 						end = 8 + int(n)

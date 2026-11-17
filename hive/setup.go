@@ -571,7 +571,7 @@ func recountTop(st *Store, maxID int64) {
 			if err := rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &e.SrcIP, &e.Username, &e.Password, &data); err != nil {
 				rows.Close()
 				log.Printf("Top-Listen neu zählen: %v (wird beim nächsten Start wiederholt)", err)
-				return // nicht als fertig markieren (zweites Audit, N7)
+				return // nicht als fertig markieren
 			}
 			e.TS = time.UnixMilli(ms)
 			if data != nil {

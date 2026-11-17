@@ -9,7 +9,7 @@ import (
 // Erfundene Adresse in Monero-Form (95 Zeichen). Bewusst keine echte Wallet, und die
 // Befehlszeilen entstehen erst zur Laufzeit aus Teilen (mk): Stünde eine Miner-Befehlszeile
 // am Stück im Testprogramm, sperrte der Windows-Virenscanner es ("Zugriff verweigert",
-// docs/UEBERARBEITUNG.md, Risiken).
+// docs/ENTWICKLUNG.md, Abschnitt Virenscanner).
 var testXMR = "4" + strings.Repeat("Ab3", 31) + "x"
 
 // mk setzt Testtexte zur Laufzeit zusammen (siehe oben).

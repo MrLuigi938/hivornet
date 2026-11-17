@@ -1,6 +1,6 @@
 # Hivornet – Architektur
 
-Stand: Version 0.6.1-beta.2, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
+Stand: Version 0.7.0-beta.2, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md).
 
 Zwei Betriebsarten mit denselben Programmen: **Docker** (NAS, Server; Abschnitte 1 bis 6) und **Raspberry Pi ohne Docker** (systemd-Dienste; Abschnitt 7a).
 
@@ -261,7 +261,7 @@ In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, Update
 
 1. In `hive/analyze.go` eine Zeile `pat(id, name, beschreibung, gruppe, schweregrad, regex)` an `patterns` anhängen. Gruppe: `cmd`, `web` oder `raw`. Schweregrad 3 löst die Benachrichtigung „Schweres Angriffsmuster“ aus.
 2. In `hive/extra_test.go` ein Beispiel in `patternExamples` eintragen; `TestPatterns` verlangt eines je Regel.
-3. Achtung Virenscanner: siehe UEBERARBEITUNG.md, Abschnitt Risiken.
+3. Achtung Virenscanner: siehe [ENTWICKLUNG.md](ENTWICKLUNG.md), Abschnitt Virenscanner.
 
 ### Neue UI-Ansicht
 

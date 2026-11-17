@@ -54,7 +54,7 @@ func (h *Hive) credSummary(w http.ResponseWriter, r *http.Request) {
 	since, _ := rangeSince(r)
 	hour := since.UnixMilli() / 3600000
 	out := map[string]any{}
-	// Fehler (z. B. Zeitüberschreitung) melden statt Nullen zu liefern (zweites Audit, N9)
+	// Fehler (z. B. Zeitüberschreitung) melden statt Nullen zu liefern
 	fail := func(err error) { httpErr(w, 500, "Zugangsdaten-Übersicht: "+err.Error()) }
 	for _, f := range []string{"username", "password", "cred"} {
 		var distinct, total int64

@@ -7,7 +7,7 @@ import (
 
 // readN liest genau n Bytes. Speicher wird erst belegt, wenn die Daten wirklich kommen:
 // Ein Angreifer, der eine große Länge ankündigt und dann nichts schickt, belegt so fast
-// nichts (zweites Audit, N2). Kleine Nachrichten werden direkt gelesen.
+// nichts. Kleine Nachrichten werden direkt gelesen.
 func readN(r io.Reader, n int) ([]byte, error) {
 	if n <= 0 {
 		return nil, nil

@@ -22,7 +22,7 @@ import (
 // danach "Länge" Datenbytes. op 3 = Daten; Richtung 1 = Eingabe, 2 = Ausgabe.
 //
 // Angenommen aus dem Cowrie-Quelltext (3.1.x); gegen einen laufenden Container
-// noch nicht geprüft (siehe docs/UEBERARBEITUNG.md).
+// noch nicht geprüft.
 
 const (
 	ttyMaxFile   = 2 << 20   // so viel einer Datei wird höchstens gelesen

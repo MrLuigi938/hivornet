@@ -301,7 +301,7 @@ func viewerAllowed(r *http.Request) bool {
 		return false
 	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"), strings.HasPrefix(p, "/api/abuse"), strings.HasPrefix(p, "/api/feed"), strings.HasPrefix(p, "/api/sensor-tokens"), strings.HasPrefix(p, "/api/mimic"):
 		return false
-	// Abfragen bei Dritten mit den Schlüsseln des Admins und teure Auswertungen (zweites Audit)
+	// Abfragen bei Dritten mit den Schlüsseln des Admins und teure Auswertungen
 	case strings.HasPrefix(p, "/api/lookup/"), strings.HasPrefix(p, "/api/sample"),
 		strings.HasPrefix(p, "/api/attackers/") && (strings.HasSuffix(p, "/intel") || strings.HasSuffix(p, "/greynoise")):
 		return false

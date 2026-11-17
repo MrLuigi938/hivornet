@@ -3,7 +3,7 @@ package main
 // Schutz für alles, was aus Angreiferdaten nach außen wirkt (Blockliste zum Abonnieren,
 // automatische Meldung an AbuseIPDB). Ereignisse kommen von Sensoren; ein übernommener
 // Honeypot oder ein entfernter Sensor könnte beliebige src_ip-Werte schicken und so
-// fremde Adressen sperren oder melden lassen (zweites Audit, M1). Deshalb:
+// fremde Adressen sperren oder melden lassen. Deshalb:
 //   - Sensoren mit eigenem Token speisen beides nur, wenn der Admin ihnen vertraut;
 //   - wichtige Infrastruktur (öffentliche DNS-Resolver) und eine eigene Liste "Nie sperren"
 //     sind immer ausgenommen;

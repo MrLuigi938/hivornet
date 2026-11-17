@@ -20,3 +20,11 @@ honeypot/honeypot
 dist/
 __pycache__/
 *.pyc
+
+# Interne Arbeitsdokumente (Prüfberichte, Protokolle, Vorschläge) und UI-Entwürfe:
+# bleiben lokal, gehören nicht ins öffentliche Repository
+docs/AUDIT*.md
+docs/FEINSCHLIFF.md
+docs/UEBERARBEITUNG.md
+docs/VORSCHLAEGE.md
+konzepte/

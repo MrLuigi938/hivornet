@@ -245,7 +245,7 @@ func (n *Notifier) Send(c NotifyConfig, nt notice) error {
 		if err != nil {
 			// Adressen sind selbst Geheimnisse (ntfy-Thema, Webhook-Token im Pfad, Telegram-Token):
 			// bei Netzwerkfehlern nur Vorgang und Ursache, nie die Adresse. Der Text ist für die
-			// Leserolle sichtbar (/api/system; Audit 2, M2).
+			// Leserolle sichtbar (/api/system).
 			var ue *url.Error
 			msg := err.Error()
 			if errors.As(err, &ue) {

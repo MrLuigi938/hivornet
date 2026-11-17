@@ -39,7 +39,7 @@ type MimicConfig struct {
 	APIKey       string `json:"api_key"`
 	MaxPerHour   int    `json:"max_per_hour"`    // Anfragen ans Modell insgesamt
 	MaxPerIPHour int    `json:"max_per_ip_hour"` // je Angreifer-IP
-	MaxPerDay    int    `json:"max_per_day"`     // Tagesbudget (zweites Audit, N3)
+	MaxPerDay    int    `json:"max_per_day"`     // Tagesbudget
 }
 
 func defaultMimic() MimicConfig {
@@ -165,7 +165,7 @@ func mimicMessages(r mimicReq) []map[string]string {
 		{"role": "user", "content": r.Input}}
 }
 
-// mimicSem: höchstens zwei Modellaufrufe gleichzeitig (Kosten, Speicher; zweites Audit, N3).
+// mimicSem: höchstens zwei Modellaufrufe gleichzeitig (Kosten, Speicher).
 var mimicSem = make(chan struct{}, 2)
 
 // mimicAsk ruft das Modell (eigene Funktion statt askAI: kurzer Zeitrahmen, kleine Antwort).
@@ -352,7 +352,7 @@ func (h *Hive) mimicClear(w http.ResponseWriter, r *http.Request) {
 }
 
 // safeContentType bildet die Angabe des Modells auf eine feste Liste ab: Sie landet roh in einer
-// Kopfzeile, Zeilenumbrüche würden die Antwort spalten (zweites Audit, N4).
+// Kopfzeile, Zeilenumbrüche würden die Antwort spalten.
 func safeContentType(ct string) string {
 	ct = strings.ToLower(strings.TrimSpace(ct))
 	switch {

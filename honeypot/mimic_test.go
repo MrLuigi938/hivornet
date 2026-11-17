@@ -5,15 +5,36 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 )
 
+// mimicRecorder sammelt die Anfragen an den nachgebauten Hive. Der Server läuft in eigenen
+// Goroutinen; ohne Sperre meldet der Race-Detector der CI einen Wettlauf.
+type mimicRecorder struct {
+	mu  sync.Mutex
+	got []map[string]string
+}
+
+func (r *mimicRecorder) add(m map[string]string) {
+	r.mu.Lock()
+	r.got = append(r.got, m)
+	r.mu.Unlock()
+}
+
+func (r *mimicRecorder) all() []map[string]string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]map[string]string(nil), r.got...)
+}
+
 func TestMimicShellAndWeb(t *testing.T) {
-	var got []map[string]string
+	mimicOffUntil.Store(0)
+	rec := &mimicRecorder{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req map[string]string
 		json.NewDecoder(r.Body).Decode(&req)
-		got = append(got, req)
+		rec.add(req)
 		if r.URL.Path != "/api/sensor/mimic" || r.Header.Get("Authorization") != "Bearer tok" {
 			w.WriteHeader(401)
 			return
@@ -30,14 +51,14 @@ func TestMimicShellAndWeb(t *testing.T) {
 	s := &Session{m: m, SrcIP: "203.0.113.5", Service: "telnet"}
 
 	// bekannter Befehl: keine Anfrage
-	if out := s.mimicShell("cam", "id"); out != "uid=0(root) gid=0(root)\r\n" || len(got) != 0 {
-		t.Fatalf("bekannt: %q %d", out, len(got))
+	if out := s.mimicShell("cam", "id"); out != "uid=0(root) gid=0(root)\r\n" || len(rec.all()) != 0 {
+		t.Fatalf("bekannt: %q %d", out, len(rec.all()))
 	}
 	out := s.mimicShell("cam", `v=outer; (v=inner; printf 'child=%s\n' "$v")`)
 	if out != "child=inner\r\nparent=outer\r\n[31m" {
 		t.Errorf("unbekannt: %q", out)
 	}
-	if len(got) != 1 || got[0]["kind"] != "shell" || got[0]["ip"] != "203.0.113.5" || got[0]["host"] == "" {
+	if got := rec.all(); len(got) != 1 || got[0]["kind"] != "shell" || got[0]["ip"] != "203.0.113.5" || got[0]["host"] == "" {
 		t.Errorf("Anfrage: %+v", got)
 	}
 	req := httptest.NewRequest("GET", "/cgi-bin/luci", nil)
@@ -47,16 +68,16 @@ func TestMimicShellAndWeb(t *testing.T) {
 	if _, _, _, ok := s.mimicWeb(httptest.NewRequest("GET", "/logo.png", nil)); ok {
 		t.Error("statische Datei sollte 404 bleiben")
 	}
-	if !strings.Contains(got[len(got)-1]["input"], "GET /cgi-bin/luci") {
+	if got := rec.all(); !strings.Contains(got[len(got)-1]["input"], "GET /cgi-bin/luci") {
 		t.Errorf("Web-Eingabe: %+v", got[len(got)-1])
 	}
 }
 
 func TestMimicOffAndUnreachable(t *testing.T) {
 	mimicOffUntil.Store(0)
-	n := 0
+	rec := &mimicRecorder{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		n++
+		rec.add(nil)
 		w.Header().Set("X-Mimic", "off")
 		w.WriteHeader(204)
 	}))
@@ -68,7 +89,7 @@ func TestMimicOffAndUnreachable(t *testing.T) {
 			t.Fatalf("statisch erwartet: %q", out)
 		}
 	}
-	if n != 1 {
+	if n := len(rec.all()); n != 1 {
 		t.Errorf("nach „aus“ weiter gefragt: %d", n)
 	}
 	srv.Close()
