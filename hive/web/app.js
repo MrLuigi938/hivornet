@@ -437,6 +437,7 @@ async function viewDashboard(el, ctx) {
 
   // ---- Karte ----
   const map = worldMap(mp, { home, countries });
+  map.seedActive(act.attacks); // Linien für Angreifer der letzten 10 Minuten
 
   // ---- Gerade aktiv (Angriffe der letzten 15 Minuten) ----
   const active = new Map(act.attacks.map((a) => [a.id, a]));
@@ -639,12 +640,15 @@ async function viewSession(el, ctx, id) {
     if (e.type === "command") return h("div", null, t, h("span", { class: "cmd" }, d.input || ""));
     return h("div", { class: "info" }, t, `[${TYPE_NAME[e.type] || e.type}] `, describe(e));
   };
+  const sessChain = chainCard({ session: id });
+  let chainT = 0;
+  ctx.live((e) => { if (e.session === id) { clearTimeout(chainT); chainT = setTimeout(() => sessChain.refresh(), 2000); } });
   mount(el, h("div", { class: "stack" },
     h("div", { class: "grid kpi" },
       tile("Quelle", h("span", null, ipLink(f.src_ip)), [f.city, f.country_name].filter(Boolean).join(", ")),
       tile("Dienst", svcName(f.service), "Port " + f.dst_port),
       tile("Beginn", fmtDateTime(start)), tile("Dauer", fmtDur(end - start))),
-    chainCard({ session: id }),
+    sessChain,
     reportCard({ session: id }),
     evs.some((e) => e.type === "tty") ? ttyCard(id) : null,
     card("Ablauf", h("div", { class: "term" }, evs.map(line)))));
@@ -662,6 +666,7 @@ async function viewAttacker(el, ctx, ip) {
   const openCards = new Set();
   const list = h("div", { class: "feed" }, attacks.length ? attacks.map((a, n) => { a.seen = attacks.length - n; return attackCard(a, { showIP: false, open: openCards }); })
     : h("div", { class: "empty" }, "In den letzten 7 Tagen keine Angriffe (ältere Rohdaten sind nach der Aufbewahrungszeit gelöscht)."));
+  const chain = chainCard({ ip });
   mount(el, h("div", { class: "stack" },
     h("section", { class: "card" },
       h("div", { class: "hero" },
@@ -680,13 +685,14 @@ async function viewAttacker(el, ctx, ip) {
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
       card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: `${c.username} / ${c.password}`, n: c.n }))))),
-    chainCard({ ip }),
+    chain,
     reportCard({ ip }),
     intelCard(ip),
     h("section", { class: "card" }, h("details", { class: "more" }, h("summary", null, `Alle Ereignisse einzeln (neueste ${fmtNum(d.events.length)})`), evTable(d.events, { showIP: false })))));
   liveAttacks(ctx, (updated) => {
     const a = updated.find((x) => x.ip === ip);
     if (!a) return;
+    chain.refresh(); // Angriffskette unauffällig nachziehen
     const n = attacks.findIndex((x) => x.id === a.id);
     if (n >= 0) attacks.splice(n, 1);
     attacks.unshift(a);

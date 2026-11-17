@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"strconv"
 	"testing"
 	"time"
@@ -183,5 +184,27 @@ func TestTarpitHeldAndLiveStatus(t *testing.T) {
 	json.Unmarshal(rec.Body.Bytes(), &l)
 	if l.Active != 1 || l.Tarpits != 3 {
 		t.Fatalf("Live: %s", rec.Body)
+	}
+}
+
+func TestCowrieAcceptsAll(t *testing.T) {
+	dir := t.TempDir()
+	write := func(s string) string {
+		p := dir + "/cowrie.cfg"
+		os.WriteFile(p, []byte(s), 0o644)
+		return p
+	}
+	if !cowrieAcceptsAll(write("[honeypot]\nhostname = x\n")) {
+		t.Error("ohne auth_class muss gewarnt werden")
+	}
+	if cowrieAcceptsAll(write("[honeypot]\nauth_class = AuthRandom\nauth_class_parameters = 2, 5, 10\n")) {
+		t.Error("mit AuthRandom keine Warnung")
+	}
+	if cowrieAcceptsAll(dir + "/fehlt.cfg") {
+		t.Error("fehlende Datei (Docker): keine Warnung")
+	}
+	// Die Datei im Pi-Image muss die Regel enthalten
+	if cowrieAcceptsAll("../pi/rootfs/etc/hivornet/cowrie.cfg") {
+		t.Error("pi/rootfs/etc/hivornet/cowrie.cfg legt keine Anmelderegel fest")
 	}
 }

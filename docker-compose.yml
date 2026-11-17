@@ -130,6 +130,9 @@ services:
       COWRIE_HONEYPOT_HOSTNAME: ${COWRIE_HOSTNAME:-nas-backup01}
       COWRIE_TELNET_ENABLED: "yes"
       COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE: "10485760" # Downloads der Angreifer höchstens 10 MB
+      # Anmeldung erst nach 2 bis 5 verschiedenen Versuchen je IP, nicht sofort (sonst als Honeypot erkennbar)
+      COWRIE_HONEYPOT_AUTH_CLASS: AuthRandom
+      COWRIE_HONEYPOT_AUTH_CLASS_PARAMETERS: "2, 5, 10"
     volumes:
       - cowrie-log:/cowrie/cowrie-git/var/log/cowrie
       - cowrie-lib:/cowrie/cowrie-git/var/lib/cowrie

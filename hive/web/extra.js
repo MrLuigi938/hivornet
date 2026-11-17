@@ -23,6 +23,7 @@ export async function viewLive(el, ctx) {
   header("Live-Karte");
   const [mp, ctry, home] = await Promise.all([api("stats/map?range=24h"), api("stats/top?field=country&limit=100&range=24h"), homeLocation()]);
   const map = worldMap(mp, { home, large: true, countries: ctry });
+  api("attacks?active=1&limit=200").then((d) => map.seedActive(d.attacks)).catch(() => {}); // Linien der letzten 10 Minuten
   const ticker = h("ul", { class: "ticker" });
   const perMin = tile("Angriffe pro Minute", "0", "Verbindungen in den letzten 60 s");
   const countries = tile("Länder", "0", "in den letzten 10 Minuten");
@@ -64,7 +65,7 @@ export async function viewLive(el, ctx) {
 
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Jede rote Linie ist ein gerade aktiver Angreifer: vom Ursprung zum Honeypot (",
-      home.label || "Honeypot", "). Sie bleibt stehen, solange er etwas tut, und verschwindet kurz nach seiner letzten Verbindung. ",
+      home.label || "Honeypot", "). Sie bleibt stehen, bis er 10 Minuten lang nichts mehr getan hat. ",
       "Der kurze Puls am Ursprung zeigt jede neue Verbindung, seine Farbe den Dienst. Den Standort stellst du unter Einstellungen ein."),
     h("div", { class: "live-grid" },
       h("div", { class: "stack" },
@@ -209,22 +210,47 @@ function mainPath(c) {
   return (starts.length ? starts : [c.nodes[0]]).map(walk).sort((a, b) => score(b) - score(a))[0];
 }
 
+// chainCard liefert die Karte; card.refresh() lädt die Kette neu und tauscht sie unauffällig aus:
+// bekannte Bubbles behalten Platz, Zoom und Auswahl, nur neue kommen hinzu (Seite eines Angreifers live).
 export function chainCard({ ip, session }) {
   const box = h("div", null, h("p", { class: "muted" }, "Lade Angriffskette …"));
   const query = ip ? "ip=" + encodeURIComponent(ip) : "session=" + encodeURIComponent(session);
-  api("chain?" + query).then((c) => mount(box, chainView(c))).catch((e) => mount(box, h("div", { class: "msg err" }, "Angriffskette nicht verfügbar: " + e.message)));
-  return card("Angriffskette", box);
+  let cur = null, sig = "", busy = false;
+  const signature = (c) => JSON.stringify([c.events, c.nodes.map((n) => [n.id, n.n]), c.edges.map((e) => [e.from, e.to, e.n])]);
+  api("chain?" + query).then((c) => { sig = signature(c); cur = chainView(c); mount(box, cur); })
+    .catch((e) => mount(box, h("div", { class: "msg err" }, "Angriffskette nicht verfügbar: " + e.message)));
+  const el = card("Angriffskette", box);
+  el.refresh = async () => {
+    if (busy || !cur || !box.isConnected) return;
+    busy = true;
+    try {
+      const c = await api("chain?" + query);
+      const s2 = signature(c);
+      if (s2 !== sig) {
+        sig = s2;
+        const next = chainView(c, cur.chainState());
+        cur.replaceWith(next);
+        cur = next;
+      }
+    } catch { /* nächster Versuch */ }
+    busy = false;
+  };
+  return el;
 }
 
-function chainView(c) {
+function chainView(c, prev = null) {
   if (!c.nodes.length) return h("div", { class: "empty" }, "Keine Ereignisse.");
   // ---- Modell: Knoten mit Position und Geschwindigkeit ----
   const PH = 260; // Abstand der Phasen-Bänder (Weltkoordinaten)
   const maxN = Math.max(1, ...c.nodes.map((n) => n.n));
-  const nodes = c.nodes.map((n, i) => ({
-    ...n, r: 20 + 16 * Math.log1p(n.n) / Math.log1p(maxN),
-    x: n.phase * PH + (Math.random() - 0.5) * 60, y: ((i % 7) - 3) * 55 + (Math.random() - 0.5) * 30, vx: 0, vy: 0, fixed: false,
-  }));
+  const nodes = c.nodes.map((n, i) => {
+    const p = prev && prev.pos.get(n.id); // bekannte Bubble: Platz behalten
+    return {
+      ...n, r: 20 + 16 * Math.log1p(n.n) / Math.log1p(maxN), known: !!p, pinned: p ? p.fixed : false,
+      x: p ? p.x : n.phase * PH + (Math.random() - 0.5) * 60, y: p ? p.y : ((i % 7) - 3) * 55 + (Math.random() - 0.5) * 30,
+      vx: 0, vy: 0, fixed: p ? p.fixed : false,
+    };
+  });
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const edges = c.edges.filter((e) => byId.has(e.from) && byId.has(e.to)).map((e) => ({ ...e, a: byId.get(e.from), b: byId.get(e.to) }));
   const maxE = Math.max(1, ...edges.map((e) => e.n));
@@ -269,11 +295,18 @@ function chainView(c) {
     };
     raf = requestAnimationFrame(loop);
   }
-  // Vorlauf ohne Zeichnen, damit die Ansicht ruhig startet
-  for (let i = 0; i < 260; i++) { tick(); alpha = Math.max(0.05, alpha * 0.99); }
+  // Vorlauf ohne Zeichnen, damit die Ansicht ruhig startet. Bei einer Aktualisierung bleiben die
+  // bekannten Bubbles stehen; nur neue suchen sich ihren Platz.
+  if (prev) {
+    nodes.forEach((n) => { if (n.known) n.fixed = true; });
+    for (let i = 0; i < 160; i++) { tick(); alpha = Math.max(0.05, alpha * 0.99); }
+    nodes.forEach((n) => { if (n.known) n.fixed = n.pinned; });
+  } else {
+    for (let i = 0; i < 260; i++) { tick(); alpha = Math.max(0.05, alpha * 0.99); }
+  }
 
   // ---- Zeichnen ----
-  const view = { k: 1, x: 0, y: 0 }; // Verschiebung und Zoom
+  const view = prev ? { ...prev.view } : { k: 1, x: 0, y: 0 }; // Verschiebung und Zoom (bei Aktualisierung übernommen)
   const world = s("g", { class: "cg-world" });
   const bands = s("g");
   c.phases.forEach((p, i) => bands.append(
@@ -292,10 +325,12 @@ function chainView(c) {
     const g = s("g", { class: "cg-node sev" + Math.min(4, n.sev) + " kind-" + n.kind, tabindex: 0, role: "button", "aria-label": n.label },
       s("title", null, `${n.label}${n.sub ? " – " + n.sub : ""} (${n.n}×, ${c.phases[n.phase]})`),
       s("circle", { class: "cg-halo", r: n.r + 6 }),
+      prev && !n.known ? s("circle", { class: "cg-new", r: n.r + 10 }) : null,
       s("circle", { class: "cg-bubble", r: n.r }),
       s("text", { class: "cg-count", "text-anchor": "middle", dy: "0.35em" }, n.n > 1 ? fmtNum(n.n) : "1"),
       s("text", { class: "cg-label", "text-anchor": "middle", y: n.r + 15 }, short(n.label, 26)),
       n.sub ? s("text", { class: "cg-sub", "text-anchor": "middle", y: n.r + 29 }, short(n.sub, 30)) : null);
+    if (n.fixed) g.classList.add("pinned");
     nodeG.append(g);
     n.el = g;
     return g;
@@ -412,11 +447,14 @@ function chainView(c) {
       alpha = 1; run(2); setTimeout(fit, 900);
     }));
   const stage = h("div", { class: "cg-stage" }, svg, tools);
-  // erst einpassen, wenn die Fläche im Dokument ist und eine Größe hat
-  const ro = new ResizeObserver(() => { if (svg.getBoundingClientRect().width) { fit(); ro.disconnect(); } });
-  ro.observe(stage);
+  // erst einpassen, wenn die Fläche im Dokument ist und eine Größe hat (nicht bei einer Aktualisierung)
+  if (!prev) {
+    const ro = new ResizeObserver(() => { if (svg.getBoundingClientRect().width) { fit(); ro.disconnect(); } });
+    ro.observe(stage);
+  }
   draw();
-  return h("div", null,
+  if (prev && prev.selected && byId.has(prev.selected)) select(prev.selected);
+  const root = h("div", null,
     h("p", { class: "sub" }, `${fmtNum(c.events)} Ereignisse in ${fmtNum(c.sessions)} Sitzungen; erreicht bis Phase ${reached + 1} (${c.phases[reached]}).`,
       c.truncated ? " Nur die neuesten 5.000 Ereignisse." : ""),
     path.length > 1 ? h("div", { class: "ch-path" }, h("span", { class: "muted" }, "Hauptpfad: "),
@@ -426,6 +464,8 @@ function chainView(c) {
       "Größe = Häufigkeit, Farbe = Schwere ", [0, 1, 2, 3, 4].map((i) => h("i", { class: "ch-dot", style: { background: `var(--sev${i})` } })),
       ", orange gestrichelt = Herkunft einer Datei bzw. Adresse."),
     detail);
+  root.chainState = () => ({ pos: new Map(nodes.map((n) => [n.id, { x: n.x, y: n.y, fixed: n.fixed }])), view: { ...view }, selected });
+  return root;
 }
 
 // ---------- Angriffsbericht ----------

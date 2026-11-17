@@ -213,11 +213,36 @@ export function worldMap(points, { home = null, large = false, countries = null,
     l.g.classList.add("ending");
     setTimeout(() => l.g.remove(), 900);
   };
+  // Linie bleibt, bis der Angreifer 10 Minuten lang nichts mehr getan hat.
+  const LINE_MS = 10 * 60e3;
   const sweep = setInterval(() => {
     if (!svg.isConnected) { clearInterval(sweep); return; }
     const now = Date.now();
-    for (const [ip, l] of lines) if (now - l.last > (l.open > 0 ? 120000 : 20000)) dropLine(ip);
-  }, 3000);
+    for (const [ip, l] of lines) if (now - l.last > LINE_MS) dropLine(ip);
+  }, 5000);
+  function addLine(ip, lat, lon, country, city, last) {
+    if (!home || !(home.lat || home.lon)) return;
+    const x1 = lon + 180, y1 = 90 - lat, x2 = home.lon + 180, y2 = 90 - home.lat;
+    if (Math.hypot(x2 - x1, y2 - y1) < 1) return;
+    const d = arcPath(x1, y1, x2, y2);
+    const glow = s("path", { class: "arc-glow", d, style: { strokeWidth: 2.2 * k() } });
+    const path = s("path", { class: "arc-live", d });
+    dashStyle(path);
+    const dot = s("circle", { class: "arc-src", cx: x1, cy: y1, r: 1.1 * k() });
+    const g = s("g", { class: "active-line" }, glow, path, dot);
+    hoverTip(g, () => [[flag(country), " ", ip], [["Ort", [city, countryName(country)].filter(Boolean).join(", ") || "unbekannt"],
+      ["Zuletzt aktiv", new Date(lines.get(ip)?.last || Date.now()).toLocaleTimeString("de-DE")]]]);
+    activeG.append(g);
+    lines.set(ip, { g, glow, path, dot, last });
+  }
+  // Beim Öffnen der Seite: Linien für alle Angriffe der letzten 10 Minuten
+  function seedActive(attacks) {
+    const now = Date.now();
+    for (const a of attacks || []) {
+      if (now - a.last > LINE_MS || lines.has(a.ip) || (!a.lat && !a.lon)) continue;
+      addLine(a.ip, a.lat, a.lon, a.country, a.city, a.last);
+    }
+  }
   function track(e) {
     if (!e.src_ip) return;
     const l = lines.get(e.src_ip);
@@ -230,30 +255,18 @@ export function worldMap(points, { home = null, large = false, countries = null,
       }
       if (!e.lat && !e.lon) return;
       pulse(e.lat, e.lon, svcColor(e.service));
-      if (l) { l.open++; l.last = Date.now(); l.g.classList.remove("flash"); void l.g.getBoundingClientRect(); l.g.classList.add("flash"); return; }
-      if (!home || !(home.lat || home.lon)) return;
-      const x1 = e.lon + 180, y1 = 90 - e.lat, x2 = home.lon + 180, y2 = 90 - home.lat;
-      if (Math.hypot(x2 - x1, y2 - y1) < 1) return;
-      const d = arcPath(x1, y1, x2, y2);
-      const glow = s("path", { class: "arc-glow", d, style: { strokeWidth: 2.2 * k() } });
-      const path = s("path", { class: "arc-live", d });
-      dashStyle(path);
-      const dot = s("circle", { class: "arc-src", cx: x1, cy: y1, r: 1.1 * k() });
-      const g = s("g", { class: "active-line" }, glow, path, dot);
-      hoverTip(g, () => [[flag(e.country), " ", e.src_ip], [["Ort", [e.city, countryName(e.country)].filter(Boolean).join(", ") || "unbekannt"], ["Zuletzt aktiv", new Date(lines.get(e.src_ip)?.last || Date.now()).toLocaleTimeString("de-DE")]]]);
-      activeG.append(g);
-      lines.set(e.src_ip, { g, glow, path, dot, last: Date.now(), open: 1 });
+      if (l) { l.last = Date.now(); l.g.classList.remove("flash"); void l.g.getBoundingClientRect(); l.g.classList.add("flash"); return; }
+      addLine(e.src_ip, e.lat, e.lon, e.country, e.city, Date.now());
       return;
     }
-    if (!l) return;
-    l.last = Date.now();
-    if (e.type === "disconnect") l.open = Math.max(0, l.open - 1);
+    if (l) l.last = Date.now();
   }
   return {
     el,
     controls: ctl,
     setData,
     track,
+    seedActive,
     activeCount: () => lines.size,
     zoom: (name) => setView(REGIONS[name], true),
     zoomed: () => vb[2] < 359, // hineingezoomt: Seite nicht automatisch neu aufbauen

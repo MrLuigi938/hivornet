@@ -332,6 +332,8 @@ ul.plain li { margin: 3px 0; }
 .taglist code { display: block; background: var(--code-bg); border-radius: 6px; padding: 4px 6px; margin-top: 4px; white-space: pre-wrap; }
 .mono-list { list-style: none; margin: 0; padding: 0; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
 .mono-list li { padding: 3px 0; }
+.cg-new { fill: none; stroke: var(--accent); stroke-width: 3; opacity: 0; animation: cgnew 2.4s ease-out; }
+@keyframes cgnew { 0% { opacity: .9; } 100% { opacity: 0; } }
 .md { background: var(--code-bg); border-radius: 8px; padding: 4px 16px 12px; margin-top: 8px; line-height: 1.55; }
 .md .md-h { font-size: 14px; margin: 14px 0 4px; color: var(--text); }
 .md .md-p { margin: 6px 0; }

@@ -2,6 +2,15 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben
+- **Cowrie nahm jede SSH- und Telnet-Anmeldung schon beim ersten Versuch an** (mitgelieferte Benutzerliste mit `*:x:*`), woran geübte Bots den Honeypot erkennen. Jetzt gilt `AuthRandom`: Jede IP muss 2 bis 5 verschiedene Kombinationen probieren (zufällig), die erfolgreiche gilt für diese IP weiter. Docker: über Umgebungsvariablen, kommt mit dem Update. Raspberry Pi: in `/etc/hivornet/cowrie.cfg`, also mit dem neuen Image; ältere Images zeigen eine Warnung unter System mit der Anleitung zum Nachtragen.
+
+### Geändert
+- **Karten:** Die rote Linie eines Angreifers bleibt stehen, bis er 10 Minuten lang nichts mehr getan hat, und erscheint beim Öffnen von Dashboard und Live-Karte gleich für alle Angreifer der letzten 10 Minuten.
+- **Angriffskette aktualisiert sich live** auf der Seite eines Angreifers und einer Sitzung: Bekannte Bubbles behalten Platz, Zoom und Auswahl bleiben, neue kommen mit kurzem Aufleuchten hinzu.
+
 ## [0.6.0-beta.1] – 2026-11-17
 
 ### Behoben

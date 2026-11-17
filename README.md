@@ -40,7 +40,7 @@ Kein Docker, keine Konsole: aufspielen, einstecken, im Browser einrichten. Geeig
 
 **Cowrie (SSH und Telnet mit gefälschter Shell)** installiert der Pi nach dem ersten Start im Hintergrund nach. Das braucht Internet und dauert auf einem Pi 3 etwa 10 bis 20 Minuten; die übrigen Dienste laufen schon vorher. Klappt es nicht (z. B. ohne Internet), versucht der Pi es stündlich erneut. Den Stand (aktueller Schritt, fertig oder gescheitert) zeigt die Seite **System**, die Einzelheiten die Seite **Protokolle**.
 
-Auf dem Pi gehören die Ports 22 und 23 Cowrie, 2222 dem SSH-Tarpit und 2323 dem Telnet-Honeypot. Die Netzsperre ist auf dem Pi schon eingerichtet. Die Datenbank ist auf 1 GB begrenzt, und der Pi schreibt gebündelt, um die SD-Karte zu schonen.
+Cowrie lässt Anmeldungen erst nach 2 bis 5 verschiedenen Versuchen je IP zu (zufällig); die erfolgreiche Kombination gilt für diese IP weiter. Auf dem Pi gehören die Ports 22 und 23 Cowrie, 2222 dem SSH-Tarpit und 2323 dem Telnet-Honeypot. Die Netzsperre ist auf dem Pi schon eingerichtet. Die Datenbank ist auf 1 GB begrenzt, und der Pi schreibt gebündelt, um die SD-Karte zu schonen.
 
 ### Docker auf NAS oder Linux-Server
 
@@ -164,7 +164,7 @@ Du musst nicht alle weiterleiten. Für den Anfang genügen 22, 23, 80, 443 und 3
 |---|---|
 | Dashboard | Warnungen; Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor; Weltkarte (Länder nach Anzahl eingefärbt, Orte, Zoom, Regionen, Live-Angriffe); **Gerade aktiv**: Angreifer der letzten 15 Minuten, nach IP gebündelt; Verlauf nach Dienst und Top-Listen |
 | Angriffe | **gebündelt:** eine Karte je Angriff (Ereignisse einer IP mit weniger als 15 Minuten Pause) mit Stufe (Abtasten → Versuche → Login angenommen → Befehle → Datei nachgeladen), vermuteter Art (z. B. „SSH-Brute-Force“, „Web-Scanner“), Zugangsdaten, Pfaden, Befehlen, erkannten Mustern und Zeitstreifen; Filter nach Stufe und Dienst, Suche. **Einzelne Ereignisse:** alle Ereignisse in Echtzeit, Wiederholungen als eine Zeile mit Zähler (×10); Export als CSV/JSON, Blockliste und STIX 2.1 (für MISP, OpenCTI) |
-| Live-Karte | große Karte: Gerade aktive Angreifer haben eine rote Linie zum Honeypot, solange sie etwas tun; jede neue Verbindung pulsiert am Ursprung; Laufliste, Angriffe pro Minute |
+| Live-Karte | große Karte: Angreifer der letzten 10 Minuten haben eine rote Linie zum Honeypot; jede neue Verbindung pulsiert am Ursprung; Laufliste, Angriffe pro Minute |
 | Analyse | erkannte Angriffsmuster (Klick zeigt die passenden Angriffe), Kampagnen, bekannte Lücken (CVE), Fingerabdrücke (JA4, HASSH, HTTP-Kopfzeilen), benutzte und installierte Programme, Scanner, Nachlade-Adressen |
 | Angreifer | alles zu einer IP: Herkunft, alle Angriffe dieser IP, **Angriffskette**, Angriffsbericht, Reputation (AbuseIPDB, GreyNoise), Ports, Passwörter, Ereignisse |
 | Zugangsdaten | häufigste Benutzernamen, Passwörter, Befehle, HTTP-Pfade, User-Agents, Client-Versionen, getrennt davon SNMP-Community-Strings, SIP-Adressen (IP-Adressen darin ersetzt) und DNS-Abfragen; Klick zeigt die passenden Angriffe |
