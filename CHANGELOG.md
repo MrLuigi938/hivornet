@@ -2,6 +2,12 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.6.1-beta.2] – 2026-11-17
+
+### Neu
+- **Anmelderegel von Cowrie in den Einstellungen** (Einstellungen → SSH und Telnet): „erst nach mehreren Versuchen“ mit wählbarem Bereich (1–20 je IP) oder „jede Kombination sofort“. Auf dem Raspberry Pi übernimmt ein kleiner Systemdienst (`hivornet-cowrie-config`) die Änderung und startet Cowrie neu; ein neues Image ist dafür nicht nötig. Im Docker-Betrieb steht die Regel in `.env` (`COWRIE_AUTH_CLASS`, `COWRIE_AUTH_PARAMS`), die Einstellungen zeigen sie an.
+- **Update per Knopf bringt jetzt auch Systemdateien mit** (Raspberry Pi): systemd-Dienste, Skripte unter `/usr/local/sbin` und Systembenutzer kommen aus dem Programmpaket. Das gilt schon für dieses Update: Auch ältere Pis übernehmen beim Update auf 0.6.1-beta.2 die neuen Dienste, die SSH-Reparatur für Port 22 und die Anmelderegel (2 bis 5 Versuche), ohne neu zu flashen. Einstellungen unter `/etc/hivornet` werden dabei nicht überschrieben.
+
 ## [0.6.1-beta.1] – 2026-11-17
 
 ### Behoben

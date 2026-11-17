@@ -22,7 +22,7 @@ Hivornet ist ein leichtgewichtiges Honeypot-System für zu Hause und kleine Netz
 - **Benachrichtigungen und Abgleich:** ntfy, Telegram oder Webhook; Reputation über AbuseIPDB und GreyNoise; Export als CSV, JSON, Blockliste und STIX.
 - **Sicher eingerichtet:**
   - Netzsperre für die Honeypots, Dienste ohne Root-Rechte;
-  - Updates per Knopf (Raspberry Pi), Backups.
+  - Updates per Knopf (Raspberry Pi, auch für Systemdienste und Skripte), Backups.
 
 ## Installation
 
@@ -40,7 +40,7 @@ Kein Docker, keine Konsole: aufspielen, einstecken, im Browser einrichten. Geeig
 
 **Cowrie (SSH und Telnet mit gefälschter Shell)** installiert der Pi nach dem ersten Start im Hintergrund nach. Das braucht Internet und dauert auf einem Pi 3 etwa 10 bis 20 Minuten; die übrigen Dienste laufen schon vorher. Klappt es nicht (z. B. ohne Internet), versucht der Pi es stündlich erneut. Den Stand (aktueller Schritt, fertig oder gescheitert) zeigt die Seite **System**, die Einzelheiten die Seite **Protokolle**.
 
-Cowrie lässt Anmeldungen erst nach 2 bis 5 verschiedenen Versuchen je IP zu (zufällig); die erfolgreiche Kombination gilt für diese IP weiter. Auf dem Pi gehören die Ports 22 und 23 Cowrie, 2222 dem SSH-Tarpit und 2323 dem Telnet-Honeypot. Die Netzsperre ist auf dem Pi schon eingerichtet. Die Datenbank ist auf 1 GB begrenzt, und der Pi schreibt gebündelt, um die SD-Karte zu schonen.
+Cowrie lässt Anmeldungen erst nach 2 bis 5 verschiedenen Versuchen je IP zu (zufällig); die erfolgreiche Kombination gilt für diese IP weiter. Ändern lässt sich das unter **Einstellungen → SSH und Telnet (Cowrie)**, ohne neues Image (Docker: `COWRIE_AUTH_CLASS` und `COWRIE_AUTH_PARAMS` in `.env`). Auf dem Pi gehören die Ports 22 und 23 Cowrie, 2222 dem SSH-Tarpit und 2323 dem Telnet-Honeypot. Die Netzsperre ist auf dem Pi schon eingerichtet. Die Datenbank ist auf 1 GB begrenzt, und der Pi schreibt gebündelt, um die SD-Karte zu schonen.
 
 ### Docker auf NAS oder Linux-Server
 

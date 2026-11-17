@@ -746,15 +746,15 @@ func (h *Hive) warnings() []warning {
 			add("warn", "Seit %s kein Cowrie-Ereignis. Ist Port 22 im Router weitergeleitet?", time.Since(last).Round(time.Hour))
 		}
 		out = append(out, h.probe.warnings()...)
-		if logsEnabled() && cowrieAcceptsAll(cowrieCfgPath) {
-			add("warn", "Cowrie nimmt jede SSH- und Telnet-Anmeldung schon beim ersten Versuch an; geübte Bots erkennen daran den Honeypot. Behoben im Image ab Version 0.6.1 (Sicherung exportieren, Image aufspielen, Sicherung einspielen). Ohne neues Image: in /etc/hivornet/cowrie.cfg unter [honeypot] die Zeilen „auth_class = AuthRandom“ und „auth_class_parameters = 2, 5, 10“ ergänzen und hivornet-cowrie neu starten.")
+		if logsEnabled() && cowrieAcceptsAll(cowrieCfgPath) && !h.cowrieAllChosen() {
+			add("warn", "Cowrie nimmt jede SSH- und Telnet-Anmeldung schon beim ersten Versuch an; geübte Bots erkennen daran den Honeypot. Umstellen unter Einstellungen → SSH und Telnet (Cowrie).")
 		}
 	}
 	return out
 }
 
 // cowrieCfgPath: Cowrie-Einstellungen auf dem Raspberry Pi (Docker setzt sie über Umgebungsvariablen).
-var cowrieCfgPath = "/etc/hivornet/cowrie.cfg"
+var cowrieCfgPath = env("HIVE_COWRIE_CFG", "/etc/hivornet/cowrie.cfg")
 
 // cowrieAcceptsAll: Die Datei existiert, legt aber keine Anmelderegel fest. Dann gilt Cowries
 // mitgelieferte Benutzerliste, die jede Kombination sofort annimmt.

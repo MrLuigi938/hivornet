@@ -19,8 +19,8 @@ services:
     <<: *hardening
     build:
       context: ./hive
-      args: { VERSION: "${HIVORNET_VERSION:-0.6.1-beta.1}" }
-    image: hivornet/hive:${HIVORNET_VERSION:-0.6.1-beta.1}
+      args: { VERSION: "${HIVORNET_VERSION:-0.6.1-beta.2}" }
+    image: hivornet/hive:${HIVORNET_VERSION:-0.6.1-beta.2}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -41,6 +41,9 @@ services:
       HIVE_INGEST_SUBNET: 172.30.250.0/24
       HIVE_COWRIE_LOG: /cowrie-log/cowrie.json
       HIVE_COWRIE_LIB: /cowrie-lib
+      # nur zur Anzeige unter Einstellungen (Regel gilt im Cowrie-Container)
+      HIVE_COWRIE_AUTH_CLASS: ${COWRIE_AUTH_CLASS:-AuthRandom}
+      HIVE_COWRIE_AUTH_PARAMS: ${COWRIE_AUTH_PARAMS:-2, 5, 10}
       SENSOR_NAME: ${SENSOR_NAME:-nas}
       # nur zur Anzeige in der UI (welcher NAS-Port gehört zu welchem Dienst)
       PORT_SSH: ${PORT_SSH:-10022}
@@ -78,8 +81,8 @@ services:
     <<: *hardening
     build:
       context: ./honeypot
-      args: { VERSION: "${HIVORNET_VERSION:-0.6.1-beta.1}" }
-    image: hivornet/honeypot:${HIVORNET_VERSION:-0.6.1-beta.1}
+      args: { VERSION: "${HIVORNET_VERSION:-0.6.1-beta.2}" }
+    image: hivornet/honeypot:${HIVORNET_VERSION:-0.6.1-beta.2}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -131,8 +134,8 @@ services:
       COWRIE_TELNET_ENABLED: "yes"
       COWRIE_HONEYPOT_DOWNLOAD_LIMIT_SIZE: "10485760" # Downloads der Angreifer höchstens 10 MB
       # Anmeldung erst nach 2 bis 5 verschiedenen Versuchen je IP, nicht sofort (sonst als Honeypot erkennbar)
-      COWRIE_HONEYPOT_AUTH_CLASS: AuthRandom
-      COWRIE_HONEYPOT_AUTH_CLASS_PARAMETERS: "2, 5, 10"
+      COWRIE_HONEYPOT_AUTH_CLASS: ${COWRIE_AUTH_CLASS:-AuthRandom}
+      COWRIE_HONEYPOT_AUTH_CLASS_PARAMETERS: ${COWRIE_AUTH_PARAMS:-2, 5, 10}
     volumes:
       - cowrie-log:/cowrie/cowrie-git/var/log/cowrie
       - cowrie-lib:/cowrie/cowrie-git/var/lib/cowrie

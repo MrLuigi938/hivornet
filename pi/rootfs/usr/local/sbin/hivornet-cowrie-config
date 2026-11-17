@@ -1,0 +1,68 @@
+#!/bin/sh
+# Wendet die Cowrie-Anmelderegel aus der Web-UI an (läuft als root, gestartet von
+# hivornet-cowrie-config.path). Der Hive legt nur eine Zeile ab:
+#   random MIN MAX   Anmeldung erst nach MIN bis MAX verschiedenen Versuchen je IP (1-20)
+#   userdb           jede Kombination sofort (Cowries mitgelieferte Benutzerliste)
+# Das Skript prüft die Zeile streng, trägt die Regel in cowrie.cfg ein und startet
+# Cowrie neu. Stand für die UI: Zustand, Zeit, Text (wie bei der Cowrie-Installation).
+set -eu
+REQ=${HIVORNET_COWRIE_REQUEST:-/var/lib/hivornet/cowrie-request}
+CFG=${HIVORNET_COWRIE_CFG:-/etc/hivornet/cowrie.cfg}
+STATUS=${HIVORNET_STATUS_DIR:-/var/lib/hivornet-status}/cowrie-config
+
+mkdir -p "$(dirname "$STATUS")"
+status() { printf '%s\n%s\n%s\n' "$1" "$(date +%s)" "$2" >"$STATUS.neu" && mv "$STATUS.neu" "$STATUS"; }
+
+# Die Anforderung liegt in einem Ordner, in den der Hive schreiben darf: nichts
+# daraus ausführen, nur die erste Zeile lesen und streng prüfen.
+if [ ! -f "$REQ" ] || [ -L "$REQ" ]; then
+  rm -f "$REQ"
+  exit 0
+fi
+line=$(head -c 64 "$REQ" | head -n 1 | tr -d '\r')
+rm -f "$REQ"
+
+if [ "$line" = "userdb" ]; then
+  class=UserDB
+  params=""
+  text="jede Kombination sofort"
+elif printf '%s' "$line" | grep -Eq '^random ([1-9]|1[0-9]|20) ([1-9]|1[0-9]|20)$'; then
+  min=$(printf '%s' "$line" | cut -d' ' -f2)
+  max=$(printf '%s' "$line" | cut -d' ' -f3)
+  if [ "$min" -gt "$max" ]; then
+    status failed "Ungültige Anfrage: Minimum größer als Maximum"
+    exit 1
+  fi
+  class=AuthRandom
+  params="$min, $max, 10"
+  text="nach $min bis $max Versuchen je IP"
+else
+  status failed "Ungültige Anfrage aus der Web-UI"
+  exit 1
+fi
+
+[ -f "$CFG" ] || { status failed "$CFG fehlt"; exit 1; }
+tmp="$CFG.neu"
+# alte Regel entfernen, neue direkt unter [honeypot] einfügen
+awk -v cls="$class" -v par="$params" '
+  /^[ \t]*auth_class/ { next }
+  { print }
+  /^[ \t]*\[honeypot\][ \t]*$/ && !done {
+    print "auth_class = " cls
+    if (par != "") print "auth_class_parameters = " par
+    done = 1
+  }
+  END {
+    if (!done) {
+      print ""; print "[honeypot]"; print "auth_class = " cls
+      if (par != "") print "auth_class_parameters = " par
+    }
+  }' "$CFG" >"$tmp"
+chmod 644 "$tmp"
+mv "$tmp" "$CFG"
+
+if command -v systemctl >/dev/null 2>&1; then
+  systemctl try-restart hivornet-cowrie.service || true
+fi
+status ok "Anmeldung $text (übernommen, Cowrie neu gestartet)"
+echo "Cowrie: Anmeldung $text"

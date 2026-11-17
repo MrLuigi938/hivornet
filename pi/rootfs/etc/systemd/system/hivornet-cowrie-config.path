@@ -1,0 +1,10 @@
+# Übernimmt die Cowrie-Anmelderegel, sobald sie in der Web-UI geändert wird.
+[Unit]
+Description=Hivornet Cowrie-Anmelderegel beobachten
+
+[Path]
+PathExists=/var/lib/hivornet/cowrie-request
+Unit=hivornet-cowrie-config.service
+
+[Install]
+WantedBy=multi-user.target

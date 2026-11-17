@@ -805,6 +805,7 @@ async function viewSettings(el) {
     mount(el, card("Noch keine Sensor-Konfiguration",
       h("p", null, "Der Honeypot hat sich noch nicht beim Hive gemeldet. Sobald er läuft (ca. 10 Sekunden nach dem Start), erscheint hier seine Konfiguration."),
       h("button", { class: "btn", onclick: route }, "Neu laden")), extras,
+      state.user.role === "admin" ? cowrieAuthCard() : null,
       state.user.role === "admin" ? accessCard(s) : null,
       state.user.role === "admin" ? backupCard() : null); // Import auch auf einem frisch installierten Gerät
     return;
@@ -885,8 +886,58 @@ async function viewSettings(el) {
       h("form", { onsubmit: changePw },
         row("Aktuelles Passwort", pwCur), row("Neues Passwort", pwNew, "10 bis 72 Zeichen. Andere angemeldete Geräte werden abgemeldet."),
         h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg)),
+    state.user.role === "admin" ? cowrieAuthCard() : null,
     state.user.role === "admin" ? accessCard(s) : null,
     state.user.role === "admin" ? backupCard() : null));
+}
+
+// ---------- SSH und Telnet (Cowrie): Anmelderegel ----------
+// Raspberry Pi: wird über hivornet-cowrie-config (root) angewendet; Docker: nur Anzeige, Regel in .env.
+function cowrieAuthCard() {
+  const body = h("div", null, h("p", { class: "muted" }, "Lade …"));
+  const box = card("SSH und Telnet (Cowrie): Anmeldung", body);
+  const load = async () => {
+    let d;
+    try { d = await api("cowrie/auth"); } catch (e) { mount(body, h("div", { class: "msg err" }, e.message)); return; }
+    if (d.platform === "none") { mount(body, h("p", { class: "muted" }, "Cowrie ist hier nicht eingerichtet.")); return; }
+    const cur = d.current || { mode: "random", min: 2, max: 5 };
+    const mode = h("select", { "aria-label": "Anmelderegel" },
+      h("option", { value: "random", selected: cur.mode === "random" }, "Erst nach mehreren Versuchen (empfohlen)"),
+      h("option", { value: "all", selected: cur.mode === "all" }, "Jede Kombination sofort (auffällig)"));
+    const min = h("input", { type: "number", min: 1, max: 20, value: cur.min || 2, style: { width: "80px" }, "aria-label": "Mindestens" });
+    const max = h("input", { type: "number", min: 1, max: 20, value: cur.max || 5, style: { width: "80px" }, "aria-label": "Höchstens" });
+    const range = h("div", { class: "form-row" }, h("label", null, "Versuche je IP"),
+      h("div", null, "zwischen ", min, " und ", max, h("div", { class: "help", style: { marginTop: "4px" } },
+        "Cowrie wählt je Angreifer-IP zufällig eine Zahl in diesem Bereich. Erst dann klappt eine Anmeldung; die erfolgreiche Kombination gilt für diese IP weiter.")));
+    const sync = () => { range.style.display = mode.value === "random" ? "" : "none"; };
+    mode.addEventListener("change", sync);
+    sync();
+    const msg = h("span", { class: "muted" });
+    const st = d.status;
+    const save = async () => {
+      msg.textContent = "Wird übernommen …";
+      try {
+        await api("cowrie/auth", { method: "PUT", body: { mode: mode.value, min: Number(min.value), max: Number(max.value) } });
+        msg.textContent = "Angefordert; Cowrie startet in wenigen Sekunden neu.";
+        setTimeout(load, 6000);
+      } catch (e) { msg.textContent = "Fehler: " + e.message; }
+    };
+    mount(body,
+      h("p", { class: "sub" }, "Wie leicht Angreifer in die gefälschte Shell kommen. Nimmt Cowrie jede Kombination sofort an, erkennen geübte Bots den Honeypot; ",
+        "zu hohe Hürden bedeuten dagegen, dass weniger Angreifer Befehle eingeben."),
+      h("p", null, "Aktuell: ", h("b", null, d.current_text || "unbekannt"),
+        st ? h("span", { class: "muted" }, ` · zuletzt geändert ${relTime(st.since)}${st.state === "failed" ? " (fehlgeschlagen: " + st.text + ")" : ""}`) : null,
+        d.pending ? h("span", { class: "muted" }, " · Änderung wird gerade übernommen …") : null),
+      d.can_apply ? [
+        h("div", { class: "form-row" }, h("label", null, "Regel"), mode), range,
+        h("div", { class: "btnrow" }, h("button", { class: "btn primary", onclick: save }, "Übernehmen"), msg),
+      ] : h("div", { class: "msg" }, "Im Docker-Betrieb steht die Regel in der Datei .env: ",
+        h("code", null, "COWRIE_AUTH_CLASS=AuthRandom"), " und ", h("code", null, "COWRIE_AUTH_PARAMS=2, 5, 10"),
+        " (Mindest- und Höchstzahl der Versuche) bzw. ", h("code", null, "COWRIE_AUTH_CLASS=UserDB"), " für jede Kombination sofort. Danach ",
+        h("code", null, "docker compose up -d"), "."));
+  };
+  load();
+  return box;
 }
 
 // ---------- Geräteprofil ----------

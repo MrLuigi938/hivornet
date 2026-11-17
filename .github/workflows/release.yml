@@ -79,7 +79,15 @@ jobs:
                 go build -trimpath -ldflags "-s -w -X main.version=${tag#v}" -o "../dist/$arch/$c" .)
             done
             printf '%s\n' "$tag" >"dist/$arch/VERSION"
-            tar -czf "out/hivornet-$tag-linux-$arch.tar.gz" -C "dist/$arch" hive honeypot VERSION
+            # Systemdateien des Pi-Images: übernimmt der Updater (hive install-system)
+            sys="dist/$arch/system"
+            mkdir -p "$sys/etc/systemd/system" "$sys/usr/local/sbin" "$sys/usr/lib/sysusers.d" "$sys/etc/NetworkManager/conf.d"
+            cp pi/rootfs/etc/systemd/system/hivornet-* "$sys/etc/systemd/system/"
+            cp pi/rootfs/usr/local/sbin/hivornet-* "$sys/usr/local/sbin/"
+            cp pi/rootfs/usr/lib/sysusers.d/hivornet.conf "$sys/usr/lib/sysusers.d/"
+            cp pi/rootfs/etc/NetworkManager/conf.d/hivornet-*.conf "$sys/etc/NetworkManager/conf.d/"
+            chmod 755 "$sys"/usr/local/sbin/*
+            tar -czf "out/hivornet-$tag-linux-$arch.tar.gz" -C "dist/$arch" hive honeypot VERSION system
           done
           (cd out && sha256sum hivornet-*.tar.gz >SHA256SUMS)
       - uses: actions/upload-artifact@v4

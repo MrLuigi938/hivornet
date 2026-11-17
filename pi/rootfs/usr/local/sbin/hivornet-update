@@ -6,12 +6,12 @@
 #   1. prüft, dass darin nichts als eine Versionsnummer steht,
 #   2. lädt das Paket dieser Version von der festen GitHub-Adresse,
 #   3. prüft die SHA-256-Prüfsumme aus derselben Veröffentlichung,
-#   4. tauscht hive und honeypot aus und startet die Dienste neu,
-#   5. stellt die alte Version wieder her, wenn der Hive danach nicht läuft.
-# Das Ergebnis steht in /var/lib/hivornet-update/status und erscheint in der UI unter System.
-#
-# Aktualisiert werden nur die beiden Programme. Änderungen an den systemd-Dateien
-# oder an diesem Skript brauchen ein neues Image.
+#   4. übernimmt die Systemdateien aus dem Paket (Ordner system/: systemd-Dienste,
+#      Skripte unter /usr/local/sbin, Systembenutzer; nie Einstellungen unter /etc/hivornet),
+#   5. tauscht hive und honeypot aus und startet die Dienste neu,
+#   6. stellt die alte Version der Programme wieder her, wenn der Hive danach nicht läuft.
+# Das Ergebnis steht in /var/lib/hivornet-update/status und erscheint in der UI unter System,
+# die übernommenen Systemdateien in /var/lib/hivornet-update/system.
 set -eu
 REQ=/var/lib/hivornet/update-request
 STATE=/var/lib/hivornet-update
@@ -60,7 +60,13 @@ for b in hive honeypot; do
   if [ ! -f "$tmp/x/$b" ] || [ -L "$tmp/x/$b" ]; then fail "$b fehlt im Paket"; fi
   chmod 755 "$tmp/x/$b"
 done
-"$tmp/x/hive" version >/dev/null 2>&1 || fail "neues Programm startet nicht"
+HIVORNET_NO_SELFINSTALL=1 "$tmp/x/hive" version >/dev/null 2>&1 || fail "neues Programm startet nicht"
+
+# Systemdateien aus dem Paket übernehmen (das Programm prüft, welche Dateien erlaubt sind)
+if [ -d "$tmp/x/system" ] && [ ! -L "$tmp/x/system" ]; then
+  status "Übernehme Systemdateien von $ver ..."
+  "$tmp/x/hive" install-system "$tmp/x/system" >"$STATE/system" 2>&1 || fail "Systemdateien nicht übernommen (Einzelheiten in $STATE/system)"
+fi
 
 # Datenbank vorher sichern (wie update.sh im Docker-Betrieb); liegt dann unter /var/lib/hivornet/backups
 runuser -u hivornet-hive -- env HIVE_DB=/var/lib/hivornet/hive.db "$DEST/hive" backup >/dev/null 2>&1 || true

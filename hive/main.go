@@ -180,6 +180,8 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/stats/series", a.Require(h.series))
 	ui.HandleFunc("GET /api/attacks", a.Require(h.attacks))
 	ui.HandleFunc("GET /api/stats/live", a.Require(h.liveStatus))
+	ui.HandleFunc("GET /api/cowrie/auth", a.Require(h.cowrieAuthGet))
+	ui.HandleFunc("PUT /api/cowrie/auth", a.Require(h.cowrieAuthPut))
 	ui.HandleFunc("GET /api/events", a.Require(h.events))
 	ui.HandleFunc("GET /api/export/events", a.Require(h.exportEvents))
 	ui.HandleFunc("GET /api/export/blocklist", a.Require(h.blocklist))
@@ -256,6 +258,15 @@ func main() {
 			return
 		case "version":
 			fmt.Println(version)
+			selfInstallSystem() // nur als root beim Update durch einen älteren Updater (pisystem.go)
+			return
+		case "install-system": // hivornet-update (root): Systemdateien aus dem Paket übernehmen
+			if len(os.Args) < 3 {
+				log.Fatal("Ordner fehlt")
+			}
+			if err := cmdInstallSystem(os.Args[2]); err != nil {
+				log.Fatalf("Systemdateien: %v", err)
+			}
 			return
 		}
 	}

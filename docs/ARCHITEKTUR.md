@@ -1,6 +1,6 @@
 # Hivornet – Architektur
 
-Stand: Version 0.6.1-beta.1, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
+Stand: Version 0.6.1-beta.2, Branch `main`. Dieses Dokument beschreibt, wie das System aufgebaut ist und wo man es erweitert. Änderungen je Version stehen im [CHANGELOG](../CHANGELOG.md), das Ereignisformat in [events.md](events.md), Bauen, CI und Veröffentlichen in [ENTWICKLUNG.md](ENTWICKLUNG.md). [UEBERARBEITUNG.md](UEBERARBEITUNG.md) und [AUDIT.md](AUDIT.md) sind historische Protokolle früherer Versionen.
 
 Zwei Betriebsarten mit denselben Programmen: **Docker** (NAS, Server; Abschnitte 1 bis 6) und **Raspberry Pi ohne Docker** (systemd-Dienste; Abschnitt 7a).
 
@@ -99,6 +99,8 @@ Regeln, die jeder Handler einhalten muss:
 | `users.go` | Benutzerverwaltung (`usersList`, `usersCreate`, `usersDelete`); Rollen `admin` und `viewer`, Regeln in `viewerAllowed` (auth.go) |
 | `intel2.go` | GreyNoise-Abfrage (`greynoise`), STIX-2.1-Export (`exportSTIX`, `stixID`, `stixString`) |
 | `setup.go` | Ersteinrichtung (`setupStatus`, `setupRun`), einmalige Port-Anpassung (`upgradeSensorConfigs`), Update-Prüfung gegen GitHub (`checkUpdates` zweimal täglich, `runUpdateCheck`, `newestRelease`; Versionsvergleich `parseSemver`/`newer`/`comparePre` nach Semantic Versioning), Update-Kanal (`updateChannel`, `updateSetChannel`: `stable` oder `pre`), „Jetzt prüfen“ (`updateCheckNow`, höchstens alle 10 s), Update-Auslösung (`updateRun`), Muster-Nachzählen (`backfillPatterns`) |
+| `pisystem.go` | Pi-Systemdateien aus dem Update-Paket übernehmen (`installSystem` mit Liste erlaubter Pfade, atomar; `applySystem`: sysusers, daemon-reload, neue `.path`-Beobachter einschalten, Cowrie-Anmelderegel sicherstellen); `hive install-system`, `selfInstallSystem` |
+| `cowrieauth.go` | Anmelderegel von Cowrie (`/api/cowrie/auth`): Pi über `HIVE_COWRIE_REQUEST` und `hivornet-cowrie-config`, Docker nur Anzeige (`.env`) |
 | `pilogs.go` | Nur Raspberry Pi: Seite Protokolle (`logsList`, `logsGet`: `journalctl` für eine feste Liste von Diensten, Installationsprotokoll als Datei) und Stand der Cowrie-Installation (`cowrieInstallStatus`) |
 | `backup.go` | Sicherung über die UI: `backupExport` (Passwort prüfen, `VACUUM INTO`, `prepareSnapshot` entfernt Sitzungen und Cowrie-Lesestand), `writeBackup`/`readBackup` (gzip, AES-256-GCM in 1-MiB-Blöcken, Schlüssel per Argon2id, Kopf als Zusatzdaten), `backupImport` (Multipart: zuerst `password`, dann `file`; `checkRestoreDB`, legt `restore.db` ab, startet neu) |
 | `disk_linux.go`, `disk_other.go` | freier Speicher |
@@ -131,6 +133,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET /api/stats/summary`, `/timeline`, `/top?field=…`, `/map`, `/countries?today_from=…` | Kennzahlen (`countries`: Angriffe je Land heute und gesamt); `field`: `country`, `port`, `ip`, `asn`, `service`, `username`, `password`, `cred`, `command`, `path`, `useragent`, `client`, `tag`, `tool`, `url` |
 | `GET /api/events` | Liste; Filter `service`, `type`, `country`, `session`, `src_ip`, `sensor`, `dst_port`, `from`/`to` (ms), `q`, `range`, `hide_noise`, `before`, `limit` |
 | `GET /api/attacks` | Angriffe, neueste Aktivität zuerst; `range` (`1h`, `24h`, `7d`, `30d`, `90d`, `all` = Aufbewahrung), `active=1` (letzte 15 Min), `ip=a,b` (Live-Aktualisierung), `stufe=…`, `service`, `success=1`, `q`, `before` (ms), `limit`; liefert dazu `stufen` (Anzahl je Stufe), `matched`, `truncated` (mehr als 500.000 Ereignisse: nur die neuesten gelesen) |
+| `GET`/`PUT /api/cowrie/auth` | Anmelderegel von Cowrie: `mode` (`random` mit `min`/`max` 1–20 oder `all`), aktueller Stand aus `cowrie.cfg`, Status der letzten Änderung |
 | `GET /api/stats/live` | Live-Anzeige der Kopfleiste: `active` (IPs mit Ereignis in den letzten 15 Min), `tarpits` |
 | `GET /api/stats/series` | Verläufe je Kennzahl (`connect`, `ips`, `login`, `request`, `command`, `download`, `success`), Summen und Summen des Zeitraums davor, `active_tarpits` |
 | `GET /api/export/events`, `/api/export/blocklist`, `/api/export/stix` | Export (CSV/JSON, Blockliste, STIX 2.1) |
@@ -295,7 +298,7 @@ Betrieb ohne Docker: zwei systemd-Dienste statt Container, sonst dieselben Progr
 | `hivornet-cowrie.service`, `hivornet-cowrie-clean.timer` | Cowrie als Benutzer `hivornet-cowrie` mit `CAP_NET_BIND_SERVICE`, nur mit aktiver Netzsperre; tägliches Aufräumen nach 14 Tagen |
 | `pi/verify_image.py` | prüft ein fertiges Image (Bootpartition, Paketinhalt, Rechte, Prozessortyp je Architektur); läuft im Release-Workflow |
 
-Updates landen über `release.yml` als `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie wird auf dem Pi beim ersten Start nachinstalliert (Python-Umgebung unter `/opt/hivornet/cowrie-env`); die Netzsperre gilt auch für den Benutzer `hivornet-cowrie`. Ein Update über die UI tauscht nur `hive` und `honeypot` aus, damit auch die eingebettete Web-UI. Änderungen an systemd-Dateien, Skripten unter `pi/rootfs/`, `/etc/hivornet` oder der Cowrie-Version brauchen ein neues Image.
+Updates landen über `release.yml` als `hivornet-<tag>-linux-<arch>.tar.gz` mit `SHA256SUMS` in der GitHub-Veröffentlichung; von dort holt sich der Updater die neue Version. Cowrie wird auf dem Pi beim ersten Start nachinstalliert (Python-Umgebung unter `/opt/hivornet/cowrie-env`); die Netzsperre gilt auch für den Benutzer `hivornet-cowrie`. Ein Update über die UI tauscht `hive` und `honeypot` aus (damit auch die eingebettete Web-UI) und übernimmt seit 0.6.1-beta.2 die Systemdateien aus dem Ordner `system/` des Pakets: systemd-Dienste `hivornet-*`, Skripte `/usr/local/sbin/hivornet-*`, Systembenutzer und NetworkManager-Einstellung (`hive install-system`, Liste erlaubter Dateien in `pisystem.go`). Ältere Updater kennen `system/` nicht, starten aber das neue Programm einmal als root mit `hive version`; dabei übernimmt es die Systemdateien selbst (`selfInstallSystem`). Einstellungen unter `/etc/hivornet` werden nie überschrieben; Änderungen daran laufen über eigene Anfragen (z. B. `hivornet-cowrie-config`). Ein neues Image brauchen nur noch eine andere Cowrie-Version und Änderungen an `pi/install.sh` bzw. der Ersteinrichtung.
 
 Auf dem Pi ist die Konsolen-Anmeldung gesperrt (zufälliges Passwort in `userconf.txt`) und SSH aus. Zur Fehlersuche dient die Seite **Protokolle** der Web-UI.
 

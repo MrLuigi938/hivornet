@@ -1,0 +1,7 @@
+# Trägt die in der Web-UI gewählte Anmelderegel in cowrie.cfg ein und startet Cowrie neu.
+[Unit]
+Description=Hivornet Cowrie-Anmelderegel anwenden
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hivornet-cowrie-config
