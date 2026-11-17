@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.6.1-beta.1] – 2026-11-17
 
 ### Behoben
 - **Cowrie nahm jede SSH- und Telnet-Anmeldung schon beim ersten Versuch an** (mitgelieferte Benutzerliste mit `*:x:*`), woran geübte Bots den Honeypot erkennen. Jetzt gilt `AuthRandom`: Jede IP muss 2 bis 5 verschiedene Kombinationen probieren (zufällig), die erfolgreiche gilt für diese IP weiter. Docker: über Umgebungsvariablen, kommt mit dem Update. Raspberry Pi: in `/etc/hivornet/cowrie.cfg`, also mit dem neuen Image; ältere Images zeigen eine Warnung unter System mit der Anleitung zum Nachtragen.
