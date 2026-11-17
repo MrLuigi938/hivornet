@@ -3,10 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -241,10 +243,23 @@ func (n *Notifier) Send(c NotifyConfig, nt notice) error {
 			}
 		}
 		if err != nil {
-			// Adressen können Token enthalten (Telegram): nie im Fehlertext ausgeben.
+			// Adressen sind selbst Geheimnisse (ntfy-Thema, Webhook-Token im Pfad, Telegram-Token):
+			// bei Netzwerkfehlern nur Vorgang und Ursache, nie die Adresse. Der Text ist für die
+			// Leserolle sichtbar (/api/system; Audit 2, M2).
+			var ue *url.Error
 			msg := err.Error()
-			if c.TelegramToken != "" {
-				msg = strings.ReplaceAll(msg, c.TelegramToken, "…")
+			if errors.As(err, &ue) {
+				msg = ue.Op + ": " + ue.Err.Error()
+			}
+			for _, s := range []string{c.TelegramToken, c.NtfyURL, c.WebhookURL, c.NtfyToken} {
+				if s != "" {
+					msg = strings.ReplaceAll(msg, s, "…")
+				}
+			}
+			for _, raw := range []string{c.NtfyURL, c.WebhookURL} { // auch Teile (Pfad, Thema)
+				if u, perr := url.Parse(raw); perr == nil && len(u.Path) > 1 {
+					msg = strings.ReplaceAll(msg, u.Path, "/…")
+				}
 			}
 			errs = append(errs, name+": "+msg)
 		}

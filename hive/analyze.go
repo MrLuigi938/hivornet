@@ -63,6 +63,11 @@ var patterns = []Pattern{
 		`\bbase64\s+(-d|--decode|-D)\b|\bfrombase64string\b|\batob\(|(\\x[0-9a-f]{2}){4,}|(\\[0-7]{3}){4,}|\bxxd\s+-r\b|\bopenssl\s+(enc\s+)?-?base64\s+-d`),
 	pat("recon", "Erkundung", "Fragt System, Hardware und Benutzer ab.", "cmd", 1,
 		`\buname\b|/proc/cpuinfo|\b(nproc|lscpu|whoami|uptime|ifconfig|lspci|dmidecode)\b|\bfree\s+-|\bdf\s+-|\bcat\s+/etc/(passwd|issue|os-release)|\bip\s+a(ddr)?\b|\bps\s+(aux|-ef)|^\s*(id|w|ls)\s*$`),
+	// Echtheitstests der Shell nach dem Login: Marker mit Zufallshash (check_<hex>_small_math …),
+	// Subshell-Sichtbarkeit, Quoting und "echo dGVzdA== | base64 -d" (= "test"). Eine emulierte
+	// Shell fällt an einigen davon durch; der Bot merkt sich die IP dann als Honeypot.
+	pat("honeypot_check", "Honeypot-Prüfung", "Testet nach dem Login, ob die Shell echt ist (Rechnen, Subshells, Quoting, Marker-Ausgaben); scheitert die Emulation, meidet der Bot das Gerät künftig.", "cmd", 2,
+		`\bcheck_[0-9a-f]{16,}_\w+|\bv=outer;\s*\(\s*v=inner\b|printf\s+'%s\\n'\s+'a b;\$\(\)'|\becho\s+'?dGVzdA==|^\s*echo\s+"?\$\(\(\s*\d+\s*[-+*]\s*\d+\s*\)\)"?\s*$`),
 	pat("data_theft", "Daten suchen", "Sucht nach Zugangsdaten, Wallets oder Messenger-Daten.", "cmd", 2,
 		`TelegramDesktop|tdata|wallet\.dat|\.aws/credentials|id_rsa\b|\.ssh/|smsd|ttyGSM|\bfind\b[^\n]*(\.pem|\.key|password)`),
 

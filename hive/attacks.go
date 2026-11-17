@@ -55,6 +55,9 @@ type Attack struct {
 	Commands      []string       `json:"commands,omitempty"`       // ausgeführte Befehle (einstufung.go)
 	ProtoCommands []string       `json:"proto_commands,omitempty"` // Protokoll-Befehle vor der Anmeldung, Eingaben an der Login-Abfrage
 	URLs          []string       `json:"urls,omitempty"`
+	Wallets       []string       `json:"wallets,omitempty"` // Krypto-Wallets aus Miner-Befehlen (indicators.go)
+	Pools         []string       `json:"pools,omitempty"`   // Mining-Pools
+	Sensors       []string       `json:"sensors,omitempty"` // meldende Sensoren (feed.go: Vertrauen)
 	Decoded       []string       `json:"decoded,omitempty"` // entschlüsselte Inhalte (Base64, Hex …)
 	Clients       []string       `json:"clients,omitempty"`
 	Fingerprints  []string       `json:"fingerprints,omitempty"` // JA4, JA3, HASSH, HTTP-Kopfzeilen (tlsfp.go)
@@ -135,6 +138,9 @@ func (a *Attack) add(e *Event) {
 	}
 	if e.Service != "" {
 		a.svc[e.Service] = true
+	}
+	if e.Sensor != "" && len(a.Sensors) < 8 && !slices.Contains(a.Sensors, e.Sensor) {
+		a.Sensors = append(a.Sensors, e.Sensor)
 	}
 	if e.DstPort > 0 {
 		a.port[e.DstPort] = true
@@ -241,6 +247,22 @@ func (a *Attack) add(e *Event) {
 		for _, u := range allURLs(src, revealed, 6) {
 			if len(a.URLs) < 10 && !slices.Contains(a.URLs, clip(u, 300)) {
 				a.URLs = append(a.URLs, clip(u, 300))
+			}
+		}
+	}
+	// Wallets und Mining-Pools (indicators.go)
+	if e.Type == "command" || e.Type == "payload" {
+		for _, t := range append([]string{src}, revealed...) {
+			ws, ps := cryptoIndicators(t)
+			for _, w := range ws {
+				if len(a.Wallets) < 6 && !slices.Contains(a.Wallets, w) {
+					a.Wallets = append(a.Wallets, w)
+				}
+			}
+			for _, p := range ps {
+				if len(a.Pools) < 6 && !slices.Contains(a.Pools, p) {
+					a.Pools = append(a.Pools, p)
+				}
 			}
 		}
 	}
@@ -412,7 +434,7 @@ func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) (
 		}
 	}
 	args = append(args, attackScanMax+1)
-	rs, err := h.st.db.QueryContext(ctx, `SELECT ts, service, type, src_ip, dst_port, session, username, password, data, tarpit_ms,
+	rs, err := h.st.db.QueryContext(ctx, `SELECT ts, sensor, service, type, src_ip, dst_port, session, username, password, data, tarpit_ms,
 		country, country_name, city, lat, lon, asn, as_org FROM events WHERE `+where+` ORDER BY src_ip, ts LIMIT ?`, args...)
 	if err != nil {
 		return nil, false, err
@@ -429,7 +451,7 @@ func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) (
 		var e Event
 		var ms int64
 		var data []byte
-		if err := rs.Scan(&ms, &e.Service, &e.Type, &e.SrcIP, &e.DstPort, &e.Session, &e.Username, &e.Password, &data, &e.TarpitMs,
+		if err := rs.Scan(&ms, &e.Sensor, &e.Service, &e.Type, &e.SrcIP, &e.DstPort, &e.Session, &e.Username, &e.Password, &data, &e.TarpitMs,
 			&e.Country, &e.CountryName, &e.City, &e.Lat, &e.Lon, &e.ASN, &e.ASOrg); err != nil {
 			return nil, false, err
 		}
@@ -559,14 +581,14 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	svc, text := q.Get("service"), strings.ToLower(strings.TrimSpace(q.Get("q")))
-	onlyOK := q.Get("success") == "1" // nur Angriffe mit angenommenem Login
+	svc, terms := q.Get("service"), parseQuery(q.Get("q")) // Suchsprache (query.go)
+	onlyOK := q.Get("success") == "1"                      // nur Angriffe mit angenommenem Login
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
 	limit := qInt(r, "limit", 50, 500)
 	out := make([]*Attack, 0, limit)
 	matched := 0
 	for _, a := range list {
-		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matches(text) {
+		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matchQuery(terms) {
 			continue
 		}
 		matched++

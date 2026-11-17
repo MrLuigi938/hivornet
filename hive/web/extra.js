@@ -94,69 +94,6 @@ export async function viewLive(el, ctx) {
   ctx.every(5000, refresh);
 }
 
-// ---------- Analyse: Muster, Werkzeuge, Nachlade-Adressen ----------
-
-export async function viewAnalysis(el) {
-  header("Analyse", { range: true });
-  const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
-  const [tags, tools, urls, clients, uas, cves, ja4, hassh, httpfp] = await Promise.all([q("tag"), q("tool", 60), q("url"), q("client", 15), q("useragent", 15),
-    q("cve", 20), q("ja4", 15), q("hassh", 15), q("httpfp", 15)]);
-  const installed = tools.filter((t) => t.key.startsWith("installiert: ")).map((t) => ({ key: t.key.slice(13), n: t.n }));
-  const scanners = tools.filter((t) => t.key.startsWith("Scanner: ") || t.key.startsWith("SSH-Client: "));
-  const programs = tools.filter((t) => !t.key.includes(": "));
-  mount(el, h("div", { class: "stack" },
-    h("p", { class: "sub" }, "Was Angreifer tun, nachdem sie verbunden sind: erkannte Vorgehensweisen, benutzte Programme und die Adressen, ",
-      "von denen sie Schadcode nachladen. Die Zuordnung erfolgt nach festen Regeln auf dem Hive; gezählt wird seit der Aktualisierung auf diese Version."),
-    card("Angriffsmuster", tags.length ? toplist(tags, { key: (x) => x.label || x.key, link: (x) => "#/attacks?q=" + encodeURIComponent(x.label || x.key) }) : h("div", { class: "empty" }, "Noch keine Muster erkannt."),
-      tags.length ? h("p", { class: "muted", style: { margin: "10px 0 0", fontSize: "12.5px" } }, "Ein Klick zeigt die Angriffe mit diesem Muster.") : null),
-    h("div", { class: "grid three" },
-      card("Benutzte Programme", toplist(programs.slice(0, 20))),
-      card("Installiert oder nachgezogen", installed.length ? toplist(installed.slice(0, 20)) : h("div", { class: "empty" }, "Noch nichts beobachtet.")),
-      card("Scanner und Clients", toplist(scanners.slice(0, 20)))),
-    card("Nachlade-Adressen",
-      h("p", { class: "sub" }, "Von hier wollten Angreifer Dateien laden. Nicht aufrufen: Dahinter liegt in der Regel Schadsoftware."),
-      urls.length ? h("ul", { class: "toplist" }, urls.map((u) => h("li", null,
-        h("span", { class: "k", title: u.key }, u.key), h("span", { class: "n" }, fmtNum(u.n)))))
-        : h("div", { class: "empty" }, "Noch keine.")),
-    h("div", { class: "grid two" },
-      card("SSH- und Client-Versionen", toplist(clients)),
-      card("User-Agents", toplist(uas))),
-    await campaignsCard(),
-    card("Bekannte Lücken (CVE)", cves.length ? toplist(cves, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })
-      : h("div", { class: "empty" }, "Noch keine Ausnutzungsversuche bekannter Lücken erkannt."),
-      h("p", { class: "muted" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre.")),
-    h("div", { class: "grid three" },
-      card("TLS-Fingerabdrücke (JA4)", toplist(ja4, { link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })),
-      card("SSH-Fingerabdrücke (HASSH)", toplist(hassh, { link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) })),
-      card("Reihenfolge der HTTP-Kopfzeilen", toplist(httpfp, { key: (x) => x.key + "  " + (x.label || ""), link: (x) => "#/attacks?q=" + encodeURIComponent(x.key) }))),
-    h("p", { class: "muted" }, "Den vollständigen Ablauf eines einzelnen Angreifers zeigt der Angriffsbericht auf der Seite der jeweiligen IP oder Sitzung.")));
-}
-
-// Kampagnen: IPs mit gleicher Zugangsdatenliste oder Nachlade-Adresse (hive/campaigns.go)
-const STUFE_NAME = ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"];
-async function campaignsCard() {
-  let d;
-  try { d = await api(`campaigns?range=${state.range}`); } catch (e) { return card("Kampagnen", h("div", { class: "msg err" }, e.message)); }
-  const ipLinks = (ips) => ips.slice(0, 12).map((ip) => [h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(ip) }, ip), " "]);
-  return card("Kampagnen",
-    h("p", { class: "sub" }, "Angreifer, die zusammengehören: gleiche Liste von Zugangsdaten oder gleiche Nachlade-Adresse. ",
-      "Gleiche Fingerabdrücke zeigen nur dasselbe Werkzeug und stehen darunter."),
-    d.campaigns.length ? h("div", { class: "tablewrap" }, h("table", null,
-      h("thead", null, h("tr", null, ["IPs", "Gemeinsam", "Art", "Höchste Stufe", "Herkunft", "Zeitraum", "Beispiele"].map((t) => h("th", null, t)))),
-      h("tbody", null, d.campaigns.slice(0, 30).map((c) => h("tr", null,
-        h("td", null, h("b", null, fmtNum(c.n_ips)), " ", h("div", null, ipLinks(c.ips), c.n_ips > 12 ? h("span", { class: "muted" }, `+${c.n_ips - 12}`) : null)),
-        h("td", null, c.reasons.join(", ")),
-        h("td", null, c.profile),
-        h("td", null, STUFE_NAME[c.stufe] || c.stufe),
-        h("td", null, c.countries.map((x) => [flag(x.key), " ", fmtNum(x.n), " "]), c.n_asns ? h("span", { class: "muted" }, ` · ${fmtNum(c.n_asns)} Netze`) : null),
-        h("td", { class: "num" }, fmtDateTime(c.first), " – ", fmtDateTime(c.last)),
-        h("td", { class: "mono" }, [...(c.urls || []), ...(c.creds || []).slice(0, 4)].join("  ·  ")))))))
-      : h("div", { class: "empty" }, "Im Zeitraum keine zusammengehörigen Angreifer erkannt."),
-    d.tools.length ? [h("h3", null, "Gleiches Werkzeug (Fingerabdruck bei mindestens 3 IPs)"), h("ul", { class: "toplist" }, d.tools.map((f) => h("li", null,
-      h("a", { class: "k mono", href: "#/attacks?q=" + encodeURIComponent(f.fingerprint.split(" ")[1] || f.fingerprint) }, f.fingerprint),
-      h("span", { class: "n" }, `${fmtNum(f.n_ips)} IPs`))))] : null);
-}
-
 // Abfrage bei abuse.ch auf Knopfdruck; das Ergebnis erscheint hinter dem Knopf (nur Text).
 function lookupBtn(name, path, fmt) {
   const out = h("span", { class: "muted" });
@@ -168,6 +105,35 @@ function lookupBtn(name, path, fmt) {
   } }, name);
   return h("span", null, b, out);
 }
+// Statische Auswertung einer nachgeladenen Datei auf dem Gerät (hive/sample.go); nichts wird ausgeführt.
+function sampleBtn(hash) {
+  const out = h("div", { class: "aw-note", hidden: true });
+  const b = h("button", { class: "btn small", onclick: async () => {
+    b.disabled = true;
+    out.hidden = false;
+    mount(out, h("span", { class: "muted" }, "untersuche …"));
+    try {
+      const d = await api("sample?hash=" + hash);
+      const facts = [
+        ["Typ", [d.type, d.arch ? `${d.arch}, ${d.bits} Bit, ${d.endian}` : "", d.static ? "statisch gelinkt" : "", d.packed ? "gepackt mit " + d.packed : ""].filter(Boolean).join(" · ")],
+        ["Größe", fmtNum(d.size) + " Bytes" + (d.truncated ? " (nur die ersten 16 MB untersucht)" : "")],
+        d.interpreter ? ["Erste Zeile", d.interpreter] : null,
+        d.patterns?.length ? ["Muster", d.patterns.map((p) => `${p.label} (${fmtNum(p.n)})`).join(", ")] : null,
+        d.urls?.length ? ["Adressen", d.urls.join("  ·  ")] : null,
+        d.ips?.length ? ["IPs", d.ips.join(", ")] : null,
+        d.wallets?.length ? ["Wallets", d.wallets.join(", ")] : null,
+        d.pools?.length ? ["Mining-Pools", d.pools.join(", ")] : null,
+        ["Zeichenketten", fmtNum(d.strings)],
+      ].filter(Boolean);
+      mount(out, h("div", { class: "facts-row" }, facts.map(([k, v]) => [h("div", { class: "k" }, k), h("div", { class: "v mono" }, v)])),
+        d.hash_mismatch ? h("div", { class: "msg warn" }, "Der Inhalt passt nicht zum Hash im Dateinamen.") : null,
+        h("p", { class: "muted aw-small" }, "Nur gelesen, nie ausgeführt. Die Datei liegt weiter im Cowrie-Ordner und ist echte Schadsoftware."));
+    } catch (e) { mount(out, h("span", { class: "muted" }, e.message)); }
+    b.disabled = false;
+  } }, "Datei untersuchen");
+  return h("span", null, b, out);
+}
+
 const urlhausText = (d) => d.query_status === "no_results" ? "bei URLhaus unbekannt"
   : `URLhaus: ${d.threat || "gelistet"}, ${d.url_status === "online" ? "noch online" : d.url_status || "Status unbekannt"}` +
     (d.signatures && d.signatures.length ? ", " + d.signatures.join(", ") : "") + (d.tags && d.tags.length ? " · " + d.tags.join(", ") : "") +
@@ -560,7 +526,7 @@ export function reportCard({ ip, session }) {
       r.files.length ? [h("h3", null, "Dateien"), monoList(r.files)] : null,
       r.hashes.length ? [h("h3", null, "SHA-256 der Downloads"), monoList(r.hashes.map((x) => (sha256.test(x)
         ? [x, " ", h("a", { href: "https://www.virustotal.com/gui/file/" + x, target: "_blank", rel: "noopener noreferrer" }, "bei VirusTotal nachschlagen"), " ",
-          lookupBtn("MalwareBazaar", "lookup/malwarebazaar?hash=" + x, bazaarText)] : x)))] : null,
+          lookupBtn("MalwareBazaar", "lookup/malwarebazaar?hash=" + x, bazaarText), " ", sampleBtn(x)] : x)))] : null,
       r.clients.length ? [h("h3", null, "Clients"), monoList(r.clients)] : null,
       r.commands.length ? [h("h3", null, "Befehle in Reihenfolge"), h("div", { class: "term" }, r.commands.map((c) => h("div", null, h("span", { class: "cmd" }, c))))] : null,
       h("div", { class: "btnrow" },
@@ -695,6 +661,7 @@ export async function extrasCards() {
     home: x.home, abuseipdb_key: secrets.abuseipdb_key || "", greynoise_key: secrets.greynoise_key || "", abusech_key: secrets.abusech_key || "",
     notify: { ...x.notify, ntfy_token: secrets.ntfy_token || "", telegram_token: secrets.telegram_token || "" },
     ai: { ...x.ai, api_key: secrets.ai_api_key || "" },
+    mimic: { ...x.mimic, api_key: secrets.mimic_api_key || "" },
     own: x.own, abuse_report: x.abuse_report,
   });
   async function save() {
@@ -743,7 +710,8 @@ export async function extrasCards() {
         check(n, "on_severe", "Schweres Angriffsmuster (Nachladen, Miner, Übernahme)"), h("br"),
         check(n, "on_command", "Erster Befehl einer Sitzung"), h("br"),
         check(n, "on_warning", "Kritische Systemwarnung (Sensor still, Netzsperre fehlt)"), h("br"),
-        check(n, "weekly_report", "Wochenbericht (montags ab 8 Uhr)"))),
+        check(n, "weekly_report", "Wochenbericht (montags ab 8 Uhr)"),
+        check(n, "on_spike", "Ungewöhnlich viele Angriffe auf einen Dienst (Spitze)"))),
       h("details", null, h("summary", null, "Vorschau des Wochenberichts (letzte 7 Tage)"), weeklyBox()),
       row("Höchstens pro Stunde", numIn(n, "max_per_hour", 1, 500, 1), "Darüber wird nur gezählt."),
       h("p", { class: "muted" }, `Bisher gesendet: ${fmtNum(st.sent)}, unterdrückt: ${fmtNum(st.suppressed)}.`,
@@ -757,6 +725,19 @@ export async function extrasCards() {
       row("Adresse", text(x.ai, "base_url", { placeholder: "http://192.168.1.10:11434/v1" }), "Ollama: http://<Rechner>:11434/v1 · OpenRouter: https://openrouter.ai/api/v1"),
       row("Modell", text(x.ai, "model", { placeholder: "llama3.1:8b" }), "Name, wie ihn die Schnittstelle erwartet, z. B. llama3.1:8b; bei OpenRouter der dort angezeigte Modellname."),
       row("API-Schlüssel", secret("ai_api_key"), "Für lokale Modelle meist leer.")),
+    card("Antworten vom Sprachmodell (optional)",
+      h("p", { class: "sub" }, "Kennt die Telnet-Shell des Honeypots einen Befehl nicht oder der Web-Honeypot einen Pfad nicht, erzeugt ein Sprachmodell eine glaubwürdige Antwort. ",
+        "Das hilft gegen Bots, die mit Testbefehlen prüfen, ob die Shell echt ist. Jede Antwort wird gespeichert: Dieselbe Eingabe bekommt immer dieselbe Antwort und kostet nur einmal."),
+      h("div", { class: "msg warn" }, "Bei einem Dienst im Internet (z. B. OpenRouter) gehen die Eingaben der Angreifer dorthin und jede neue Antwort kostet Geld. Die Grenzen unten deckeln das; darüber antwortet der Honeypot wie bisher."),
+      row("Aktiv", check(x.mimic, "enabled", "Sprachmodell-Antworten einschalten")),
+      row("Wofür", [check(x.mimic, "shell", "unbekannte Befehle der Telnet-Shell"), " ", check(x.mimic, "web", "unbekannte Pfade des Web-Honeypots")]),
+      row("Adresse", text(x.mimic, "base_url", { placeholder: "leer = wie KI-Auswertung" }), "Eigene Schnittstelle, z. B. https://openrouter.ai/api/v1. Leer: Adresse und Schlüssel der KI-Auswertung."),
+      row("Modell", text(x.mimic, "model", { placeholder: "leer = wie KI-Auswertung" }), "Ein kleines, schnelles Modell genügt; der Angreifer wartet höchstens 12 Sekunden."),
+      row("API-Schlüssel", secret("mimic_api_key"), "Nur nötig, wenn oben eine eigene Adresse steht."),
+      row("Höchstens pro Stunde", numIn(x.mimic, "max_per_hour", 1, 5000, 1), "Neue Anfragen ans Modell insgesamt; gespeicherte Antworten zählen nicht."),
+      row("Je Angreifer pro Stunde", numIn(x.mimic, "max_per_ip_hour", 1, 500, 1)),
+      row("Höchstens pro Tag", numIn(x.mimic, "max_per_day", 1, 50000, 1), "Tagesbudget für neue Anfragen ans Modell; deckelt die Kosten auch bei gezielten Versuchen, den Speicher zu umgehen."),
+      mimicStatusBox()),
     card("AbuseIPDB (optional)",
       h("p", { class: "sub" }, "Mit einem kostenlosen Schlüssel von abuseipdb.com lässt sich auf der Seite eines Angreifers nachsehen, wie oft seine IP weltweit gemeldet wurde."),
       row("API-Schlüssel", secret("abuseipdb_key")),
@@ -850,4 +831,115 @@ async function usersCard() {
     h("p", { class: "sub" }, "Weitere Konten für die Web-UI. „Nur ansehen“ sieht alle Auswertungen, kann aber nichts ändern und keine KI-Auswertung starten."),
     h("div", { class: "tablewrap" }, h("table", null, h("thead", null, h("tr", null, h("th", null, "Name"), h("th", null, "Rolle"), h("th", null, ""))), body)),
     add, msg);
+}
+
+// ---------- Stand der Sprachmodell-Antworten (hive/mimic.go) ----------
+
+function mimicStatusBox() {
+  const box = h("div", { class: "muted" }, "Lade …");
+  const load = () => api("mimic/status").then((d) => mount(box,
+    h("p", { class: "muted" }, `Gespeichert: ${fmtNum(d.cached)} Antworten, zusammen ${fmtNum(d.cache_hits_total)}-mal wiederverwendet. `,
+      `Seit dem Start: ${fmtNum(d.asked)} Anfragen ans Modell, ${fmtNum(d.hits)} aus dem Speicher, ${fmtNum(d.limited)} wegen Grenze statisch, ${fmtNum(d.failed)} fehlgeschlagen.`,
+      d.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + d.last_error) : null),
+    d.recent.length ? h("details", null, h("summary", null, "Zuletzt erzeugt"),
+      h("ul", { class: "mono-list" }, d.recent.map((r) => h("li", null, `[${r.kind}] ${r.input}`, r.hits ? h("span", { class: "muted" }, ` · ${fmtNum(r.hits)}× wiederverwendet`) : null)))) : null,
+    h("button", { class: "btn small", onclick: async () => {
+      if (!confirm("Alle gespeicherten Antworten löschen? Sinnvoll nach einem Wechsel des Geräteprofils.")) return;
+      await api("mimic/cache", { method: "DELETE" }); load();
+    } }, "Gespeicherte Antworten löschen"))).catch((e) => mount(box, e.message));
+  load();
+  return box;
+}
+
+// ---------- Weitere Sensoren mit eigenem Token (hive/sensortokens.go) ----------
+
+export function sensorTokensCard() {
+  const body = h("div", { class: "muted" }, "Lade …");
+  const msg = h("div", { class: "msg", hidden: true });
+  const nameIn = h("input", { placeholder: "z. B. vps-1", maxlength: 32, style: { width: "200px" } });
+  const show = (cls, ...kids) => { msg.className = "msg " + cls; mount(msg, ...kids); msg.hidden = false; };
+  const load = async () => {
+    let list;
+    try { list = await api("sensor-tokens"); } catch (e) { mount(body, h("div", { class: "msg err" }, e.message)); return; }
+    mount(body, list.length ? h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["Sensor", "Angelegt", "Zuletzt gemeldet", "Darf Blockliste und AbuseIPDB speisen", ""].map((t) => h("th", null, t)))),
+      h("tbody", null, list.map((s) => h("tr", null, h("td", { class: "mono" }, s.name), h("td", { class: "num" }, fmtDateTime(s.created)),
+        h("td", null, s.last_used ? relTime(s.last_used) : h("span", { class: "muted" }, "noch nie")),
+        h("td", null, h("label", { class: "inline", title: "Ein übernommener Sensor könnte Ereignisse fälschen und so fremde Adressen sperren oder melden lassen. Nur Sensoren freigeben, die du selbst sicher betreibst." },
+          h("input", { type: "checkbox", checked: !!s.trusted, onchange: async (e) => {
+            try { await api("sensor-tokens/" + encodeURIComponent(s.name) + "/trust", { method: "POST", body: { trusted: e.target.checked } }); show("ok", "Gespeichert."); }
+            catch (err) { e.target.checked = !e.target.checked; show("err", err.message); }
+          } }), "vertrauen")),
+        h("td", null, h("button", { class: "btn small", onclick: async () => {
+          if (!confirm(`Token von „${s.name}“ widerrufen? Der Sensor kann danach nichts mehr melden.`)) return;
+          try { await api("sensor-tokens/" + encodeURIComponent(s.name), { method: "DELETE" }); show("ok", "Widerrufen."); load(); } catch (e) { show("err", e.message); }
+        } }, "Widerrufen")))))))
+      : h("p", { class: "muted" }, "Noch keine weiteren Sensoren."));
+  };
+  const add = h("form", { class: "btnrow", onsubmit: async (e) => {
+    e.preventDefault();
+    try {
+      const d = await api("sensor-tokens", { method: "POST", body: { name: nameIn.value } });
+      nameIn.value = "";
+      show("ok", h("div", null, h("b", null, `Token für „${d.name}“ (wird nur jetzt angezeigt):`)),
+        h("pre", { class: "term" }, `HIVE_URL=http://<Hive über VPN erreichbar>:8089\nHIVORNET_TOKEN=${d.token}\nSENSOR_NAME=${d.name}`),
+        h("div", { class: "aw-small" }, "Diese drei Werte in die .env des entfernten Honeypots eintragen. Die Sensor-API (8089) nie ins Internet freigeben, sondern über ein VPN wie WireGuard erreichbar machen."));
+      load();
+    } catch (err) { show("err", err.message); }
+  } }, nameIn, h("button", { class: "btn small", type: "submit" }, "Sensor anlegen"));
+  load();
+  return card("Weitere Sensoren",
+    h("p", { class: "sub" }, "Ein zweiter Honeypot, z. B. auf einem kleinen Server, kann an diesen Hive melden. Jeder bekommt ein eigenes Token, das an seinen Namen gebunden ist und sich einzeln widerrufen lässt."),
+    body, add, msg);
+}
+
+// ---------- Blockliste zum Abonnieren (hive/feed.go) ----------
+
+const FEED_STUFEN = ["Abtasten (alle)", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"];
+
+export function feedCard() {
+  const body = h("div", { class: "muted" }, "Lade …");
+  const msg = h("div", { class: "msg", hidden: true });
+  const save = async (patch) => {
+    try {
+      render(await api("feed", { method: "PUT", body: patch }));
+      msg.className = "msg ok"; msg.textContent = "Gespeichert."; msg.hidden = false;
+    } catch (e) { msg.className = "msg err"; msg.textContent = e.message; msg.hidden = false; }
+  };
+  const render = (d) => {
+    const c = d.config;
+    const url = location.origin + d.path;
+    const sel = (key, opts) => h("select", { onchange: (e) => save({ ...c, [key]: key === "min_stufe" ? Number(e.target.value) : e.target.value }) },
+      opts.map(([v, l]) => h("option", { value: v, selected: String(c[key]) === String(v) }, l)));
+    mount(body,
+      h("label", { class: "inline" }, h("input", { type: "checkbox", checked: c.enabled, onchange: (e) => save({ ...c, enabled: e.target.checked }) }), "Blockliste unter einer eigenen Adresse anbieten"),
+      c.enabled ? [
+        h("div", { class: "form-row" }, h("label", null, "Adresse"),
+          h("input", { value: url, readonly: true, style: { width: "100%", maxWidth: "620px" }, class: "mono", onfocus: (e) => e.target.select() }),
+          h("div", { class: "help" }, "In der Firewall als URL-Liste eintragen (OPNsense/pfSense: Alias vom Typ „URL Table (IPs)“). Die Adresse enthält ein Token; wer sie kennt, sieht die Liste. Nur im Heimnetz erreichbar wie die Web-UI.")),
+        h("div", { class: "btnrow" },
+          h("button", { class: "btn small", onclick: () => navigator.clipboard?.writeText(url) }, "Adresse kopieren"),
+          h("button", { class: "btn small", onclick: () => { if (confirm("Neues Token erzeugen? Die alte Adresse funktioniert danach nicht mehr.")) save({ ...c, rotate: true }); } }, "Neues Token")),
+        h("div", { class: "form-row" }, h("label", null, "Zeitraum"), sel("range", [["24h", "24 Stunden"], ["7d", "7 Tage"], ["30d", "30 Tage"]])),
+        h("div", { class: "form-row" }, h("label", null, "Ab Stufe"), sel("min_stufe", FEED_STUFEN.map((l, i) => [i, l])),
+          h("div", { class: "help" }, "„Versuche“ lässt reines Abtasten weg (das sind oft Forschungsscanner)." )),
+        h("label", { class: "inline" }, h("input", { type: "checkbox", checked: c.skip_scanners, onchange: (e) => save({ ...c, skip_scanners: e.target.checked }) }), "Forschungsscanner und geprüfte Suchmaschinen-Bots auslassen"),
+        h("h3", null, "Schutz vor gefälschten Einträgen"),
+        h("p", { class: "sub" }, "Wird ein Honeypot übernommen, könnte er Ereignisse mit fremden Adressen fälschen und so Dienste sperren lassen, die du brauchst. ",
+          "Deshalb kommen öffentliche DNS-Resolver nie in die Liste, Sensoren mit eigenem Token nur, wenn du ihnen vertraust (Weitere Sensoren), und je Stunde nur begrenzt viele neue Adressen."),
+        h("div", { class: "form-row" }, h("label", null, "Nie sperren"),
+          h("textarea", { rows: 4, style: { width: "100%", maxWidth: "460px" }, class: "mono", placeholder: "z. B. die feste IP deines VPN-Anbieters\n203.0.113.0/24",
+            onchange: (e) => save({ ...c, never_block: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) }) }, (c.never_block || []).join("\n")),
+          h("div", { class: "help" }, "Eine Adresse oder ein Netz (CIDR) je Zeile. Gilt auch für die automatische Meldung an AbuseIPDB.")),
+        h("div", { class: "form-row" }, h("label", null, "Neue Adressen je Stunde"),
+          h("input", { type: "number", min: 1, max: 100000, value: c.max_new_per_hour, style: { width: "120px" }, onchange: (e) => save({ ...c, max_new_per_hour: Number(e.target.value) }) }),
+          h("div", { class: "help" }, "Darüber hält der Hive neue Adressen zurück und warnt (Systemwarnung).")),
+        d.held ? h("div", { class: "msg warn" }, `Zuletzt ${fmtNum(d.held)} neue Adressen zurückgehalten. Kommen ungewöhnlich viele Angreifer auf einmal, prüfe die Sensoren.`) : null,
+        d.untrusted ? h("p", { class: "muted" }, `${fmtNum(d.untrusted)} Sensor(en) mit eigenem Token speisen die Liste nicht, bis du ihnen vertraust.`) : null,
+        h("p", { class: "muted" }, d.count != null ? `Derzeit ${fmtNum(d.count)} Adressen` + (d.sample?.length ? ", z. B. " + d.sample.join(", ") : "") + ". Nie enthalten: eigene Netze, private Adressen und Angreifer, die nur über UDP kamen (Absender fälschbar)." : "Anzahl wird berechnet …"),
+      ] : h("p", { class: "muted" }, "Eingeschaltet erzeugt der Hive eine Adresse mit Token, die eine Firewall im Heimnetz regelmäßig abrufen kann, um Angreifer auch vom echten Netz fernzuhalten."),
+      msg);
+  };
+  api("feed").then(render).catch((e) => mount(body, h("div", { class: "msg err" }, e.message)));
+  return card("Blockliste zum Abonnieren", body);
 }

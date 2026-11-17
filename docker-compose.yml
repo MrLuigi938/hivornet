@@ -19,8 +19,8 @@ services:
     <<: *hardening
     build:
       context: ./hive
-      args: { VERSION: "${HIVORNET_VERSION:-0.6.1-beta.2}" }
-    image: hivornet/hive:${HIVORNET_VERSION:-0.6.1-beta.2}
+      args: { VERSION: "${HIVORNET_VERSION:-0.7.0-beta.1}" }
+    image: hivornet/hive:${HIVORNET_VERSION:-0.7.0-beta.1}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -63,6 +63,13 @@ services:
       PORT_SIP: ${PORT_SIP:-15060}
       PORT_SNMP: ${PORT_SNMP:-10161}
       PORT_DNS: ${PORT_DNS:-10053}
+      PORT_ADB: ${PORT_ADB:-15555}
+      PORT_MQTT: ${PORT_MQTT:-11883}
+      PORT_POSTGRES: ${PORT_POSTGRES:-15432}
+      PORT_ELASTIC: ${PORT_ELASTIC:-19200}
+      PORT_OLLAMA: ${PORT_OLLAMA:-21434}
+      PORT_K8S: ${PORT_K8S:-16443}
+      PORT_KUBELET: ${PORT_KUBELET:-20250}
     volumes:
       - hive-data:/data
       - cowrie-log:/cowrie-log:ro
@@ -81,8 +88,8 @@ services:
     <<: *hardening
     build:
       context: ./honeypot
-      args: { VERSION: "${HIVORNET_VERSION:-0.6.1-beta.2}" }
-    image: hivornet/honeypot:${HIVORNET_VERSION:-0.6.1-beta.2}
+      args: { VERSION: "${HIVORNET_VERSION:-0.7.0-beta.1}" }
+    image: hivornet/honeypot:${HIVORNET_VERSION:-0.7.0-beta.1}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -109,6 +116,14 @@ services:
       - "${PORT_SIP:-15060}:5060/udp"
       - "${PORT_SNMP:-10161}:10161/udp"
       - "${PORT_DNS:-10053}:10053/udp"
+      # seit 0.7, im Honeypot zunächst aus
+      - "${PORT_ADB:-15555}:5555"
+      - "${PORT_MQTT:-11883}:1883"
+      - "${PORT_POSTGRES:-15432}:5432"
+      - "${PORT_ELASTIC:-19200}:9200"
+      - "${PORT_OLLAMA:-21434}:11434"
+      - "${PORT_K8S:-16443}:6443"
+      - "${PORT_KUBELET:-20250}:10250"
     networks: [honeynet, ingest]
     depends_on:
       hive: { condition: service_healthy }
@@ -143,7 +158,9 @@ services:
     ports:
       - "${PORT_SSH:-10022}:2222"
       - "${PORT_TELNET:-10023}:2223"
-    networks: [honeynet]
+    networks:
+      # feste Adresse: nur Cowrie darf mit ALLOW_DOWNLOADS=1 auf 80/443 ins Internet (tools/firewall.sh)
+      honeynet: { ipv4_address: 172.30.252.10 }
     healthcheck:
       test: ["CMD", "/cowrie/cowrie-env/bin/python3", "-c", "import socket; socket.create_connection(('127.0.0.1', 2222), 3)"]
       interval: 60s
@@ -191,6 +208,9 @@ networks:
   admin: {} # Web-UI, GeoIP-Download und (falls eingerichtet) Benachrichtigungen, KI, AbuseIPDB
   ingest: # Honeypot -> Hive, ohne Internetzugang
     internal: true
+    driver_opts:
+      # fester Name: tools/firewall.sh sperrt darüber den Weg zur NAS selbst (Audit 2, M3)
+      com.docker.network.bridge.name: hv-ingest
     ipam:
       config: [{ subnet: 172.30.250.0/24 }]
   honeynet: # öffentliche Honeypot-Ports; ausgehender Verkehr wird per tools/firewall.sh gesperrt

@@ -289,6 +289,13 @@ var handlers = map[string]func(*Session){
 	"smtp":       handleSMTP,
 	"vnc":        handleVNC,
 	"rdp":        handleRDP,
+	// HTTP-APIs (proto_api.go) und weitere Protokolle (proto_iot.go, proto_pg.go)
+	"ollama":        handleOllama,
+	"elasticsearch": handleElastic,
+	"kubernetes":    handleKubernetes,
+	"adb":           handleADB,
+	"mqtt":          handleMQTT,
+	"postgres":      handlePostgres,
 }
 
 // fromOwnNet meldet Verbindungen von der Gateway-Adresse des Docker-Netzes,

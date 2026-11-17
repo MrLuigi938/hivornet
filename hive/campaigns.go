@@ -36,6 +36,7 @@ type Campaign struct {
 	Profile   string   `json:"profile"`
 	Creds     []string `json:"creds,omitempty"` // Beispiele
 	URLs      []string `json:"urls,omitempty"`
+	Wallets   []string `json:"wallets,omitempty"`
 }
 
 type FingerprintGroup struct {
@@ -104,6 +105,11 @@ func buildCampaigns(list []*Attack) ([]Campaign, []FingerprintGroup) {
 				reasons[k] = "gleiche Nachlade-Adresse " + u.Hostname()
 			}
 		}
+		for _, w := range a.Wallets { // gleiche Wallet: dasselbe Konto kassiert (indicators.go)
+			k := "wallet:" + w
+			uf.union(node, k)
+			reasons[k] = "gleiche Wallet " + shortWallet(w)
+		}
 	}
 	type group struct {
 		ips     map[string]bool
@@ -160,6 +166,11 @@ func buildCampaigns(list []*Attack) ([]Campaign, []FingerprintGroup) {
 			for _, u := range a.URLs {
 				if len(c.URLs) < 6 && !contains(c.URLs, u) {
 					c.URLs = append(c.URLs, u)
+				}
+			}
+			for _, wl := range a.Wallets {
+				if len(c.Wallets) < 4 && !contains(c.Wallets, wl) {
+					c.Wallets = append(c.Wallets, wl)
 				}
 			}
 		}
@@ -259,5 +270,5 @@ func (h *Hive) campaigns(w http.ResponseWriter, r *http.Request) {
 	if tools == nil {
 		tools = []FingerprintGroup{}
 	}
-	writeJSON(w, map[string]any{"campaigns": camps, "tools": tools, "truncated": truncated})
+	writeJSON(w, map[string]any{"campaigns": camps, "tools": tools, "hp_check": hpCheckStats(list), "no_cve": noCVEStats(list), "truncated": truncated})
 }

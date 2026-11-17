@@ -175,6 +175,9 @@ var migrations = []string{
 	  data TEXT NOT NULL, PRIMARY KEY (subject, source)) WITHOUT ROWID;`,
 	// 4: Rollen für weitere Benutzer ("admin" darf alles, "viewer" nur ansehen; siehe users.go)
 	`ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'admin';`,
+	// 5: Zwischenspeicher der Sprachmodell-Antworten für den Honeypot (mimic.go)
+	`CREATE TABLE IF NOT EXISTS mimic_cache (k TEXT PRIMARY KEY, kind TEXT NOT NULL, input TEXT NOT NULL, out TEXT NOT NULL,
+	  created INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0, last_hit INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID;`,
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -393,6 +396,17 @@ func topKeys(e *Event) [][3]string {
 		}
 		for _, u := range allURLs(src, revealed, 4) {
 			add("url", clip(u, 300), e.Service)
+		}
+	}
+	if e.Type == "command" || e.Type == "payload" { // Wallets und Pools (indicators.go)
+		for _, t := range append([]string{text}, revealed...) {
+			ws, ps := cryptoIndicators(t)
+			for _, w := range ws {
+				add("wallet", w, walletKind(w))
+			}
+			for _, p := range ps {
+				add("pool", p, e.Service)
+			}
 		}
 	}
 	return out

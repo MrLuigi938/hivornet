@@ -28,6 +28,14 @@ listeners:
   - { service: sip,        port: 5060, mode: emulate }
   - { service: snmp,       port: 161,  mode: emulate }
   - { service: dns,        port: 53,   mode: emulate, enabled: false }
+  # seit 0.7, zunächst aus (Einstellungen -> Ports und Modi)
+  - { service: adb,           port: 5555,  mode: emulate, enabled: false }
+  - { service: mqtt,          port: 1883,  mode: emulate, enabled: false }
+  - { service: postgres,      port: 5432,  mode: emulate, enabled: false }
+  - { service: elasticsearch, port: 9200,  mode: emulate, enabled: false }
+  - { service: ollama,        port: 11434, mode: emulate, enabled: false }
+  - { service: kubernetes,    port: 6443,  mode: emulate, enabled: false }
+  - { service: kubernetes,    port: 10250, mode: emulate, enabled: false }
 
 tarpit:
   interval_ms: 10000

@@ -27,17 +27,26 @@ const (
 	httpBudgetBdy = 1536     // Body im Ereignis
 )
 
-func handleHTTP(s *Session)      { serveHTTP(s, false) }
-func handleDockerAPI(s *Session) { serveHTTP(s, true) }
+func handleHTTP(s *Session)      { serveHTTP(s, nil) }
+func handleDockerAPI(s *Session) { serveHTTP(s, dockerAPI) }
 
 func handleHTTPS(s *Session) {
+	if upgradeTLS(s, s.Conn) {
+		serveHTTP(s, nil)
+	}
+}
+
+// upgradeTLS führt den TLS-Handshake als Server, meldet ClientHello und SNI (für JA3/JA4
+// im Hive) und ersetzt s.Conn durch die verschlüsselte Verbindung. src liefert die Bytes
+// (s.Conn oder ein Puffer, der schon hineingeschaut hat). false: kein TLS möglich.
+func upgradeTLS(s *Session, src io.Reader) bool {
 	tc := s.m.tlsConf.Load()
 	if tc == nil {
-		return
+		return false
 	}
 	// ClientHello vor dem Handshake mitlesen (für JA3/JA4 im Hive), dann normal weiter
 	s.ReadDeadline(10 * time.Second)
-	br := bufio.NewReaderSize(s.Conn, tlsHelloMax)
+	br := bufio.NewReaderSize(src, tlsHelloMax)
 	hello := peekClientHello(br)
 	conn := tls.Server(&readerConn{Conn: s.Conn, r: br}, tc)
 	conn.SetDeadline(time.Now().Add(10 * time.Second))
@@ -53,11 +62,11 @@ func handleHTTPS(s *Session) {
 		s.Emit(Event{Type: "tls", Data: data})
 	}
 	if err != nil {
-		return
+		return false
 	}
 	conn.SetDeadline(time.Time{})
 	s.Conn = conn
-	serveHTTP(s, false)
+	return true
 }
 
 // readerConn liest aus einem vorgeschalteten Puffer (der den ClientHello schon kennt).
@@ -111,7 +120,9 @@ func httpTarpit(s *Session) {
 
 func pr(s string, n int) string { return printable([]byte(s), n) }
 
-func serveHTTP(s *Session, docker bool) {
+// serveHTTP spielt einen Webserver (api == nil) oder eine HTTP-API nach (Docker, Ollama,
+// Elasticsearch, Kubernetes; proto_api.go).
+func serveHTTP(s *Session, api *httpAPI) {
 	// tarpit: sofort festhalten, ohne auf eine Anfrage zu warten
 	if s.Mode == "tarpit" {
 		httpTarpit(s)
@@ -135,10 +146,10 @@ func serveHTTP(s *Session, docker bool) {
 					b, _ := br.Peek(min(n, 4096))
 					s.Emit(Event{Type: "payload", Data: map[string]any{"text": printable(b, budgetText)}})
 				}
-				if docker {
+				if api != nil {
 					s.WriteString("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n400 Bad Request")
 				} else {
-					writeHTTP(s, "GET", 400, "text/html", nginxError(400, s.m.prof().HTTPServer), nil, false, true)
+					writeHTTP(s, "GET", 400, "text/html", nginxError(400, s.m.prof().HTTPServer), nil, nil, true)
 				}
 			}
 			return
@@ -184,8 +195,8 @@ func serveHTTP(s *Session, docker bool) {
 		if user, pass, ok := extractCreds(req, body); ok {
 			s.Login(user, pass, map[string]any{"path": pr(req.URL.Path, budgetShort)})
 		}
-		if docker {
-			if cmd := dockerCommand(req, body); cmd != "" {
+		if api != nil && api.command != nil {
+			if cmd := api.command(req, body); cmd != "" {
 				s.Command(cmd, map[string]any{"path": pr(req.URL.Path, budgetShort)})
 			}
 		}
@@ -199,22 +210,24 @@ func serveHTTP(s *Session, docker bool) {
 		var status int
 		var ctype, out string
 		var extra map[string]string
-		if docker {
-			status, ctype, out, extra = dockerResponse(s, req)
+		if api != nil {
+			status, ctype, out, extra = api.respond(s, req)
 		} else {
 			status, ctype, out, extra = webResponse(s, req)
 		}
-		if writeHTTP(s, req.Method, status, ctype, out, extra, docker, closeAfter) != nil || closeAfter {
+		if writeHTTP(s, req.Method, status, ctype, out, extra, api, closeAfter) != nil || closeAfter {
 			return
 		}
 	}
 }
 
-func writeHTTP(s *Session, method string, status int, ctype, body string, extra map[string]string, docker, closing bool) error {
+func writeHTTP(s *Session, method string, status int, ctype, body string, extra map[string]string, api *httpAPI, closing bool) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "HTTP/1.1 %d %s\r\n", status, http.StatusText(status))
-	if docker {
-		b.WriteString("Server: Docker/" + s.m.prof().DockerVer + " (linux)\r\nApi-Version: 1.43\r\nOstype: linux\r\n")
+	if api != nil {
+		if api.headers != nil {
+			b.WriteString(api.headers(s))
+		}
 	} else {
 		if sv := s.m.prof().HTTPServer; sv != "" {
 			b.WriteString("Server: " + sv + "\r\n")
@@ -334,6 +347,9 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 	if product, ok := loginPaths[path]; ok {
 		failed := req.Method == "POST"
 		return 200, "text/html; charset=utf-8", loginPage(s.m.Hostname(), product, path, failed), nil
+	}
+	if status, ctype, body, ok := s.mimicWeb(req); ok { // unbekannter Pfad: ggf. vom Sprachmodell (mimic.go)
+		return status, ctype, body, nil
 	}
 	return 404, "text/html", nginxError(404, s.m.prof().HTTPServer), nil
 }

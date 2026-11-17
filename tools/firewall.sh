@@ -11,14 +11,21 @@
 #   sudo sh tools/firewall.sh remove     Regeln entfernen
 #
 #   ALLOW_DOWNLOADS=1 sudo sh tools/firewall.sh
-#       erlaubt Cowrie zusätzlich HTTP/HTTPS ins Internet (nicht ins LAN), damit
-#       Schadsoftware-Proben der Angreifer heruntergeladen werden können.
+#       erlaubt nur Cowrie (feste Adresse 172.30.252.10) zusätzlich HTTP/HTTPS ins
+#       Internet (nicht ins LAN), damit Schadsoftware-Proben der Angreifer heruntergeladen
+#       werden können. Der Go-Honeypot bleibt gesperrt.
+#
+# Auch das interne Netz "ingest" (Bridge hv-ingest, Honeypot -> Hive) darf die NAS selbst
+# nicht erreichen: Docker gibt der Bridge die Gateway-Adresse 172.30.250.1 auf dem Host
+# (zweites Audit, M3). Honeypot und Hive sprechen dort nur untereinander.
 #
 # Die Regeln überleben keinen Neustart der NAS. Siehe README: beim Systemstart
 # ausführen (Synology: Aufgabenplaner, sonst tools/hivornet-firewall.service).
 set -eu
 
 BR=hv-honeynet
+BR_INGEST=hv-ingest
+COWRIE_IP=172.30.252.10
 CHAIN=HIVORNET-OUT
 CHAIN_IN=HIVORNET-HOST
 
@@ -29,6 +36,7 @@ command -v iptables >/dev/null 2>&1 || die "iptables fehlt"
 remove() {
   while iptables -D DOCKER-USER -i "$BR" -j "$CHAIN" 2>/dev/null; do :; done
   while iptables -D INPUT -i "$BR" -j "$CHAIN_IN" 2>/dev/null; do :; done
+  while iptables -D INPUT -i "$BR_INGEST" -j "$CHAIN_IN" 2>/dev/null; do :; done
   for c in "$CHAIN" "$CHAIN_IN"; do
     iptables -F "$c" 2>/dev/null || true
     iptables -X "$c" 2>/dev/null || true
@@ -46,7 +54,7 @@ apply() {
     iptables -A "$CHAIN" -d "$net" -j DROP
   done
   if [ "${ALLOW_DOWNLOADS:-0}" = "1" ]; then
-    iptables -A "$CHAIN" -p tcp -m multiport --dports 80,443 -j RETURN
+    iptables -A "$CHAIN" -s "$COWRIE_IP" -p tcp -m multiport --dports 80,443 -j RETURN
   fi
   iptables -A "$CHAIN" -j DROP
   iptables -I DOCKER-USER 1 -i "$BR" -j "$CHAIN"
@@ -56,8 +64,15 @@ apply() {
   iptables -A "$CHAIN_IN" -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
   iptables -A "$CHAIN_IN" -j DROP
   iptables -I INPUT 1 -i "$BR" -j "$CHAIN_IN"
+  # Internes Netz Honeypot -> Hive: kein Weg zur NAS selbst. Ältere Installationen ohne den
+  # festen Bridge-Namen: nach "docker compose up -d" erneut ausführen.
+  if ip link show "$BR_INGEST" >/dev/null 2>&1; then
+    iptables -I INPUT 1 -i "$BR_INGEST" -j "$CHAIN_IN"
+  else
+    echo "Hinweis: Bridge $BR_INGEST fehlt noch (docker compose up -d, dann dieses Skript erneut)." >&2
+  fi
 
-  echo "Netzsperre aktiv für $BR (Downloads: ${ALLOW_DOWNLOADS:-0})."
+  echo "Netzsperre aktiv für $BR und $BR_INGEST (Downloads nur Cowrie: ${ALLOW_DOWNLOADS:-0})."
   echo "Prüfung: Unter System zeigt die Hivornet-UI nach spätestens 10 Minuten 'Internet: gesperrt'."
 }
 

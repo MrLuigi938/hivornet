@@ -139,10 +139,13 @@ func (h *Hive) ingest(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 413, "zu viele Ereignisse auf einmal")
 		return
 	}
+	bound := boundSensor(r) // eigenes Sensor-Token: Name steht fest (sensortokens.go)
 	n := 0
 	for i := range req.Events {
 		e := &req.Events[i]
-		if e.Sensor == "" {
+		if bound != "" {
+			e.Sensor = bound
+		} else if e.Sensor == "" {
 			e.Sensor = req.Sensor
 		}
 		e.ID, e.Country, e.CountryName, e.City, e.Lat, e.Lon, e.ASN, e.ASOrg = 0, "", "", "", 0, 0, 0, ""
@@ -167,8 +170,12 @@ func (h *Hive) heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hb.Sensor = clip(hb.Sensor, 64)
+	bound := boundSensor(r)
+	if bound != "" {
+		hb.Sensor = bound
+	}
 	// Erste Konfiguration übernehmen, damit die UI sie bearbeiten kann.
-	if _, ok := h.st.GetKV(configKey("")); !ok && hb.Config != nil && hb.Config.Validate() == nil {
+	if _, ok := h.st.GetKV(configKey("")); !ok && bound == "" && hb.Config != nil && hb.Config.Validate() == nil {
 		b, _ := json.Marshal(hb.Config)
 		h.st.SetKV(configKey(""), string(b))
 	}
@@ -177,7 +184,11 @@ func (h *Hive) heartbeat(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Hive) sensorConfig(w http.ResponseWriter, r *http.Request) {
-	cfg, _ := h.SensorConfigFor(clip(r.Header.Get("X-Sensor"), 64))
+	name := clip(r.Header.Get("X-Sensor"), 64)
+	if b := boundSensor(r); b != "" {
+		name = b
+	}
+	cfg, _ := h.SensorConfigFor(name)
 	if cfg == nil {
 		w.WriteHeader(http.StatusNoContent)
 		return
@@ -250,6 +261,7 @@ var topFields = map[string]bool{
 	"country": true, "port": true, "ip": true, "asn": true, "service": true, "username": true, "password": true,
 	"cred": true, "command": true, "path": true, "useragent": true, "client": true, "snmp": true, "sip": true, "dns": true, "ja3": true, "ja4": true, "hassh": true, "httpfp": true, "cve": true,
 	"tag": true, "tool": true, "url": true, // aus der Muster-Analyse (analyze.go)
+	"wallet": true, "pool": true, // Krypto-Indikatoren (indicators.go)
 }
 
 // top liest aus der beim Schreiben gepflegten Zähltabelle (schnell auch bei Millionen Ereignissen).
@@ -273,6 +285,9 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 		for _, row := range rows {
 			if rareRow(field, fmt.Sprint(row["key"])) {
 				row["rare"] = true
+			}
+			if l := botnetList(field, fmt.Sprint(row["key"])); l != "" { // bekannte Botnetz-Liste (auswertung.go)
+				row["list"] = l
 			}
 		}
 		if rows == nil {
@@ -424,14 +439,14 @@ func (h *Hive) sessionDetail(w http.ResponseWriter, r *http.Request) {
 func (h *Hive) tarpit(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := qctx(r)
 	defer cancel()
-	since, _ := rangeSince(r)
+	since, dur := rangeSince(r)
 	ms := since.UnixMilli()
 	var total, count int64
 	h.st.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(tarpit_ms),0) FROM hourly WHERE hour >= ?`, ms/3600000).Scan(&total)
 	h.st.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM events WHERE type='disconnect' AND tarpit=1 AND ts >= ?`, ms).Scan(&count)
 	longest, _ := h.rows(ctx, `SELECT ts, src_ip, service, dst_port, tarpit_ms, country FROM events
 		WHERE type='disconnect' AND tarpit=1 AND ts >= ? ORDER BY tarpit_ms DESC LIMIT 15`, ms)
-	byIP, _ := h.rows(ctx, `SELECT src_ip, MAX(country) AS country, SUM(tarpit_ms) AS tarpit_ms, COUNT(*) AS n FROM events
+	byIP, _ := h.rows(ctx, `SELECT src_ip, MAX(country) AS country, MAX(as_org) AS as_org, MAX(service) AS service, SUM(tarpit_ms) AS tarpit_ms, COUNT(*) AS n FROM events
 		WHERE type='disconnect' AND tarpit=1 AND ts >= ? GROUP BY src_ip ORDER BY tarpit_ms DESC LIMIT 15`, ms)
 	byPort, _ := h.rows(ctx, `SELECT service, dst_port, SUM(tarpit_ms) AS tarpit_ms, COUNT(*) AS n FROM events
 		WHERE type='disconnect' AND tarpit=1 AND ts >= ? GROUP BY service, dst_port ORDER BY tarpit_ms DESC`, ms)
@@ -463,11 +478,15 @@ func (h *Hive) tarpit(w http.ResponseWriter, r *http.Request) {
 	if held == nil {
 		held = []map[string]any{}
 	}
-	writeJSON(w, map[string]any{
+	out := map[string]any{
 		"held": held, "held_complete": complete,
 		"total_ms": total, "connections": count, "active": h.sensors.ActiveTarpits(),
 		"longest": longest, "by_ip": byIP, "by_port": byPort, "sensors": h.sensors.All(),
-	})
+	}
+	for k, v := range h.tarpitExtras(ctx, since, dur, byIP) { // Verlauf, Haltedauer, Zeitleiste (auswertung.go)
+		out[k] = v
+	}
+	writeJSON(w, out)
 }
 
 // ---- Export ----
@@ -593,6 +612,7 @@ var publishedPorts = map[int]string{
 	21: "PORT_FTP", 80: "PORT_HTTP", 443: "PORT_HTTPS", 2375: "PORT_DOCKER", 2222: "PORT_SSH_TARPIT",
 	3306: "PORT_MYSQL", 6379: "PORT_REDIS", 5900: "PORT_RAW", 8080: "PORT_HTTP_ALT",
 	25: "PORT_SMTP", 2323: "PORT_TELNET_ALT", 3389: "PORT_RDP", 5060: "PORT_SIP", 161: "PORT_SNMP", 53: "PORT_DNS",
+	5555: "PORT_ADB", 1883: "PORT_MQTT", 5432: "PORT_POSTGRES", 9200: "PORT_ELASTIC", 11434: "PORT_OLLAMA", 6443: "PORT_K8S", 10250: "PORT_KUBELET",
 }
 
 func (h *Hive) getSettings(w http.ResponseWriter, r *http.Request) {

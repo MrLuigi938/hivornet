@@ -36,7 +36,7 @@ const (
 var patternPhase = map[string]int{
 	"download_exec": phIngress, "miner": phImpact, "iot_botnet": phImpact, "persist_ssh": phPersist, "persist_cron": phPersist,
 	"docker_escape": phImpact, "redis_takeover": phAccess, "account": phPersist, "cover_tracks": phPersist, "kill_rivals": phPersist,
-	"obfuscation": phPersist, "recon": phExec, "data_theft": phImpact, "log4shell": phAccess, "web_rce": phAccess,
+	"obfuscation": phPersist, "recon": phExec, "honeypot_check": phExec, "data_theft": phImpact, "log4shell": phAccess, "web_rce": phAccess,
 	"secret_hunt": phRecon, "iot_exploit": phAccess, "traversal": phAccess, "sqli": phAccess, "cms_login": phRecon,
 	"api_probe": phRecon, "bait_used": phAccess, "tls_on_plain": phRecon, "smb_probe": phRecon, "http_on_raw": phRecon,
 }

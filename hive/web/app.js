@@ -6,14 +6,15 @@ import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName 
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
 import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
-import { viewLive, viewAnalysis, reportCard, chainCard, ttyCard, intelCard, extrasCards, homeLocation } from "./extra.js";
+import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
+import { viewLive, reportCard, chainCard, ttyCard, intelCard, extrasCards, homeLocation, feedCard, sensorTokensCard } from "./extra.js";
 
 const app = document.getElementById("app");
 const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null };
 
 // Navigation in der Kopfleiste; Einstellungen, System und Protokolle stehen im Benutzermenü.
 const NAV = [
-  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/live", "Live-Karte"], ["#/analysis", "Analyse"],
+  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/live", "Live-Karte"], ["#/analysis", "Analyse"], ["#/insights", "Erkenntnisse"],
   ["#/creds", "Zugangsdaten"], ["#/tarpit", "Tarpit"], ["#/system", "System"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
@@ -23,7 +24,8 @@ const TYPE_NAME = {
   tty: "Mitschnitt",
 };
 // Muss alle Dienste des Honeypots enthalten (Test TestServiceListsInSync im Honeypot).
-const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "sip", "snmp", "dns", "ssh-tarpit", "raw"];
+const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "sip", "snmp", "dns", "ssh-tarpit", "raw",
+  "adb", "mqtt", "postgres", "elasticsearch", "ollama", "kubernetes"];
 const MODE_NAME = { emulate: "Aufzeichnen", tarpit: "Tarpit", hybrid: "Hybrid" };
 
 // ---------- Theme ----------
@@ -257,7 +259,7 @@ const routes = [
   [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings$/, viewSettings], [/^#\/system$/, viewSystem],
-  [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/logs(\?.*)?$/, viewLogs],
+  [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/logs(\?.*)?$/, viewLogs],
 ];
 
 // route({ quiet: true }) aktualisiert die aktuelle Seite unauffällig: Die neue Fassung wird
@@ -700,84 +702,6 @@ async function viewAttacker(el, ctx, ip) {
   });
 }
 
-// ---------- Zugangsdaten ----------
-
-const rareBadge = (x) => (x.rare ? h("span", { class: "badge", title: "Nicht in gängigen Standard- und Werkslisten" }, "ungewöhnlich") : null);
-
-async function viewCreds(el) {
-  header("Zugangsdaten und Muster", { range: true });
-  const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
-  const [users, pws, combos, cmds, paths, uas, clients, snmp, sip, dns] = await Promise.all([
-    q("username"), q("password"), q("cred"), q("command"), q("path"), q("useragent", 15), q("client", 15), q("snmp", 15), q("sip", 15), q("dns", 15)]);
-  const find = (x) => "#/attacks?q=" + encodeURIComponent(x.key);
-  mount(el, h("div", { class: "stack" },
-    h("p", { class: "sub" }, "Ein Klick auf einen Eintrag zeigt die Angriffe, in denen er vorkam."),
-    h("div", { class: "grid three" },
-      card("Benutzernamen", toplist(users, { link: find, extra: rareBadge })), card("Passwörter", toplist(pws, { link: find, extra: rareBadge })),
-      card("Kombinationen", toplist(combos, { link: find, extra: rareBadge }))),
-    h("p", { class: "muted" }, "„ungewöhnlich“: steht in keiner gängigen Standard- oder Werksliste; deutet auf gezielte Angriffe oder abgeflossene Zugangsdaten hin."),
-    h("div", { class: "grid two" },
-      card("Befehle", toplist(cmds, { link: find })),
-      card("HTTP-Pfade", toplist(paths, { link: find, extra: (x) => h("span", { class: "muted" }, svcName(x.label)) }))),
-    h("div", { class: "grid two" },
-      card("User-Agents", toplist(uas)),
-      card("SSH- und Client-Versionen", toplist(clients))),
-    snmp.length || sip.length || dns.length ? h("div", { class: "grid three" },
-      card("SNMP-Community-Strings", snmp.length ? toplist(snmp, { link: find }) : h("div", { class: "empty" }, "Keine.")),
-      card("SIP-Adressen", sip.length ? toplist(sip) : h("div", { class: "empty" }, "Keine."),
-        h("p", { class: "muted" }, "IP-Adressen in SIP-Adressen sind durch ‹IP› ersetzt.")),
-      card("DNS-Abfragen", dns.length ? toplist(dns) : h("div", { class: "empty" }, "Keine."))) : null));
-}
-
-// ---------- Tarpit ----------
-
-async function viewTarpit(el, ctx) {
-  header("Tarpit", { range: true });
-  const d = await api("tarpit?range=" + state.range);
-  const active = [];
-  for (const s of d.sensors) for (const l of s.listeners || []) if (l.mode !== "emulate") active.push({ ...l, sensor: s.sensor });
-  // Wer gerade festgehalten wird, mit mitlaufender Dauer
-  const held = d.held || [];
-  const clock = (ms) => { const t = Math.max(0, Math.floor(ms / 1000)); return `${Math.floor(t / 3600)}:${String(Math.floor(t / 60) % 60).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`; };
-  const timer = (since) => h("span", { class: "num tick", "data-since": since }, clock(Date.now() - since));
-  const heldCard = card("Gerade festgehalten" + (held.length ? ` (${fmtNum(held.length)})` : ""),
-    held.length ? h("div", { class: "tablewrap" }, h("table", null,
-      h("thead", null, h("tr", null, ["Angreifer", "Herkunft", "Dienst", "Modus", "Festgehalten seit", "Dauer"].map((t) => h("th", null, t)))),
-      h("tbody", null, held.map((x) => h("tr", null,
-        h("td", null, ipLink(x.ip), x.src_port ? h("span", { class: "muted" }, ":" + x.src_port) : null),
-        h("td", null, cc(x.country, x.country_name), " ", [x.city, x.as_org].filter(Boolean).join(" · ") || h("span", { class: "muted" }, "unbekannt")),
-        h("td", null, svcBadge(x.service, x.port)),
-        h("td", null, MODE_NAME[x.mode] || x.mode),
-        h("td", { class: "num" }, fmtTime(x.since)),
-        h("td", null, h("b", null, timer(x.since))))))))
-      : h("div", { class: "empty" }, d.active ? "Der Honeypot meldet die festgehaltenen Verbindungen erst ab Version 0.5.2 einzeln. Nach dem Update erscheinen sie hier."
-        : "Gerade hängt niemand im Tarpit."),
-    held.length && !d.held_complete ? h("p", { class: "muted" }, "Ein Sensor mit älterer Version meldet nur die Anzahl, nicht wer festgehalten wird.") : null);
-  mount(el, h("div", { class: "stack" },
-    h("p", { class: "sub" }, "Im Tarpit-Modus bekommen Angreifer extrem langsam endlose Daten. Jede Sekunde hier ist Zeit, in der ihr Scanner nichts anderes angreift."),
-    h("div", { class: "grid kpi" },
-      tile("Verschwendete Angreiferzeit", fmtDur(d.total_ms)),
-      tile("Festgehaltene Verbindungen", fmtNum(d.connections), "beendet im Zeitraum"),
-      tile("Gerade festgehalten", fmtNum(d.active), "Liste darunter")),
-    heldCard,
-    card("Ports mit Tarpit oder Hybrid (jetzt)", active.length ? h("div", { class: "tablewrap" }, h("table", null,
-      h("thead", null, h("tr", null, ["Sensor", "Port", "Dienst", "Modus", "Gerade festgehalten", "Offen", "Verbindungen seit Start"].map((t) => h("th", null, t)))),
-      h("tbody", null, active.map((l) => h("tr", null, h("td", null, l.sensor), h("td", { class: "num" }, l.port), h("td", null, svcName(l.service)),
-        h("td", null, MODE_NAME[l.mode] || l.mode), h("td", { class: "num" }, fmtNum(l.tarpitting)), h("td", { class: "num" }, fmtNum(l.active)), h("td", { class: "num" }, fmtNum(l.total)))))))
-      : h("div", { class: "empty" }, "Kein Port im Tarpit- oder Hybrid-Modus. Umschalten unter Einstellungen.")),
-    h("div", { class: "grid two" },
-      card("Am längsten festgehalten", d.longest.length ? h("div", { class: "tablewrap" }, h("table", null,
-        h("thead", null, h("tr", null, ["Ende", "Quelle", "Dienst", "Dauer"].map((t) => h("th", null, t)))),
-        h("tbody", null, d.longest.map((r) => h("tr", null, h("td", { class: "num" }, fmtTime(r.ts)), h("td", null, ipLink(r.src_ip), " ", cc(r.country)),
-          h("td", null, svcBadge(r.service, r.dst_port)), h("td", { class: "num" }, fmtDur(r.tarpit_ms))))))) : h("div", { class: "empty" }, "Noch keine.")),
-      card("Gesamtzeit nach Angreifer", toplist(d.by_ip.map((r) => ({ key: r.src_ip, label: r.country, n: r.tarpit_ms })), {
-        link: (x) => "#/attacker/" + encodeURIComponent(x.key), fmt: fmtDur,
-      }))),
-    card("Gesamtzeit nach Port", toplist(d.by_port.map((r) => ({ key: `${r.dst_port} · ${svcName(r.service)} (${fmtNum(r.n)} Verbindungen)`, n: r.tarpit_ms })), { fmt: fmtDur }))));
-  ctx.every(1000, () => { el.querySelectorAll(".tick").forEach((t) => { t.textContent = clock(Date.now() - Number(t.dataset.since)); }); });
-  ctx.every(10000, () => { if (!document.hidden && location.hash === "#/tarpit") route({ quiet: true }); });
-}
-
 // ---------- Einstellungen ----------
 
 async function viewSettings(el) {
@@ -806,6 +730,8 @@ async function viewSettings(el) {
       h("p", null, "Der Honeypot hat sich noch nicht beim Hive gemeldet. Sobald er läuft (ca. 10 Sekunden nach dem Start), erscheint hier seine Konfiguration."),
       h("button", { class: "btn", onclick: route }, "Neu laden")), extras,
       state.user.role === "admin" ? cowrieAuthCard() : null,
+      state.user.role === "admin" ? feedCard() : null,
+      state.user.role === "admin" ? sensorTokensCard() : null,
       state.user.role === "admin" ? accessCard(s) : null,
       state.user.role === "admin" ? backupCard() : null); // Import auch auf einem frisch installierten Gerät
     return;
@@ -887,6 +813,8 @@ async function viewSettings(el) {
         row("Aktuelles Passwort", pwCur), row("Neues Passwort", pwNew, "10 bis 72 Zeichen. Andere angemeldete Geräte werden abgemeldet."),
         h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg)),
     state.user.role === "admin" ? cowrieAuthCard() : null,
+    state.user.role === "admin" ? feedCard() : null,
+    state.user.role === "admin" ? sensorTokensCard() : null,
     state.user.role === "admin" ? accessCard(s) : null,
     state.user.role === "admin" ? backupCard() : null));
 }
@@ -1223,7 +1151,8 @@ async function viewSystem(el, ctx) {
           h("td", { class: "num" }, l.port), h("td", null, svcName(l.service)), h("td", null, MODE_NAME[l.mode] || l.mode),
           h("td", null, l.running ? h("span", { class: "badge ok" }, "läuft") : h("span", { class: "badge err", title: l.error || "" }, l.error ? "Fehler: " + l.error : "aus")),
           h("td", { class: "num" }, fmtNum(l.active)), h("td", { class: "num" }, fmtNum(l.total)), h("td", { class: "num" }, fmtNum(l.rejected || 0)))))))))
-      : card("Sensoren", h("div", { class: "empty" }, "Noch kein Sensor hat sich gemeldet."))));
+      : card("Sensoren", h("div", { class: "empty" }, "Noch kein Sensor hat sich gemeldet.")),
+    exposureCard()));
   ctx.every(15000, () => { if (!document.hidden && location.hash === "#/system" && ctx.current() && !document.activeElement?.closest?.("form, select, input, textarea")) route({ quiet: true }); });
 }
 
@@ -1303,6 +1232,6 @@ async function viewLogs(el, ctx) {
 
 // Bausteine für extra.js. Die beiden Module importieren sich gegenseitig; das ist
 // in Ordnung, weil extra.js diese Namen nur innerhalb von Funktionen benutzt.
-export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME };
+export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME, MODE_NAME, route };
 
 boot();

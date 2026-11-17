@@ -349,7 +349,7 @@ func handleTelnet(s *Session) {
 		if line == "exit" || line == "quit" || line == "logout" {
 			return
 		}
-		if s.WriteString("\r\n"+telnetReply(host, line)) != nil {
+		if s.WriteString("\r\n"+s.mimicShell(host, line)) != nil { // Unbekanntes ggf. vom Sprachmodell (mimic.go)
 			return
 		}
 	}

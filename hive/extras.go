@@ -30,6 +30,7 @@ type Extras struct {
 	AbuseChKey   string            `json:"abusech_key"`   // URLhaus und MalwareBazaar (abusech.go)
 	Own          OwnNets           `json:"own"`           // eigene Netze (ownnet.go)
 	AbuseReport  AbuseReportConfig `json:"abuse_report"`  // automatische Meldung (abusereport.go)
+	Mimic        MimicConfig       `json:"mimic"`         // Antworten vom Sprachmodell für Unbekanntes (mimic.go)
 }
 
 type NotifyConfig struct {
@@ -45,6 +46,7 @@ type NotifyConfig struct {
 	OnSevere      bool   `json:"on_severe"`     // Muster mit Schweregrad 3 (Nachladen, Miner, ...)
 	OnWarning     bool   `json:"on_warning"`    // kritische Systemwarnung
 	WeeklyReport  bool   `json:"weekly_report"` // Wochenbericht montags (weekly.go)
+	OnSpike       bool   `json:"on_spike"`      // ungewöhnlich viele Verbindungen je Dienst (insights.go)
 	MaxPerHour    int    `json:"max_per_hour"`
 }
 
@@ -63,6 +65,7 @@ func defaultExtras() Extras {
 	x.Notify.MaxPerHour = 20
 	x.Own.Private = true
 	x.AbuseReport = defaultAbuseReport()
+	x.Mimic = defaultMimic()
 	return x
 }
 
@@ -70,7 +73,7 @@ func defaultExtras() Extras {
 func (x *Extras) secretFields() map[string]*string {
 	return map[string]*string{
 		"ntfy_token": &x.Notify.NtfyToken, "telegram_token": &x.Notify.TelegramToken,
-		"ai_api_key": &x.AI.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey, "abusech_key": &x.AbuseChKey,
+		"ai_api_key": &x.AI.APIKey, "mimic_api_key": &x.Mimic.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey, "abusech_key": &x.AbuseChKey,
 	}
 }
 
@@ -90,7 +93,7 @@ func (x *Extras) Validate() error {
 		return fmt.Errorf("Standort: Breite -90 bis 90, Länge -180 bis 180")
 	}
 	x.Home.Label = clip(strings.TrimSpace(x.Home.Label), 40)
-	for name, v := range map[string]string{"ntfy-Adresse": x.Notify.NtfyURL, "Webhook-Adresse": x.Notify.WebhookURL, "KI-Adresse": x.AI.BaseURL} {
+	for name, v := range map[string]string{"ntfy-Adresse": x.Notify.NtfyURL, "Webhook-Adresse": x.Notify.WebhookURL, "KI-Adresse": x.AI.BaseURL, "Adresse für Sprachmodell-Antworten": x.Mimic.BaseURL} {
 		if err := checkURL(name, v); err != nil {
 			return err
 		}
@@ -114,6 +117,9 @@ func (x *Extras) Validate() error {
 	}
 	if x.AI.Enabled && (x.AI.BaseURL == "" || x.AI.Model == "") {
 		return fmt.Errorf("KI-Auswertung braucht Adresse und Modell")
+	}
+	if err := x.Mimic.validate(x.AI); err != nil {
+		return err
 	}
 	return nil
 }

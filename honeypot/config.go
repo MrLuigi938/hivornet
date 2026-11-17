@@ -57,6 +57,14 @@ func DefaultConfig() Config {
 			{"sip", 5060, "emulate", true}, // UDP, nur aufzeichnen
 			{"snmp", 161, "emulate", true}, // UDP, nur aufzeichnen
 			{"dns", 53, "emulate", false},  // UDP, nur aufzeichnen; aus, weil viele Router 53 selbst brauchen
+			// seit 0.7: zunächst aus, unter Einstellungen einschaltbar
+			{"adb", 5555, "emulate", false},
+			{"mqtt", 1883, "emulate", false},
+			{"postgres", 5432, "emulate", false},
+			{"elasticsearch", 9200, "emulate", false},
+			{"ollama", 11434, "emulate", false},
+			{"kubernetes", 6443, "emulate", false},
+			{"kubernetes", 10250, "emulate", false},
 		},
 		Tarpit: TarpitConfig{IntervalMs: 10000, MaxConns: 4096, MaxPerIP: 32, MaxDurationMin: 1440},
 	}

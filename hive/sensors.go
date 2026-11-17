@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"sort"
 	"sync"
 	"time"
@@ -34,7 +35,8 @@ type SensorConfig struct {
 var knownProfiles = []string{"", "linux-server", "nas", "router"}
 
 // Muss zur Tabelle "handlers" im Honeypot passen (dort prüft das TestServiceListsInSync).
-var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw", "telnet", "smtp", "vnc", "rdp", "sip", "snmp", "dns"}
+var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw", "telnet", "smtp", "vnc", "rdp", "sip", "snmp", "dns",
+	"adb", "mqtt", "postgres", "elasticsearch", "ollama", "kubernetes"}
 var knownModes = []string{"emulate", "tarpit", "hybrid"}
 
 const maxTarpitConns = 8000 // wie im Honeypot
@@ -46,6 +48,20 @@ func contains(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+// reservedPort: Ports, die ein Honeypot-Dienst nie belegen darf (zweites Audit, Hinweise):
+// Web-UI und Sensor-API des Hive, auf dem Raspberry Pi zusätzlich Cowrie (SSH 22, Telnet 23).
+func reservedPort(p int) string {
+	switch {
+	case p == 8088:
+		return "Web-UI des Hive"
+	case p == 8089:
+		return "Sensor-API des Hive"
+	case os.Getenv("HIVE_DIRECT_PORTS") == "1" && (p == 22 || p == 23):
+		return "Cowrie"
+	}
+	return ""
 }
 
 func (c *SensorConfig) Validate() error {
@@ -71,6 +87,9 @@ func (c *SensorConfig) Validate() error {
 		}
 		if seen[l.Port] {
 			return fmt.Errorf("Port %d ist doppelt", l.Port)
+		}
+		if why := reservedPort(l.Port); why != "" {
+			return fmt.Errorf("Port %d ist reserviert (%s)", l.Port, why)
 		}
 		seen[l.Port] = true
 	}

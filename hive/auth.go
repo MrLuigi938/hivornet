@@ -34,7 +34,8 @@ type Auth struct {
 	st           *Store
 	secureCookie bool
 	sensorToken  string
-	bcryptSem    chan struct{} // höchstens 2 bcrypt-Läufe gleichzeitig (CPU der NAS schonen)
+	tokens       sensorTokenStore // eigene Tokens je Sensor (sensortokens.go)
+	bcryptSem    chan struct{}    // höchstens 2 bcrypt-Läufe gleichzeitig (CPU der NAS schonen)
 
 	mu         sync.Mutex
 	fails      map[string]*failInfo
@@ -298,21 +299,30 @@ func viewerAllowed(r *http.Request) bool {
 		return true
 	case r.Method != "GET":
 		return false
-	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"), strings.HasPrefix(p, "/api/abuse"):
+	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"), strings.HasPrefix(p, "/api/abuse"), strings.HasPrefix(p, "/api/feed"), strings.HasPrefix(p, "/api/sensor-tokens"), strings.HasPrefix(p, "/api/mimic"):
+		return false
+	// Abfragen bei Dritten mit den Schlüsseln des Admins und teure Auswertungen (zweites Audit)
+	case strings.HasPrefix(p, "/api/lookup/"), strings.HasPrefix(p, "/api/sample"),
+		strings.HasPrefix(p, "/api/attackers/") && (strings.HasSuffix(p, "/intel") || strings.HasSuffix(p, "/greynoise")):
 		return false
 	}
 	return true
 }
 
-// RequireSensor prüft das gemeinsame Token der Sensoren.
+// RequireSensor prüft das gemeinsame Token der Sensoren oder ein eigenes Sensor-Token
+// (sensortokens.go); dann ist die Anfrage an diesen Sensor-Namen gebunden.
 func (a *Auth) RequireSensor(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
-		if a.sensorToken == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(a.sensorToken)) != 1 {
-			httpErr(w, 401, "ungültiges Token")
+		if a.sensorToken != "" && subtle.ConstantTimeCompare([]byte(tok), []byte(a.sensorToken)) == 1 {
+			next(w, r)
 			return
 		}
-		next(w, r)
+		if name := a.sensorFor(tok); name != "" {
+			next(w, withSensor(r, name))
+			return
+		}
+		httpErr(w, 401, "ungültiges Token")
 	}
 }
 

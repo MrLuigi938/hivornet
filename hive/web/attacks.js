@@ -217,8 +217,30 @@ export async function viewAttacks(el, ctx, query = "") {
   header("Angriffe", { extra: [viewSwitch("gruppen"), rangeSeg, pauseBtn] });
 
   let qTimer;
-  const search = h("input", { type: "search", placeholder: "Suche: IP, Land, Passwort, Befehl, Pfad …", value: f.q, "aria-label": "Suche",
+  const search = h("input", { type: "search", placeholder: "Suche: Text oder z. B. service:ssh stufe>=3 cmd:*wget* -scanner:ja", value: f.q, "aria-label": "Suche",
+    style: { minWidth: "320px", flex: "1" },
     oninput: (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { f.q = e.target.value.trim(); load(); }, 350); } });
+  // Gespeicherte Suchen (hive/query.go): Klick setzt die Suche, × löscht (nur Admin)
+  const saved = h("div", { class: "filters" });
+  const setQ = (q) => { search.value = q; f.q = q; load(); };
+  const renderSaved = (list) => mount(saved, list.map((s) => h("span", { class: "fchip" + (f.q === s.q ? " on" : ""), title: s.q },
+    h("a", { href: "#", onclick: (e) => { e.preventDefault(); setQ(s.q); renderSaved(list); } }, s.name),
+    h("button", { class: "linklike", title: "Gespeicherte Suche löschen", "aria-label": "löschen", onclick: async () => {
+      try { renderSaved(await api("searches/" + encodeURIComponent(s.name), { method: "DELETE" })); } catch { /* Leserolle */ }
+    } }, "×"))),
+    h("button", { class: "btn small", title: "Aktuelle Suche unter einem Namen speichern", onclick: async () => {
+      if (!f.q) { alert("Erst etwas suchen, dann speichern."); return; }
+      const name = prompt("Name für diese Suche:", "");
+      if (!name) return;
+      try { renderSaved(await api("searches", { method: "POST", body: { name, q: f.q } })); } catch (e) { alert(e.message); }
+    } }, "Suche speichern"),
+    h("details", { class: "aw-small" }, h("summary", null, "Suchsprache"),
+      h("div", { class: "muted", style: { maxWidth: "640px" } },
+        "Mehrere Teile müssen alle zutreffen, „-“ davor kehrt um, Anführungszeichen halten Wörter zusammen. Felder: ",
+        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve client fp wallet art scanner login"),
+        ". Zahlen mit = < > <= >= (", h("code", null, "stufe>=3"), ", ", h("code", null, "port:5555"), "), Stufe auch als Wort (", h("code", null, "stufe:befehle"),
+        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), ".")));
+  api("searches").then(renderSaved).catch(() => {});
   const chips = h("div", { class: "filters" });
   const info = h("div", { class: "muted", style: { fontSize: "12.5px" } });
   const feed = h("div", { class: "feed" });
@@ -304,7 +326,7 @@ export async function viewAttacks(el, ctx, query = "") {
   mount(el, h("div", { class: "angriffe" },
     h("div", { class: "stack" },
       h("div", { class: "filters" }, search, info),
-      chips, feed, more),
+      saved, chips, feed, more),
     h("aside", { class: "side" },
       card("Gerade aktiv", nAct, h("div", { class: "note-box" }, "Angreifer mit Aktivität in den letzten 15 Minuten")),
       card("Herkunft (angezeigte Angriffe)", sideTop),

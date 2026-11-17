@@ -2,6 +2,45 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.7.0-beta.1] – 2026-11-17
+
+**Update:** Raspberry Pi per Knopf (System → Updates, Kanal „Vorabversionen“), kein neues Image nötig; die neuen Dienste unter Einstellungen → Ports und Modi über „Port hinzufügen“ ergänzen. Docker: `sh update.sh`, danach `sudo sh tools/firewall.sh`.
+
+### Neu
+- **Muster „Honeypot-Prüfung“:** Erkennt Testreihen, mit denen Bots nach dem Login prüfen, ob die Shell echt ist (Marker wie `check_<hash>_small_math`, Rechnen mit `$((…))`, Subshell-Test `v=outer; (v=inner; …)`, Quoting-Test, `echo dGVzdA== | base64 -d`). MITRE T1497.001. Die Analyse zeigt, wie viele Angreifer danach weitermachten (Tarnung gehalten) und wie viele abbrachen.
+- **Krypto-Wallets und Mining-Pools** werden aus Miner-Befehlen und Docker-`create` herausgezogen (Monero, Bitcoin, Ethereum; Pools aus `stratum+tcp://` und `-o host:port`). Neue Top-Listen `wallet` und `pool`; **Kampagnen auch über gleiche Wallet**.
+- **Exploits ohne CVE-Zuordnung:** Die Analyse listet Router-/IoT- und Web-Exploits, für die es noch keine CVE-Regel gibt, mit den häufigsten Pfaden als Vorlage für neue Regeln.
+- **Mirai-Liste:** Zugangsdaten aus der bekannten Mirai-Liste sind gekennzeichnet; die Seite Zugangsdaten zeigt ihren Anteil.
+- **Sechs neue Dienste**, zunächst ausgeschaltet (Einstellungen → Ports und Modi; Docker-Ports schon freigegeben): **ADB** 5555 (Shell-Befehle und Datei-Ablagen), **MQTT** 1883 (Anmeldung, Themen, Nachrichten), **PostgreSQL** 5432 (Anmeldung, schwache Standardpasswörter werden zum Schein angenommen, danach Abfragen wie `COPY … FROM PROGRAM`), **Elasticsearch** 9200, **Ollama/KI-API** 11434 (Prompts, Modell-Downloads, OpenAI-kompatibel), **Kubernetes** 6443 und Kubelet 10250 (Pods, `exec`, `/run`; mit oder ohne TLS). Alle mit Tarpit- und Hybrid-Modus. `tools/attack_sim.py --new-services` testet sie.
+- **Blockliste zum Abonnieren** (Einstellungen): eine Adresse mit Token, die eine Firewall im Heimnetz regelmäßig abruft (OPNsense/pfSense „URL Table“). Zeitraum und Mindeststufe wählbar; nie enthalten sind eigene Netze, private Adressen, Angreifer nur über UDP und auf Wunsch Forschungsscanner. Ergebnis 10 Minuten zwischengespeichert.
+- **Nachgeladene Dateien untersuchen** (Angriffsbericht → „Datei untersuchen“): Dateityp, Architektur, UPX-Packung, eingebettete Adressen, IPs, Wallets und erkannte Muster. Die Datei wird nur gelesen, nie ausgeführt oder ausgeliefert.
+- **Weitere Sensoren mit eigenem Token** (Einstellungen): Jeder Sensor bekommt ein eigenes, an seinen Namen gebundenes Token (nur einmal angezeigt, nur als Hash gespeichert, einzeln widerrufbar). Für entfernte Sensoren gehört die Sensor-API hinter ein VPN.
+
+- **Antworten vom Sprachmodell für Unbekanntes** (Einstellungen): Kennt die Telnet-Shell einen Befehl nicht oder der Web-Honeypot einen Pfad nicht, erzeugt ein Sprachmodell eine glaubwürdige Antwort; gegen Bots, die die Shell mit Testbefehlen prüfen. Jede OpenAI-kompatible Schnittstelle, lokal oder im Internet (OpenRouter …), eigene Angaben oder die der KI-Auswertung. Jede Antwort wird gespeichert (gleiche Eingabe, gleiche Antwort, nur einmal Kosten); Grenzen je Stunde und je Angreifer; bei Fehlern, Zeitüberschreitung (12 s) oder erreichter Grenze antwortet der Honeypot statisch wie bisher. Der Honeypot fragt den Hive, nie selbst das Internet (Netzsperre bleibt).
+- **Neue Seite „Erkenntnisse“:** Angriffsfamilien (Angriffe mit ähnlicher Befehlsfolge, „neu“ in den letzten 24 Stunden, Ausreißer), „Erstmals gesehen“ (Passwörter, Befehle, Pfade, Fingerabdrücke, Wallets … die es vorher nie gab), Wiederkehrer und „Erkunden → Angreifen“ (seltener Fingerabdruck erst beim Abtasten, dann bei einem Angriff einer anderen IP).
+- **Spitzen-Warnung** (Benachrichtigungen): Meldung, wenn ein Dienst in der letzten Stunde ein Vielfaches seines üblichen Aufkommens hat.
+- **Suchsprache** auf der Seite Angriffe, z. B. `service:ssh stufe>=3 cmd:*wget* -scanner:ja`, mit **gespeicherten Suchen**. Freier Text sucht wie bisher.
+- **Wie Shodan dich sieht** (System): fragt Shodan InternetDB nach der öffentlichen Adresse ab und zeigt offene Ports, Software, Lücken und ob Shodan das Gerät als Honeypot führt.
+
+### Sicherheit (zweites Audit, docs/AUDIT-2.md)
+- **Blockliste und AbuseIPDB gegen gefälschte Ereignisse geschützt:** Sensoren mit eigenem Token speisen beides erst, wenn du ihnen vertraust (Einstellungen → Weitere Sensoren); öffentliche DNS-Resolver und eine eigene Liste „Nie sperren“ sind immer ausgenommen; höchstens 300 neue Adressen je Stunde (einstellbar), darüber Warnung.
+- **Docker:** Das interne Netz zwischen Honeypot und Hive heißt jetzt `hv-ingest` und darf die NAS nicht erreichen; mit `ALLOW_DOWNLOADS=1` darf nur noch Cowrie ins Internet. **Nach dem Update `sudo sh tools/firewall.sh` ausführen.** `update.sh` legt die Netze dafür bei Bedarf neu an.
+- **Leserolle** sieht keine Adressen von ntfy oder Webhooks mehr in Fehlermeldungen und kann keine Abfragen bei Dritten oder Probenanalysen mehr auslösen.
+- Honeypot-Parser auf 32 Bit abgesichert, Speicher erst bei eintreffenden Daten; Sprachmodell-Antworten mit Tagesbudget, kürzeren Antworten und geprüftem Content-Type; Probenanalyse, „Erstmals gesehen“ und Angriffsfamilien zwischengespeichert und nie parallel; reservierte Ports 8088/8089 (Pi auch 22/23); zusätzliche systemd-Härtung des Honeypots auf dem Pi.
+- **Behoben:** Der Honeypot ließ sich für den 32-Bit-Pi (armv7) nicht bauen.
+
+### Geändert (Erkenntnisse)
+- **Seite „Erkenntnisse“ neu gestaltet:** Lagebericht „Was ist neu“ mit Filter nach Art (neue Familien, Erstmaliges, Wiederkehrer, Erkunden → Angreifen, Spitzen), Familien als Rangliste zum Aufklappen, Wiederkehrer als Kalenderstreifen und Scanner→Angreifer-Paare.
+
+### Bewusst nicht umgesetzt
+- **Alle Ports mitschneiden (Teleskop)** und **passive Betriebssystem-Erkennung**: Beides braucht entweder Umleitungsregeln, die ein root-Dienst laufend nachführen müsste, oder Raw-Sockets, mit denen ein übernommener Honeypot die Ausgangssperre umgehen könnte. Dazu erzeugt ein einziger Komplett-Scan zehntausende Ereignisse (SD-Karte). Sicherheit geht vor.
+
+### Geändert
+- **Analyse neu gestaltet:** Muster nach Phasen (Erkundung bis Ziel) mit Schwere, MITRE und Verlauf; Werkzeuge in vier Gruppen; Indikatoren (Nachlade-Adressen, Wallets, Pools); wiedererkannte Werkzeuge über Fingerabdrücke; Kampagnen und Honeypot-Prüfungen laden nach, die Seite erscheint dadurch schneller.
+- **Zugangsdaten neu gestaltet:** Kennzahlen zur Vielfalt, Aufbau der Passwörter (Zeichenarten, Länge), Ranglisten mit Kennzeichen, Befehle nach Dienst, HTTP-Pfade nach Zweck (z. B. KI/MCP, VPN, Kamera), Art der User-Agents.
+- **Tarpit neu gestaltet:** große Kennzahl mit Vergleichen und Verlauf, **Zeitleiste der zehn hartnäckigsten Angreifer**, Anteil je Port, Verteilung der Haltedauer.
+- Beim ersten Start werden die Top-Listen einmal neu gezählt, damit Honeypot-Prüfungen, Wallets und Pools auch für ältere Ereignisse erscheinen.
+
 ## [0.6.1-beta.2] – 2026-11-17
 
 ### Neu

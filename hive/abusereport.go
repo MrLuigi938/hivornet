@@ -344,6 +344,7 @@ func (h *Hive) abuseRound(ctx context.Context) {
 		return
 	}
 	names := h.honeypotNames()
+	untrusted := h.untrustedSensors() // protect.go: gefälschte Ereignisse sollen niemanden melden
 	interval := time.Duration(cfg.IntervalHours) * time.Hour
 	source := "abuse_report"
 	if cfg.DryRun {
@@ -354,7 +355,7 @@ func (h *Hive) abuseRound(ctx context.Context) {
 			return
 		}
 		cats, why := abuseVerdict(a, cfg)
-		if why != "" {
+		if why != "" || !trustedAttack(a, untrusted) || h.neverBlock(a.IP) {
 			continue
 		}
 		if _, _, seen := h.st.lookupGet("ip:"+a.IP, source, interval); seen {

@@ -25,7 +25,8 @@ from datetime import datetime, timezone
 # Container-Port -> Standard-Host-Port aus .env.example
 DEFAULT_HOST_PORTS = {21: 10021, 80: 10080, 443: 10443, 2375: 12375, 2222: 12222,
                       3306: 13306, 6379: 16379, 5900: 15900, 8080: 18080,
-                      25: 10025, 2323: 12323, 3389: 13389, 5060: 15060, 161: 10161}
+                      25: 10025, 2323: 12323, 3389: 13389, 5060: 15060, 161: 10161,
+                      5555: 15555, 1883: 11883, 5432: 15432, 9200: 19200, 11434: 21434, 6443: 16443}
 
 
 def conn(host, port, timeout=5):
@@ -69,6 +70,56 @@ def t_docker(host, port):
     s.sendall(b"POST /v1.43/containers/create HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\n"
               + f"Content-Length: {len(body)}\r\nConnection: close\r\n\r\n".encode() + body)
     print(f"  Docker create: {recv_some(s)[:60]!r}")
+    s.close()
+
+
+def t_api(host, port, method, path, body=None, name="API"):
+    data = json.dumps(body).encode() if body is not None else b""
+    s = conn(host, port)
+    head = f"{method} {path} HTTP/1.1\r\nHost: x\r\nContent-Type: application/json\r\nContent-Length: {len(data)}\r\nConnection: close\r\n\r\n"
+    s.sendall(head.encode() + data)
+    print(f"  {name} {method} {path}: {recv_some(s)[:50]!r}")
+    s.close()
+
+
+def t_adb(host, port):
+    def pkt(cmd, a0, a1, data):
+        c = struct.unpack("<I", cmd)[0]
+        return struct.pack("<6I", c, a0, a1, len(data), sum(data) & 0xffffffff, c ^ 0xffffffff) + data
+    s = conn(host, port)
+    s.sendall(pkt(b"CNXN", 0x01000000, 4096, b"host::\x00"))
+    print(f"  ADB Banner: {recv_some(s)[24:60]!r}")
+    s.sendall(pkt(b"OPEN", 1, 0, b"shell:cd /data/local/tmp; getprop ro.product.model\x00"))
+    print(f"  ADB shell: {recv_some(s)[:40]!r}")
+    s.close()
+
+
+def t_mqtt(host, port):
+    def st(x):
+        return struct.pack(">H", len(x)) + x
+    body = st(b"MQTT") + bytes([4, 0xc2, 0, 60]) + st(b"sim") + st(b"admin") + st(b"public")
+    s = conn(host, port)
+    s.sendall(bytes([0x10, len(body)]) + body)
+    print(f"  MQTT CONNACK: {recv_some(s, 4)!r}")
+    s.sendall(bytes([0x82, 6, 0, 1, 0, 1]) + b"#" + bytes([0]))
+    print(f"  MQTT SUBSCRIBE #: {recv_some(s)[:40]!r}")
+    s.close()
+
+
+def t_postgres(host, port):
+    def startup(**kw):
+        body = struct.pack(">I", 196608) + b"".join(k.encode() + b"\x00" + v.encode() + b"\x00" for k, v in kw.items()) + b"\x00"
+        return struct.pack(">I", len(body) + 4) + body
+    def msg(t, text):
+        b = text.encode() + b"\x00"
+        return t + struct.pack(">I", len(b) + 4) + b
+    s = conn(host, port)
+    s.sendall(startup(user="postgres", database="postgres"))
+    recv_some(s)
+    s.sendall(msg(b"p", "postgres"))
+    print(f"  PostgreSQL Login: {recv_some(s)[:20]!r}")
+    s.sendall(msg(b"Q", "COPY cmd_exec FROM PROGRAM 'id'"))
+    print(f"  PostgreSQL COPY: {recv_some(s)[:20]!r}")
     s.close()
 
 
@@ -226,6 +277,7 @@ def main():
     ap.add_argument("--hive", default="http://127.0.0.1:8088")
     ap.add_argument("--token", default="")
     ap.add_argument("--no-attacks", action="store_true", help="nur --demo ausführen, keine Test-Angriffe")
+    ap.add_argument("--new-services", action="store_true", help="auch ADB, MQTT, PostgreSQL, Ollama, Elasticsearch, Kubernetes testen")
     a = ap.parse_args()
 
     def p(container_port):
@@ -238,6 +290,12 @@ def main():
              ("Telnet", lambda: t_telnet(a.host, p(2323))), ("SMTP", lambda: t_smtp(a.host, p(25))),
              ("RDP", lambda: t_rdp(a.host, p(3389))), ("UDP: SIP und SNMP", lambda: t_udp(a.host, p(5060), p(161))),
              ("HTTP-Alt (hybrid)", lambda: t_http(a.host, p(8080)))]
+    if a.new_services:  # seit 0.7, im Honeypot erst einschalten
+        tests += [("ADB", lambda: t_adb(a.host, p(5555))), ("MQTT", lambda: t_mqtt(a.host, p(1883))),
+                  ("PostgreSQL", lambda: t_postgres(a.host, p(5432))),
+                  ("Ollama", lambda: t_api(a.host, p(11434), "POST", "/api/generate", {"model": "llama3.1:8b", "prompt": "hi"}, "Ollama")),
+                  ("Elasticsearch", lambda: t_api(a.host, p(9200), "GET", "/_cat/indices", None, "Elasticsearch")),
+                  ("Kubernetes", lambda: t_api(a.host, p(6443), "GET", "/api/v1/pods", None, "Kubernetes"))]
     if not a.no_attacks:
         for name, fn in tests:
             print(name)

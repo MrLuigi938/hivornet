@@ -9,11 +9,13 @@ export const countryName = (cc) => COUNTRY_NAMES[cc] || (cc === "LAN" ? "Lokales
 const SVC_COLOR = {
   ssh: "--s1", http: "--s2", https: "--s3", telnet: "--s4", ftp: "--s5", redis: "--s6", mysql: "--s7", dockerapi: "--s8",
   "ssh-tarpit": "--s1", rdp: "--s7", vnc: "--s8", smtp: "--s5", sip: "--s6", snmp: "--s3", dns: "--s2",
+  adb: "--s6", mqtt: "--s3", postgres: "--s7", elasticsearch: "--s4", ollama: "--s5", kubernetes: "--s1",
 };
 const SVC_NAME = {
   ssh: "SSH", telnet: "Telnet", http: "HTTP", https: "HTTPS", ftp: "FTP", redis: "Redis", mysql: "MySQL",
   dockerapi: "Docker-API", "ssh-tarpit": "SSH-Tarpit", raw: "Generisch", other: "Andere",
   smtp: "SMTP", vnc: "VNC", rdp: "RDP", sip: "SIP (UDP)", snmp: "SNMP (UDP)", dns: "DNS (UDP)",
+  adb: "ADB", mqtt: "MQTT", postgres: "PostgreSQL", elasticsearch: "Elasticsearch", ollama: "Ollama/KI-API", kubernetes: "Kubernetes",
 };
 export const svcName = (s) => SVC_NAME[s] || s;
 export const svcColor = (s) => `var(${SVC_COLOR[s] || "--other"})`;

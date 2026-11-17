@@ -77,6 +77,7 @@ var patternMitre = map[string][]string{
 	"kill_rivals":    {"T1489"},
 	"obfuscation":    {"T1027", "T1140"},
 	"recon":          {"T1082", "T1033"},
+	"honeypot_check": {"T1497.001"},
 	"data_theft":     {"T1552.001", "T1005"},
 	"log4shell":      {"T1190"},
 	"web_rce":        {"T1190"},
@@ -101,5 +102,5 @@ var mitreNames = map[string]string{
 	"T1027": "Obfuscated Files or Information", "T1140": "Deobfuscate/Decode Files or Information",
 	"T1082": "System Information Discovery", "T1033": "System Owner/User Discovery", "T1552.001": "Credentials In Files",
 	"T1005": "Data from Local System", "T1595.003": "Wordlist Scanning", "T1083": "File and Directory Discovery",
-	"T1110": "Brute Force", "T1595": "Active Scanning", "T1078": "Valid Accounts",
+	"T1497.001": "System Checks", "T1110": "Brute Force", "T1595": "Active Scanning", "T1078": "Valid Accounts",
 }

@@ -471,14 +471,21 @@ func backfillPatterns(st *Store, maxID int64) {
 			e := &Event{}
 			var ms int64
 			var data *string
-			if rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &data) != nil {
-				continue
+			if err := rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &data); err != nil {
+				rows.Close()
+				log.Printf("Muster nachzählen: %v", err)
+				return
 			}
 			e.TS = time.UnixMilli(ms)
 			if data != nil {
 				e.Data = json.RawMessage(*data)
 			}
 			evs = append(evs, e)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			log.Printf("Muster nachzählen: %v", err)
+			return
 		}
 		rows.Close()
 		if len(evs) == 0 {
@@ -518,9 +525,10 @@ func backfillPatterns(st *Store, maxID int64) {
 // Seit 0.5.3 gelten neue Regeln (einstufung.go: SNMP, SIP und DNS in eigenen Feldern,
 // TLS-Handshakes keine Befehle, Eingaben an der Login-Abfrage keine Zugangsdaten, eigene
 // Tests nicht gezählt). Die Felder aus Verbindungen (Land, Port, IP …) bleiben.
-var recountFields = []string{"username", "password", "cred", "command", "path", "useragent", "client", "tag", "tool", "url", "snmp", "sip", "dns", "ja3", "ja4", "hassh", "httpfp", "cve"}
+var recountFields = []string{"username", "password", "cred", "command", "path", "useragent", "client", "tag", "tool", "url", "snmp", "sip", "dns", "ja3", "ja4", "hassh", "httpfp", "cve", "wallet", "pool"}
 
-const recountKey = "top_recounted_053"
+// 0.7.0: neues Muster honeypot_check, Wallets und Pools (indicators.go)
+const recountKey = "top_recounted_070"
 
 // prepareRecount löscht die alten Zähler dieser Felder, einmalig und VOR dem Start des
 // Schreibers; danach zählt recountTop alle Ereignisse bis maxID im Hintergrund neu.
@@ -560,14 +568,21 @@ func recountTop(st *Store, maxID int64) {
 			e := &Event{}
 			var ms int64
 			var data *string
-			if rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &e.SrcIP, &e.Username, &e.Password, &data) != nil {
-				continue
+			if err := rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &e.SrcIP, &e.Username, &e.Password, &data); err != nil {
+				rows.Close()
+				log.Printf("Top-Listen neu zählen: %v (wird beim nächsten Start wiederholt)", err)
+				return // nicht als fertig markieren (zweites Audit, N7)
 			}
 			e.TS = time.UnixMilli(ms)
 			if data != nil {
 				e.Data = json.RawMessage(*data)
 			}
 			evs = append(evs, e)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			log.Printf("Top-Listen neu zählen: %v (wird beim nächsten Start wiederholt)", err)
+			return
 		}
 		rows.Close()
 		if len(evs) == 0 {

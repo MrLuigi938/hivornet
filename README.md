@@ -12,7 +12,7 @@
 
 Hivornet ist ein leichtgewichtiges Honeypot-System für zu Hause und kleine Netze. Es lockt Angreifer aus dem Internet auf gefälschte Dienste, zeichnet auf, was sie versuchen, und bremst sie auf Wunsch aus. Alles läuft mit **unter 512 MB RAM** auf einer NAS, einem Raspberry Pi oder einem kleinen Server.
 
-- **Viele Dienste:** SSH und Telnet mit gefälschter Shell (Cowrie), FTP, HTTP/HTTPS, Docker-API, MySQL, Redis, SMTP, RDP, VNC und weitere. SIP, SNMP und DNS laufen über UDP und zeichnen nur auf.
+- **Viele Dienste:** SSH und Telnet mit gefälschter Shell (Cowrie), FTP, HTTP/HTTPS, Docker-API, MySQL, Redis, SMTP, RDP, VNC, dazu zuschaltbar ADB, MQTT, PostgreSQL, Elasticsearch, Ollama/KI-API und Kubernetes. SIP, SNMP und DNS laufen über UDP und zeichnen nur auf.
 - **Ausbremsen (Tarpit):** Pro Port wählbar: Angreifer bekommen endlos winzige Datenstücke, und ihr Scanner hängt fest.
 - **Auswertung im Browser:**
   - Dashboard mit Kennzahlen, zoombarer Weltkarte und den gerade aktiven Angreifern;
@@ -106,7 +106,7 @@ sudo sh tools/firewall.sh status     # anzeigen
 sudo sh tools/firewall.sh remove     # entfernen
 ```
 
-Die Regeln sperren alle **neuen** Verbindungen aus dem Docker-Netz `honeynet` (Bridge `hv-honeynet`). Mit `ALLOW_DOWNLOADS=1` darf Cowrie zusätzlich HTTP/HTTPS ins Internet, nie ins LAN. So bekommst du Schadsoftware-Proben, die Angreifer per `wget` nachladen.
+Die Regeln sperren alle **neuen** Verbindungen aus dem Docker-Netz `honeynet` (Bridge `hv-honeynet`) und verhindern, dass das interne Netz zwischen Honeypot und Hive (Bridge `hv-ingest`) die NAS selbst erreicht. Mit `ALLOW_DOWNLOADS=1` darf nur Cowrie (feste Adresse 172.30.252.10) zusätzlich HTTP/HTTPS ins Internet, nie ins LAN; der Go-Honeypot bleibt gesperrt. So bekommst du Schadsoftware-Proben, die Angreifer per `wget` nachladen.
 
 **Nach jedem Neustart der NAS neu setzen:**
 - **Synology:** Systemsteuerung → Aufgabenplaner → Erstellen → Ausgelöste Aufgabe → Benutzerdefiniertes Skript, Ereignis „Hochfahren“, Benutzer `root`, Befehl: `sh /volume1/docker/hivornet/tools/firewall.sh`. Da Docker eventuell erst danach startet, zusätzlich eine geplante Aufgabe alle 15 Minuten mit demselben Befehl anlegen; das Skript ist idempotent.
@@ -151,6 +151,15 @@ Auf dem **Raspberry Pi** lauschen die Dienste direkt auf den echten Ports; im Ro
 | 5060/udp | 15060/udp | SIP (nur aufzeichnen) |
 | 161/udp | 10161/udp | SNMP (nur aufzeichnen) |
 | 53/udp | 10053/udp | DNS (nur aufzeichnen, standardmäßig aus) |
+| 5555 | 15555 | ADB, Android Debug Bridge (standardmäßig aus) |
+| 1883 | 11883 | MQTT (standardmäßig aus) |
+| 5432 | 15432 | PostgreSQL (standardmäßig aus) |
+| 9200 | 19200 | Elasticsearch (standardmäßig aus) |
+| 11434 | 21434 | Ollama/KI-API (standardmäßig aus) |
+| 6443 | 16443 | Kubernetes-API (standardmäßig aus) |
+| 10250 | 20250 | Kubelet (standardmäßig aus) |
+
+Die Dienste ab ADB sind neu und zunächst ausgeschaltet. Unter **Einstellungen → Ports und Modi** einschalten und den Port im Router weiterleiten. Sie zeichnen auf, was Angreifer dort versuchen: Shell-Befehle und Datei-Ablagen bei ADB, Themen und Nachrichten bei MQTT, Anmeldung und Abfragen bei PostgreSQL (schwache Standardpasswörter werden zum Schein angenommen), Prompts und Modell-Downloads bei Ollama, Suchen und Skripte bei Elasticsearch, Pods und Befehle bei Kubernetes.
 
 Du musst nicht alle weiterleiten. Für den Anfang genügen 22, 23, 80, 443 und 3389. Welche Ports aktiv sind, zeigt die Web-UI unter **Einstellungen → Ports und Modi**.
 
@@ -230,6 +239,26 @@ Mit einem AbuseIPDB-Schlüssel kann Hivornet Angreifer selbst melden (Einstellun
 - Der Kommentar ist auf Englisch und enthält Art, Dienste, Anzahl der Versuche, einige Benutzernamen und erkannte Muster, aber keine Passwörter, keine IP-Adressen und nicht den Hostnamen des Honeypots.
 - Je IP höchstens eine Meldung im eingestellten Abstand (Standard 24 Stunden; AbuseIPDB verlangt mindestens 15 Minuten), dazu ein Tageslimit (Standard 50). Ist das Kontingent erschöpft, pausiert die Meldung bis zum Zeitpunkt, den AbuseIPDB nennt.
 - Das Protokoll mit Status, Kategorien, Kommentar, Kontingent und letztem Fehler steht direkt unter den Einstellungen.
+
+### Antworten vom Sprachmodell
+
+Unter **Einstellungen → Antworten vom Sprachmodell** lässt sich einschalten, dass unbekannte Befehle der Telnet-Shell und unbekannte Pfade des Web-Honeypots von einem Sprachmodell beantwortet werden. Das macht es Bots schwerer, den Honeypot an seinen Lücken zu erkennen. Es funktioniert mit jeder OpenAI-kompatiblen Schnittstelle, lokal (Ollama, LM Studio) oder im Internet (z. B. OpenRouter); ohne eigene Angaben gelten die der KI-Auswertung. Jede Antwort wird gespeichert und bei gleicher Eingabe wiederverwendet. Grenzen je Stunde und je Angreifer deckeln die Kosten; darüber, bei Fehlern oder nach 12 Sekunden antwortet der Honeypot wie bisher. Bei einem Dienst im Internet gehen die Eingaben der Angreifer dorthin. SSH läuft über Cowrie und ist davon nicht betroffen.
+
+### Erkenntnisse und Suche
+
+Die Seite **Erkenntnisse** gruppiert Angriffe mit ähnlicher Befehlsfolge zu Familien und hebt neue hervor, zeigt, was im Zeitraum zum ersten Mal auftauchte, wer wiederkommt und wo ein Scanner und ein Angreifer offenbar zusammenarbeiten. Auf der Seite **Angriffe** versteht die Suche Felder wie `service:ssh stufe>=3 country:CN cmd:*wget* -scanner:ja` (Hilfe unter „Suchsprache“); Suchen lassen sich speichern. Unter **System → Wie Shodan dich sieht** steht auf Knopfdruck, was Shodan über den Anschluss weiß und ob es das Gerät als Honeypot führt.
+
+### Blockliste zum Abonnieren
+
+Unter **Einstellungen → Blockliste zum Abonnieren** erzeugt der Hive eine Adresse mit Token (`/feed/blocklist.txt?token=…`). Eine Firewall im Heimnetz kann sie regelmäßig abrufen, z. B. OPNsense oder pfSense als Alias vom Typ „URL Table (IPs)“. So hält der Honeypot Angreifer auch vom echten Netz fern. Zeitraum und Mindeststufe sind wählbar. Eigene Netze, private Adressen und Angreifer, die nur über UDP kamen, sind nie enthalten, auf Wunsch auch keine Forschungsscanner. Wer die Adresse kennt, sieht die Liste; „Neues Token“ macht die alte Adresse ungültig. Damit ein übernommener Honeypot keine fremden Adressen sperren lassen kann, sind öffentliche DNS-Resolver und eine eigene Liste „Nie sperren“ immer ausgenommen, Sensoren mit eigenem Token zählen erst nach Freigabe, und je Stunde kommen höchstens 300 neue Adressen dazu (einstellbar; darüber warnt der Hive). Das gilt ebenso für die automatische Meldung an AbuseIPDB.
+
+### Weitere Sensoren
+
+Ein zweiter Honeypot, etwa auf einem kleinen Server, kann an denselben Hive melden. Unter **Einstellungen → Weitere Sensoren** bekommt er ein eigenes Token, das an seinen Namen gebunden ist und sich einzeln widerrufen lässt. Auf dem entfernten Gerät gehören `HIVE_URL`, `HIVORNET_TOKEN` und `SENSOR_NAME` in die `.env`. Die Sensor-API (Port 8089) nie ins Internet freigeben, sondern über ein VPN wie WireGuard erreichbar machen. Ereignisse eines solchen Sensors fließen erst in Blockliste und AbuseIPDB-Meldungen, wenn du ihm unter „vertrauen“ zustimmst.
+
+### Nachgeladene Dateien untersuchen
+
+Im Angriffsbericht steht neben jedem Download-Hash **„Datei untersuchen“**. Der Hive liest die von Cowrie gespeicherte Datei und zeigt Dateityp, Architektur (ARM, MIPS, x86 …), ob sie gepackt ist, eingebettete Adressen, IPs und Wallets sowie erkannte Muster. Die Datei wird nie ausgeführt und nie über die Web-UI ausgeliefert.
 
 ### Weitere Benutzer
 

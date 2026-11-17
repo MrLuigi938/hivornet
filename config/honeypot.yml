@@ -5,7 +5,8 @@
 # noch der Ausgangspunkt für einen frischen Hive.
 #
 # Dienste: ftp, http, https, dockerapi, mysql, redis, smtp, telnet, rdp, vnc,
-#          ssh-tarpit, raw (generisch: zeichnet die ersten Bytes auf);
+#          ssh-tarpit, raw (generisch: zeichnet die ersten Bytes auf),
+#          adb, mqtt, postgres, elasticsearch, ollama, kubernetes (API-Server und Kubelet);
 #          UDP, nur aufzeichnen: sip, snmp, dns
 #
 # Modi:  emulate = nachspielen und aufzeichnen
@@ -35,6 +36,14 @@ listeners:
   - { service: sip,        port: 5060, mode: emulate }
   - { service: snmp,       port: 161,  mode: emulate }
   - { service: dns,        port: 53,   mode: emulate, enabled: false }
+  # seit 0.7, zunächst aus: in docker-compose.yml schon freigegeben, hier oder unter Einstellungen einschalten
+  - { service: adb,           port: 5555,  mode: emulate, enabled: false }
+  - { service: mqtt,          port: 1883,  mode: emulate, enabled: false }
+  - { service: postgres,      port: 5432,  mode: emulate, enabled: false }
+  - { service: elasticsearch, port: 9200,  mode: emulate, enabled: false }
+  - { service: ollama,        port: 11434, mode: emulate, enabled: false }
+  - { service: kubernetes,    port: 6443,  mode: emulate, enabled: false }
+  - { service: kubernetes,    port: 10250, mode: emulate, enabled: false }
 
 tarpit:
   interval_ms: 10000     # alle 10 s ein winziges Datenstück

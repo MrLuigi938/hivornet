@@ -22,6 +22,13 @@ if [ -d .git ] && command -v git >/dev/null 2>&1; then
 fi
 $DC pull cowrie janitor 2>/dev/null || true
 $DC build --pull
-$DC up -d
+# Geänderte Netzwerk-Einstellungen (z. B. fester Bridge-Name hv-ingest seit 0.7) lassen sich
+# nicht im laufenden Betrieb übernehmen: dann einmal alles stoppen (Daten bleiben) und neu starten.
+if ! $DC up -d; then
+  say "Netze werden neu angelegt ..."
+  $DC down
+  $DC up -d
+fi
 $DC ps
+say "Netzsperre danach neu setzen (deckt seit 0.7 auch das interne Netz hv-ingest ab): sudo sh tools/firewall.sh"
 say "Neue Version: $($DC exec -T hive /hive version 2>/dev/null || echo unbekannt)"

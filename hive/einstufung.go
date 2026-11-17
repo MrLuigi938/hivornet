@@ -21,7 +21,9 @@ package main
 //     b) bei der Docker-API: Der Honeypot meldet dort nur create, exec und pull;
 //     c) bei Redis nur verändernde oder gefährliche Befehle (CONFIG SET, SLAVEOF/REPLICAOF,
 //        MODULE LOAD, EVAL, SET, FLUSHALL, SAVE …, siehe redisChanging);
-//     d) bei jedem anderen Dienst nur, wenn in derselben Sitzung ein Login angenommen wurde.
+//     d) bei ADB, Kubernetes, Ollama und Elasticsearch: gemeldet werden dort nur Befehle mit
+//        Wirkung; bei MQTT nur "publish";
+//     e) bei jedem anderen Dienst nur, wenn in derselben Sitzung ein Login angenommen wurde.
 //  4. Sonst ist ein Befehl Protokoll-Geplänkel vor der Anmeldung: reine Abfragen und
 //     Handshakes (PING, INFO, EHLO, FEAT, AUTH TLS …, siehe probeWords) zählen als
 //     Abtasten, alles andere (USER/PASS-Folgen, MAIL FROM, unbekannte Befehle) als Versuche.
@@ -83,6 +85,13 @@ func commandExecuted(service, input string, loggedIn bool) bool {
 	switch service {
 	case "ssh", "telnet", "dockerapi":
 		return true
+	case "adb": // Shell-Befehle und Datei-Ablagen (proto_iot.go)
+		return true
+	case "kubernetes", "ollama", "elasticsearch":
+		// Nur Anfragen mit Wirkung; Webscanner mit POST an diese Ports sind Versuche (zweites Audit, N6)
+		return apiChanging(service, input)
+	case "mqtt": // Nachricht veröffentlichen ändert etwas, Abonnieren nicht
+		return strings.HasPrefix(input, "publish ")
 	case "redis":
 		return redisChanging(input)
 	case "ftp": // nach dem Login nur Hochladen, Löschen, Umbenennen, SITE
@@ -90,6 +99,48 @@ func commandExecuted(service, input string, loggedIn bool) bool {
 		return loggedIn && len(f) > 0 && ftpChanging[f[0]]
 	}
 	return loggedIn
+}
+
+// apiChanging: Befehle der HTTP-APIs (honeypot/proto_api.go), die etwas bewirken.
+func apiChanging(service, input string) bool {
+	switch service {
+	case "kubernetes":
+		for _, p := range []string{"exec ", "run ", "create pod"} {
+			if strings.HasPrefix(input, p) {
+				return true
+			}
+		}
+		f := strings.Fields(input) // z. B. "DELETE /api/v1/namespaces/x/pods/y"
+		return len(f) > 0 && (f[0] == "DELETE" || f[0] == "PUT" || f[0] == "PATCH")
+	case "ollama":
+		for _, p := range []string{"prompt ", "pull ", "push ", "create ", "copy ", "delete "} {
+			if strings.HasPrefix(input, p) {
+				return true
+			}
+		}
+	case "elasticsearch":
+		l := strings.ToLower(input)
+		if strings.Contains(l, "script") {
+			return true // Skript-Lücken (Groovy, Painless)
+		}
+		f := strings.Fields(input)
+		if len(f) < 2 {
+			return false
+		}
+		if f[0] != "PUT" && f[0] != "DELETE" && f[0] != "POST" {
+			return false
+		}
+		// Nur echte schreibende Elasticsearch-Pfade; Webscanner (POST /cgi-bin/…) sind Versuche.
+		for _, seg := range strings.Split(strings.ToLower(f[1]), "/") {
+			switch seg {
+			case "_doc", "_create", "_update", "_bulk", "_reindex", "_delete_by_query", "_update_by_query", "_scripts", "_ingest", "_snapshot", "_settings", "_mapping":
+				return true
+			}
+		}
+		// PUT/DELETE auf einen Index ("/name") legt an oder löscht
+		return f[0] != "POST" && strings.Count(strings.Trim(f[1], "/"), "/") == 0 && !strings.HasPrefix(strings.Trim(f[1], "/"), "_")
+	}
+	return false
 }
 
 var ftpChanging = map[string]bool{"STOR": true, "APPE": true, "STOU": true, "DELE": true, "MKD": true, "XMKD": true, "RMD": true, "XRMD": true, "RNFR": true, "RNTO": true, "SITE": true}
