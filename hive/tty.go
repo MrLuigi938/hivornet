@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -135,7 +134,7 @@ func (h *Hive) sessionTTY(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 404, "Mitschnitt nicht verfügbar.")
 		return
 	}
-	f, err := os.Open(filepath.Join(h.cowrieLibDir, "tty", sum))
+	f, err := openRegular(filepath.Join(h.cowrieLibDir, "tty", sum)) // keine Verweise (cowrie.go)
 	if err != nil {
 		httpErr(w, 410, "Der Mitschnitt wurde bereits aufgeräumt (COWRIE_KEEP_DAYS).")
 		return

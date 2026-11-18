@@ -125,6 +125,10 @@ services:
       - "${PORT_K8S:-16443}:6443"
       - "${PORT_KUBELET:-20250}:10250"
     networks: [honeynet, ingest]
+    # Kein DNS nach außen (N14 des dritten Audits): Docker leitet Namensanfragen sonst über den
+    # Resolver des Hosts weiter, an der Netzsperre vorbei. Der Honeypot braucht nur "hive",
+    # das der eingebaute Resolver selbst kennt. 192.0.2.1 ist eine Dokumentationsadresse.
+    dns: ["192.0.2.1"]
     depends_on:
       hive: { condition: service_healthy }
     healthcheck:

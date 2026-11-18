@@ -8,6 +8,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -156,14 +157,7 @@ func (a *Attack) addCommand(list *[]string, c string) {
 }
 
 func dataBool(d json.RawMessage, key string) bool {
-	if len(d) == 0 {
-		return false
-	}
-	var m map[string]any
-	if json.Unmarshal(d, &m) != nil {
-		return false
-	}
-	b, _ := m[key].(bool)
+	b, _ := dataMap(d)[key].(bool)
 	return b
 }
 
@@ -205,10 +199,7 @@ func (a *Attack) add(e *Event) {
 			a.Fingerprints = append(a.Fingerprints, f)
 		}
 	}
-	var d map[string]any // Daten nur einmal lesen
-	if len(e.Data) > 0 {
-		json.Unmarshal(e.Data, &d)
-	}
+	d := dataMap(e.Data) // Daten nur einmal lesen (store.go)
 	str := func(k string) string { s, _ := d[k].(string); return s }
 	flag := func(k string) bool { b, _ := d[k].(bool); return b }
 	switch {
@@ -276,25 +267,24 @@ func (a *Attack) add(e *Event) {
 		}
 		return
 	}
-	text, on, revealed := analysisText(e)
-	for _, id := range eventPatterns(e, text, on, revealed) {
+	// Muster, Lücken, Entschlüsseltes, Adressen und Wallets: einmal je Text berechnet (analysiscache.go)
+	text, on := eventText(e)
+	an := analyzeText(text, on)
+	for _, id := range eventPatterns(e, text, on, an.revealed) {
 		a.tags[id]++
 	}
 	for _, r := range eventCVEs(text, on) {
 		a.cves[r.CVE]++
 	}
-	for _, d := range revealed {
+	for _, d := range an.revealed {
 		if len(a.Decoded) < 10 && !slices.Contains(a.Decoded, clip(d, 500)) {
 			a.Decoded = append(a.Decoded, clip(d, 500))
 		}
 	}
-	// Nachlade-Adressen auch aus Befehlen (wget, curl …) und aus entschlüsselten Inhalten
-	src := text
-	if e.Type == "request" {
-		src = "" // Pfade sind oft nur Proben; nur entschlüsselte Adressen zählen
-	}
+	// Nachlade-Adressen auch aus Befehlen (wget, curl …) und aus entschlüsselten Inhalten;
+	// bei Web-Anfragen nur entschlüsselte (Pfade sind oft nur Proben)
 	if e.Type == "command" || e.Type == "payload" || e.Type == "request" {
-		for _, u := range allURLs(src, revealed, 6) {
+		for _, u := range an.urls {
 			if len(a.URLs) < 10 && !slices.Contains(a.URLs, clip(u, 300)) {
 				a.URLs = append(a.URLs, clip(u, 300))
 			}
@@ -302,17 +292,14 @@ func (a *Attack) add(e *Event) {
 	}
 	// Wallets und Mining-Pools (indicators.go)
 	if e.Type == "command" || e.Type == "payload" {
-		for _, t := range append([]string{src}, revealed...) {
-			ws, ps := cryptoIndicators(t)
-			for _, w := range ws {
-				if len(a.Wallets) < 6 && !slices.Contains(a.Wallets, w) {
-					a.Wallets = append(a.Wallets, w)
-				}
+		for _, w := range an.wallets {
+			if len(a.Wallets) < 6 && !slices.Contains(a.Wallets, w) {
+				a.Wallets = append(a.Wallets, w)
 			}
-			for _, p := range ps {
-				if len(a.Pools) < 6 && !slices.Contains(a.Pools, p) {
-					a.Pools = append(a.Pools, p)
-				}
+		}
+		for _, p := range an.pools {
+			if len(a.Pools) < 6 && !slices.Contains(a.Pools, p) {
+				a.Pools = append(a.Pools, p)
 			}
 		}
 	}
@@ -363,13 +350,16 @@ func (a *Attack) finish() {
 		a.CVEs[i].Label = cveByID[a.CVEs[i].Key].Name
 	}
 	a.Stufe = a.stufe()
-	a.Own = ownHidden(a.IP) // eigener Test, der aus Kennzahlen herausgehalten wird
-	a.Scanner = researchScanner(a.ASOrg, a.userAgents...)
+	a.Own = ownHidden(a.IP)              // eigener Test, der aus Kennzahlen herausgehalten wird
+	a.Scanner = researchScanner(a.ASOrg) // nur AS-Name, nie der User-Agent (scanner.go)
 	if label, real := botLabel(a.IP, a.userAgents); label != "" {
 		a.Bot = label
-		if real && a.Scanner == "" {
+		if real && a.Scanner == "" { // per rDNS geprüft (botverify.go)
 			a.Scanner = strings.Fields(label)[0]
 		}
+	}
+	if !a.scannerExempt() { // Login, Befehl oder Download: keine Ausnahme mehr
+		a.Scanner = ""
 	}
 	a.Profile = a.classify()
 }
@@ -437,7 +427,7 @@ func (a *Attack) classify() string {
 		if a.svc["dockerapi"] && len(a.svc) == 1 {
 			return "Docker-API-Abfrage"
 		}
-		if has("web_rce") || has("iot_exploit") || has("log4shell") || has("traversal") || has("sqli") {
+		if has("web_rce") || has("iot_exploit") || has("log4shell") || has("java4shell") || has("traversal") || has("sqli") {
 			return "Web-Exploit"
 		}
 		return "Web-Scanner"
@@ -466,6 +456,11 @@ func svcShort(s string) string {
 // bündelt sie zu Angriffen, neueste Aktivität zuerst. truncated: es gab mehr Ereignisse,
 // als gelesen wurden.
 func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) ([]*Attack, bool, error) {
+	release, err := acquireHeavy(ctx) // höchstens zwei gleichzeitig (api.go)
+	if err != nil {
+		return nil, false, err
+	}
+	defer release()
 	truncated := false
 	if len(ips) == 0 {
 		// Mehr Ereignisse als lesbar? Dann erst ab dem Zeitpunkt lesen, ab dem es die neuesten
@@ -520,6 +515,40 @@ func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) (
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Last > out[j].Last })
 	return out, truncated || n > attackScanMax, nil
+}
+
+// activeIPChunk: so viele IPs je Abfrage (Grenze für Platzhalter in SQLite liegt weit höher).
+const activeIPChunk = 400
+
+// loadActiveAttacks: Angriffe der IPs, die seit attackGap aktiv sind, mit ihren Ereignissen ab
+// since. Gleiches Ergebnis wie loadAttacks mit anschließendem Filter, liest aber nur diese IPs.
+func (h *Hive) loadActiveAttacks(ctx context.Context, since time.Time) ([]*Attack, bool, error) {
+	rs, err := h.st.db.QueryContext(ctx, `SELECT DISTINCT src_ip FROM events WHERE ts >= ?`, time.Now().Add(-attackGap).UnixMilli())
+	if err != nil {
+		return nil, false, err
+	}
+	var ips []string
+	for rs.Next() {
+		var ip string
+		if rs.Scan(&ip) == nil {
+			ips = append(ips, ip)
+		}
+	}
+	rs.Close()
+	if err := rs.Err(); err != nil {
+		return nil, false, err
+	}
+	var out []*Attack
+	truncated := false
+	for i := 0; i < len(ips); i += activeIPChunk {
+		part, tr, err := h.loadAttacks(ctx, since, ips[i:min(i+activeIPChunk, len(ips))])
+		if err != nil {
+			return nil, false, err
+		}
+		out, truncated = append(out, part...), truncated || tr
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Last > out[j].Last })
+	return out, truncated, nil
 }
 
 func (a *Attack) matches(q string) bool {
@@ -583,7 +612,20 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	list, truncated, err := h.loadAttacks(ctx, since, ips)
+	var list []*Attack
+	var truncated bool
+	var err error
+	if active && len(ips) == 0 {
+		// Nur IPs mit Aktivität in den letzten 15 Minuten aufbauen, nicht alle der letzten
+		// sechs Stunden (Dashboard "Gerade aktiv"; vorher mehrere Sekunden auf einem Pi).
+		list, truncated, err = h.loadActiveAttacks(ctx, since)
+	} else {
+		list, truncated, err = h.loadAttacks(ctx, since, ips)
+	}
+	if errors.Is(err, errBusy) {
+		httpErr(w, 503, err.Error())
+		return
+	}
 	if err != nil {
 		httpErr(w, 500, err.Error())
 		return

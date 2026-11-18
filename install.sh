@@ -19,9 +19,11 @@ if [ ! -f .env ]; then
   NEW_PASSWORD=$(rand 16)
   env_set HIVORNET_TOKEN "$(rand 48)"
   env_set HIVE_ADMIN_PASSWORD "$NEW_PASSWORD"
-  IP=$(lan_ip)
+  IP=$(lan_ip) # nur private Adressen (tools/common.sh)
   if [ -n "$IP" ]; then
     env_set HIVE_BIND "$IP" # UI nur auf der LAN-Adresse der NAS
+  else
+    say "Keine private Heimnetz-Adresse gefunden: Die UI lauscht nur auf 127.0.0.1 (Zugriff z. B. per SSH-Tunnel; HIVE_BIND in .env)."
   fi
   say ".env angelegt (Token und Admin-Passwort erzeugt, UI an ${IP:-127.0.0.1} gebunden)."
 else

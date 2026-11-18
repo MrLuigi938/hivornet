@@ -1,18 +1,18 @@
-# systemd-Unit: setzt die Hivornet-Netzsperre bei jedem Start, nachdem Docker läuft.
+# systemd-Unit: setzt die Hivornet-Netzsperre bei jedem Start, BEVOR Docker die Container startet
+# (sonst liefen sie nach einem Neustart kurz ohne Sperre). Die Regeln bleiben auch beim Anhalten
+# der Unit bestehen; entfernen nur mit: sudo sh tools/firewall.sh remove
 # Installation (Pfad anpassen, falls Hivornet woanders liegt):
 #   sudo cp tools/hivornet-firewall.service /etc/systemd/system/
 #   sudo systemctl daemon-reload && sudo systemctl enable --now hivornet-firewall
 [Unit]
 Description=Hivornet Netzsperre für Honeypot-Container
-After=docker.service
-Requires=docker.service
+Before=docker.service
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
 Environment=ALLOW_DOWNLOADS=0
 ExecStart=/bin/sh /opt/hivornet/tools/firewall.sh apply
-ExecStop=/bin/sh /opt/hivornet/tools/firewall.sh remove
 
 [Install]
 WantedBy=multi-user.target

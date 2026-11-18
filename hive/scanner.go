@@ -4,7 +4,10 @@ package main
 // Internet ab, um es zu vermessen. Sie sind kein Angriff im eigentlichen Sinn; Angriffe
 // tragen dann ein Kennzeichen, und die Meldung an AbuseIPDB lässt sie standardmäßig aus.
 //
-// Erkannt wird am Netzbetreiber (AS-Name aus GeoIP) und am User-Agent. Die Liste ist
+// Erkannt wird nur am Netzbetreiber (AS-Name aus GeoIP). Der User-Agent zählt nicht: Ihn
+// setzt der Angreifer selbst ("User-Agent: Shodan" genügte vorher, um aus Blockliste und
+// Meldung zu fallen; M3 des dritten Audits). Hat ein Angreifer sich angemeldet, Befehle
+// geschickt oder etwas nachgeladen, ist er kein Vermesser mehr (scannerExempt). Die Liste ist
 // bewusst kurz und enthält nur Betreiber, die sich selbst als Forschungs- oder
 // Vermessungsdienst ausweisen.
 
@@ -40,13 +43,21 @@ var researchScanners = []scannerRule{
 	{"ModatScanner", regexp.MustCompile(`(?i)modat`)},
 }
 
-// researchScanner liefert den Namen des Dienstes, wenn AS-Name oder ein User-Agent passt.
-func researchScanner(asOrg string, userAgents ...string) string {
-	text := asOrg + "\n" + strings.Join(userAgents, "\n")
+// researchScanner liefert den Namen des Dienstes, wenn der AS-Name passt.
+func researchScanner(asOrg string) string {
+	if strings.TrimSpace(asOrg) == "" {
+		return ""
+	}
 	for _, r := range researchScanners {
-		if r.re.MatchString(text) {
+		if r.re.MatchString(asOrg) {
 			return r.Name
 		}
 	}
 	return ""
+}
+
+// scannerExempt: Darf die Ausnahme für Vermesser und echte Suchmaschinen-Bots gelten? Nicht
+// mehr ab Stufe "Login angenommen", also auch nicht bei Befehlen oder Downloads.
+func (a *Attack) scannerExempt() bool {
+	return !a.Success && a.Stufe < stufeLogin
 }

@@ -36,11 +36,14 @@ func (h *Hive) usersCreate(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 409, "Diesen Benutzer gibt es schon")
 		return
 	}
-	if err := h.auth.SetPassword(req.Username, req.Password); err != nil {
+	if err := validPassword(req.Password); err != nil {
 		httpErr(w, 400, err.Error())
 		return
 	}
-	h.st.db.Exec(`UPDATE users SET role = ? WHERE username = ?`, req.Role, req.Username)
+	if err := h.auth.CreateUser(req.Username, req.Password, req.Role); err != nil { // Rolle im selben INSERT
+		httpErr(w, 500, "Konto nicht angelegt: "+err.Error())
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 

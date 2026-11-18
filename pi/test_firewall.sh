@@ -27,7 +27,8 @@ esac
 EOF
   # shellcheck disable=SC2016 # $* und $1 gehören in die Ersatzskripte
   if [ "$1" = nft ]; then
-    printf '#!/bin/sh\necho "nft $*" >>"%s"\n[ "$1" = -f ] && cat >>"%s"\nexit 0\n' "$t/log" "$t/log" >"$t/bin/nft"
+    # NFT_FAIL=1: nft -f scheitert (Syntaxfehler, fehlendes Modul)
+    printf '#!/bin/sh\necho "nft $*" >>"%s"\n[ "$1" = -f ] && cat >>"%s" && [ -n "${NFT_FAIL:-}" ] && exit 1\nexit 0\n' "$t/log" "$t/log" >"$t/bin/nft"
   else
     # -D findet beim ersten Aufruf nichts (wie ohne alte Regeln), sonst Erfolg
     for ipt in iptables ip6tables; do
@@ -54,6 +55,16 @@ for cow in 1 0; do
   has "tcp dport 8088 accept"
   hasnt '"eth0"'
   [ "$(head -n 1 "$t/status/firewall")" = ok ] || fail "Statusdatei nicht ok (nft)"
+  # N12 (Audit 3): Ersetzen in einem einzigen nft -f, kein Löschen vorab
+  hasnt "nft delete table"
+  hasnt "nft add rule"
+  [ "$(grep -c '^nft -f' "$t/log")" = 1 ] || { cat "$t/log"; fail "nicht genau ein nft -f"; }
+  has "delete table inet hivornet"
+  # Fehler in nft -f: Abbruch mit Fehler, Status failed, vorher nichts gelöscht
+  : >"$t/log"
+  if NFT_FAIL=1 HIVORNET_STATUS_DIR="$t/status" PATH="$t/bin:/usr/bin:/bin" sh "$fw" apply >"$t/out" 2>&1; then fail "Fehler in nft -f nicht bemerkt"; fi
+  hasnt "nft delete table"
+  [ "$(head -n 1 "$t/status/firewall")" = failed ] || fail "Status nach Fehler nicht failed"
   run remove
   [ ! -e "$t/status/firewall" ] || fail "Statusdatei nach remove noch da"
   run status

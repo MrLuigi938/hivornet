@@ -62,10 +62,15 @@ func TestMimicShellAndWeb(t *testing.T) {
 		t.Errorf("Anfrage: %+v", got)
 	}
 	req := httptest.NewRequest("GET", "/cgi-bin/luci", nil)
-	if st, _, body, ok := s.mimicWeb(req); !ok || st != 200 || body != "<h1>Login</h1>" {
+	st, _, body, hdr, ok := s.mimicWeb(req)
+	if !ok || st != 200 || body != "<h1>Login</h1>" {
 		t.Errorf("Web: %v %d %q", ok, st, body)
 	}
-	if _, _, _, ok := s.mimicWeb(httptest.NewRequest("GET", "/logo.png", nil)); ok {
+	// M1 (Audit 3): Modell-Antworten nur mit einschränkender CSP
+	if csp := hdr["Content-Security-Policy"]; !strings.Contains(csp, "form-action 'self'") || !strings.Contains(csp, "default-src 'self'") || strings.Contains(csp, "*") {
+		t.Errorf("CSP fehlt oder zu weit: %q", csp)
+	}
+	if _, _, _, _, ok := s.mimicWeb(httptest.NewRequest("GET", "/logo.png", nil)); ok {
 		t.Error("statische Datei sollte 404 bleiben")
 	}
 	if got := rec.all(); !strings.Contains(got[len(got)-1]["input"], "GET /cgi-bin/luci") {

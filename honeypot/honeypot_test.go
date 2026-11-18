@@ -409,3 +409,46 @@ func FuzzHTTPRequestParsing(f *testing.F) {
 		dockerCommand(req, body)
 	})
 }
+
+// Gefälschte Absender (UDP) dürfen die Tabelle der Drossel nicht beliebig wachsen lassen:
+// Bei voller Tabelle teilen sich neue Adressen einen Eintrag, bekannte behalten ihren.
+func TestRateLimiterBounded(t *testing.T) {
+	r := NewRateLimiter(1, 5)
+	r.max = 100
+	if !r.Allow("198.51.100.1") {
+		t.Fatal("erste Adresse abgelehnt")
+	}
+	allowed := 0
+	for i := 0; i < 5000; i++ {
+		if r.Allow(fmt.Sprintf("203.0.113.%d:%d", i%250, i)) {
+			allowed++
+		}
+	}
+	r.mu.Lock()
+	n := len(r.buckets)
+	r.mu.Unlock()
+	if n > r.max+1 {
+		t.Fatalf("Tabelle hat %d Einträge, Grenze %d", n, r.max)
+	}
+	// 99 neue Einträge mit je einem Ereignis, danach nur noch das gemeinsame Kontingent (5)
+	if allowed > 99+5+1 {
+		t.Fatalf("%d Ereignisse erlaubt: gemeinsames Kontingent greift nicht", allowed)
+	}
+	if !r.Allow("198.51.100.1") {
+		t.Fatal("bekannte Adresse muss ihr eigenes Kontingent behalten")
+	}
+}
+
+// UDP-Pakete aller Absender zusammen sind begrenzt (Absender fälschbar).
+func TestUDPGlobalRate(t *testing.T) {
+	m := testManager()
+	n := 0
+	for i := 0; i < udpEventsBurst+500; i++ {
+		if m.udpRate.Allow("") {
+			n++
+		}
+	}
+	if n < udpEventsBurst || n > udpEventsBurst+udpEventsPerSec {
+		t.Fatalf("erlaubt %d, erwartet etwa %d", n, udpEventsBurst)
+	}
+}

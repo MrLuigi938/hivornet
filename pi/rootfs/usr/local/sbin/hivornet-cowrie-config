@@ -14,13 +14,15 @@ mkdir -p "$(dirname "$STATUS")"
 status() { printf '%s\n%s\n%s\n' "$1" "$(date +%s)" "$2" >"$STATUS.neu" && mv "$STATUS.neu" "$STATUS"; }
 
 # Die Anforderung liegt in einem Ordner, in den der Hive schreiben darf: nichts
-# daraus ausführen, nur die erste Zeile lesen und streng prüfen.
+# daraus ausführen, nur die erste Zeile lesen und streng prüfen. Ein Ordner oder Link an
+# dieser Stelle wird entfernt; sonst blockierte er jede spätere Anforderung (rm -rf folgt
+# keinen Links).
 if [ ! -f "$REQ" ] || [ -L "$REQ" ]; then
-  rm -f "$REQ"
+  rm -rf -- "$REQ"
   exit 0
 fi
 line=$(head -c 64 "$REQ" | head -n 1 | tr -d '\r')
-rm -f "$REQ"
+rm -f -- "$REQ"
 
 if [ "$line" = "userdb" ]; then
   class=UserDB

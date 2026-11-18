@@ -21,8 +21,10 @@ import (
 )
 
 const (
-	maxHTTPHeader = 64 << 10 // Anfragezeile + Kopfzeilen
-	maxHTTPBody   = 64 << 10 // gelesener Body; mehr wird nicht gepuffert
+	// Speicher je Verbindung (M4 des dritten Audits): vorher 64 + 64 KB; mit 48 Verbindungen je
+	// IP reichten 15 bis 25 Adressen für das Speicherlimit. nginx erlaubt 8 KB je Kopfzeile.
+	maxHTTPHeader = 16 << 10 // Anfragezeile + Kopfzeilen
+	maxHTTPBody   = 32 << 10 // gelesener Body; mehr wird nicht gepuffert
 	httpBudgetHdr = 1536     // Kopfzeilen im Ereignis
 	httpBudgetBdy = 1536     // Body im Ereignis
 )
@@ -348,8 +350,8 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 		failed := req.Method == "POST"
 		return 200, "text/html; charset=utf-8", loginPage(s.m.Hostname(), product, path, failed), nil
 	}
-	if status, ctype, body, ok := s.mimicWeb(req); ok { // unbekannter Pfad: ggf. vom Sprachmodell (mimic.go)
-		return status, ctype, body, nil
+	if status, ctype, body, hdr, ok := s.mimicWeb(req); ok { // unbekannter Pfad: ggf. vom Sprachmodell (mimic.go)
+		return status, ctype, body, hdr
 	}
 	return 404, "text/html", nginxError(404, s.m.prof().HTTPServer), nil
 }

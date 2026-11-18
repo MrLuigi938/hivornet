@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/csv"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -38,6 +39,24 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) error {
 
 func qctx(r *http.Request) (context.Context, context.CancelFunc) {
 	return context.WithTimeout(r.Context(), 20*time.Second)
+}
+
+// heavySem: höchstens zwei teure Abfragen gleichzeitig (Angriffe aufbauen, Export, Volltextsuche
+// über die Ereignisse). Der Verbindungspool hat vier Plätze; so bleiben immer zwei für den
+// Schreiber und die übrigen Seiten frei (M5 des dritten Audits: vier parallele Anfragen der
+// Leserolle belegten vorher den ganzen Pool).
+var heavySem = make(chan struct{}, 2)
+
+var errBusy = errors.New("zu viele aufwendige Abfragen gleichzeitig, bitte gleich noch einmal versuchen")
+
+// acquireHeavy wartet auf einen Platz, höchstens bis ctx abläuft.
+func acquireHeavy(ctx context.Context) (func(), error) {
+	select {
+	case heavySem <- struct{}{}:
+		return func() { <-heavySem }, nil
+	case <-ctx.Done():
+		return nil, errBusy
+	}
 }
 
 // rows liefert Ergebniszeilen als Liste von Maps (Spaltenname -> Wert).
@@ -410,6 +429,16 @@ func eventFilter(r *http.Request) (string, []any) {
 }
 
 func (h *Hive) events(w http.ResponseWriter, r *http.Request) {
+	if strings.TrimSpace(r.URL.Query().Get("q")) != "" { // Volltext über data: teuer
+		ctx, cancel := qctx(r)
+		release, err := acquireHeavy(ctx)
+		cancel()
+		if err != nil {
+			httpErr(w, 503, err.Error())
+			return
+		}
+		defer release()
+	}
 	where, args := eventFilter(r)
 	args = append(args, qInt(r, "limit", 100, 500))
 	h.sendRows(w, r, `SELECT `+evCols+` FROM events WHERE `+where+` ORDER BY id DESC LIMIT ?`, args...)
@@ -507,6 +536,16 @@ func (h *Hive) tarpit(w http.ResponseWriter, r *http.Request) {
 func (h *Hive) exportEvents(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
+	// Schreib-Zeitgrenze (N7): Ein Client, der nichts abnimmt, hält Verbindung und Platz nicht ewig
+	http.NewResponseController(w).SetWriteDeadline(time.Now().Add(5 * time.Minute))
+	wctx, wcancel := qctx(r)
+	release, err := acquireHeavy(wctx)
+	wcancel()
+	if err != nil {
+		httpErr(w, 503, err.Error())
+		return
+	}
+	defer release()
 	where, args := eventFilter(r)
 	if r.URL.Query().Get("range") == "" && r.URL.Query().Get("q") == "" {
 		where += " AND ts >= ?"
@@ -701,11 +740,16 @@ func (h *Hive) changePassword(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "ungültige Anfrage")
 		return
 	}
-	user := h.auth.User(r)
+	user, ip := h.auth.User(r), clientIP(r)
+	if !h.auth.attempt(ip) { // N4 des dritten Audits: gleiche Drossel wie beim Login
+		httpErr(w, 429, "zu viele Fehlversuche, bitte 15 Minuten warten")
+		return
+	}
 	if len(req.Current) > maxPasswordLen || !h.auth.Check(user, req.Current) {
 		httpErr(w, 403, "aktuelles Passwort ist falsch")
 		return
 	}
+	h.auth.success(ip)
 	if err := h.auth.SetPassword(user, req.New); err != nil {
 		httpErr(w, 400, err.Error())
 		return

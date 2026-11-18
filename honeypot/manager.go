@@ -48,6 +48,7 @@ type Manager struct {
 	profile   atomic.Pointer[string]
 	limits    *Limits
 	rate      *RateLimiter
+	udpRate   *RateLimiter // alle UDP-Pakete zusammen: Absender sind fälschbar, die Drossel je IP greift dort nicht
 	tlsConf   atomic.Pointer[tls.Config]
 	certUntil time.Time
 
@@ -86,7 +87,7 @@ func (m *Manager) HeldTarpits(max int) []TarpitConn {
 
 func NewManager(em *Emitter, bind string, lowOffset int) *Manager {
 	m := &Manager{em: em, bind: bind, lowOffset: lowOffset, running: map[int]*runListener{}, failed: map[int]string{},
-		limits: NewLimits(), rate: NewRateLimiter(10, 300)}
+		limits: NewLimits(), rate: NewRateLimiter(10, 300), udpRate: NewRateLimiter(udpEventsPerSec, udpEventsBurst)}
 	d := DefaultConfig()
 	m.tarpit.Store(&d.Tarpit)
 	m.hostname.Store(d.Hostname)

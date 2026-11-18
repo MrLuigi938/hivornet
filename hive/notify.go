@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -178,7 +179,29 @@ func (n *Notifier) OnEvent(e *Event) {
 	default:
 		return
 	}
+	nt.Text = defang(nt.Text) // enthält Angreifertext
 	n.push(nt, nt.IP, c.MaxPerHour)
+}
+
+// defangRe: Stellen, die Messenger als Erwähnung, Link oder Steuerbefehl lesen.
+var defangRe = regexp.MustCompile(`(?i)\b(ht|f)tp(s?)://|@|<`)
+
+// defang entschärft Angreifertext für Meldungen (N6 des dritten Audits): "@everyone",
+// "@here" und "<!channel>" lösen in Discord, Slack und Mattermost keine Erwähnung aus,
+// Adressen werden nicht zu anklickbaren Links ("hxxp://", wie in Sicherheitsmeldungen
+// üblich). Zwischen @ und Name steht ein unsichtbares Leerzeichen (U+200B).
+func defang(s string) string {
+	return defangRe.ReplaceAllStringFunc(s, func(m string) string {
+		switch {
+		case m == "@":
+			return "@\u200b"
+		case m == "<":
+			return "‹"
+		case strings.HasPrefix(strings.ToLower(m), "f"):
+			return "fxp" + m[3:]
+		}
+		return "hxxp" + m[4:]
+	})
 }
 
 // Report verschickt einen Bericht (Wochenbericht) über die eingerichteten Wege.
@@ -309,7 +332,9 @@ func (n *Notifier) Send(c NotifyConfig, nt notice) error {
 // verlangt dieses Feld, höchstens 2000 Zeichen; Slack und Mattermost lesen "text").
 func webhookBody(nt notice) map[string]any {
 	m := map[string]any{"kind": nt.Kind, "title": nt.Title, "text": nt.Text, "time": nt.Time,
-		"content": clip(nt.Title+"\n"+nt.Text, 1900)}
+		"content": clip(nt.Title+"\n"+nt.Text, 1900),
+		// Discord: keine Erwähnungen auslösen, egal was im Text steht (N6)
+		"allowed_mentions": map[string]any{"parse": []string{}}}
 	if nt.IP != "" {
 		m["ip"] = nt.IP
 	}

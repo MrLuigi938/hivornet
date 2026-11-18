@@ -38,6 +38,17 @@ RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
 RestrictNamespaces=yes
 LockPersonality=yes
 SystemCallArchitectures=native
+# Angeglichen an hivornet-honeypot.service (N13 des dritten Audits). Bewusst noch nicht:
+# MemoryDenyWriteExecute (Python-Erweiterungen über cffi brauchen ausführbaren Speicher),
+# ProcSubset=pid und der Wegfall von AF_UNIX; beides erst nach einem Test auf dem Pi.
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectKernelLogs=yes
+ProtectProc=invisible
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

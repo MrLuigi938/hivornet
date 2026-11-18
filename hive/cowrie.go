@@ -71,8 +71,31 @@ func (c *CowrieTail) Status() (bool, time.Time) {
 	return c.found, c.lastEvent
 }
 
-func fileHead(path string) string {
+// openRegular öffnet nur reguläre Dateien, keine Verweise, FIFOs oder Geräte (N5 des dritten
+// Audits, wie sample.go). Die Ordner von Cowrie kann beschreiben, wer Cowrie übernimmt; ein
+// Symlink auf eine Datei des Hive (Datenbank, Einstellungen) würde sonst gelesen und angezeigt.
+// Nach dem Öffnen wird geprüft, dass es dieselbe Datei ist (kein Austausch dazwischen).
+func openRegular(path string) (*os.File, error) {
+	lst, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !lst.Mode().IsRegular() {
+		return nil, errors.New("keine reguläre Datei: " + filepath.Base(path))
+	}
 	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi, err := f.Stat(); err != nil || !os.SameFile(lst, fi) {
+		f.Close()
+		return nil, errors.New("Datei während des Öffnens ausgetauscht: " + filepath.Base(path))
+	}
+	return f, nil
+}
+
+func fileHead(path string) string {
+	f, err := openRegular(path)
 	if err != nil {
 		return ""
 	}
@@ -152,7 +175,7 @@ func (l *lineReader) next() (line []byte, ok bool) {
 
 // drain liest eine Datei ab off bis zum Ende.
 func (c *CowrieTail) drain(path string, off int64) {
-	f, err := os.Open(path)
+	f, err := openRegular(path)
 	if err != nil {
 		return
 	}
@@ -209,7 +232,7 @@ func (c *CowrieTail) Run() {
 	first := true
 
 	open := func() bool {
-		nf, err := os.Open(c.path)
+		nf, err := openRegular(c.path)
 		if err != nil {
 			return false
 		}

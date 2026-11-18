@@ -77,7 +77,7 @@ const (
 var udpServices = map[string]bool{"sip": true, "snmp": true, "dns": true}
 
 // webExploitTags: Muster, die bei Web-Anfragen als Angriff gelten (nicht nur Erkundung).
-var webExploitTags = map[string]bool{"web_rce": true, "log4shell": true, "iot_exploit": true, "traversal": true, "sqli": true}
+var webExploitTags = map[string]bool{"web_rce": true, "log4shell": true, "java4shell": true, "iot_exploit": true, "traversal": true, "sqli": true}
 
 // abuseVerdict: Soll der Angriff gemeldet werden? Liefert Kategorien oder den Grund dagegen.
 func abuseVerdict(a *Attack, cfg AbuseReportConfig) (cats []int, why string) {
@@ -85,7 +85,7 @@ func abuseVerdict(a *Attack, cfg AbuseReportConfig) (cats []int, why string) {
 	switch {
 	case ip == nil || !ip.IsGlobalUnicast() || ip.IsPrivate() || isOwnIP(a.IP) || cgnat.Contains(ip):
 		return nil, "eigene oder private Adresse"
-	case cfg.SkipScanners && a.Scanner != "":
+	case cfg.SkipScanners && a.Scanner != "" && a.scannerExempt(): // scanner.go
 		return nil, "Forschungsscanner (" + a.Scanner + ")"
 	}
 	tcp := false

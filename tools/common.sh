@@ -36,12 +36,31 @@ env_set() {
   mv "$tmp" .env
 }
 
+# is_private_ip ADRESSE: privates IPv4-Netz nach RFC 1918 (10/8, 172.16/12, 192.168/16).
+# CGNAT (100.64/10) zählt nicht: Dort teilen sich viele Kunden des Anbieters ein Netz.
+is_private_ip() {
+  case "$1" in
+    10.*|192.168.*) ;;
+    172.*) o=$(printf '%s' "$1" | cut -d. -f2); [ "$o" -ge 16 ] 2>/dev/null && [ "$o" -le 31 ] || return 1 ;;
+    *) return 1 ;;
+  esac
+  printf '%s' "$1" | grep -Eq '^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$'
+}
+
+# lan_ip: private Adresse dieses Geräts im Heimnetz, sonst leer. Eine öffentliche Adresse
+# (Server mit öffentlicher IP an der Schnittstelle) wird nie geliefert: Die UI würde sonst
+# im Internet lauschen (M9 des dritten Audits).
 lan_ip() {
   ip=""
   if command -v ip >/dev/null 2>&1; then
     ip=$(ip -4 route get 1.1.1.1 2>/dev/null | awk '{for(i=1;i<=NF;i++) if($i=="src"){print $(i+1); exit}}')
   fi
-  [ -n "$ip" ] || ip=$(hostname -I 2>/dev/null | awk '{print $1}')
+  is_private_ip "$ip" || ip=""
+  if [ -z "$ip" ]; then
+    for a in $(hostname -I 2>/dev/null); do
+      if is_private_ip "$a"; then ip=$a; break; fi
+    done
+  fi
   printf '%s' "$ip"
 }
 

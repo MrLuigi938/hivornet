@@ -15,6 +15,10 @@ package main
 // Das Muster "prompt_injection" (analyze.go) kennzeichnet solche Versuche in den Angriffen.
 
 import (
+	"encoding/hex"
+	"fmt"
+	"net"
+	"net/url"
 	"regexp"
 	"strings"
 	"unicode"
@@ -57,13 +61,200 @@ func looksLikeProse(s string) bool {
 	return shellish*20 < letters && plain*10 >= len(words)*8
 }
 
-// mimicInjection: Grund, warum eine Eingabe nicht ans Modell darf ("" = in Ordnung).
+// mimicInjection: Grund, warum eine Eingabe nicht ans Modell darf ("" = in Ordnung). Geprüft
+// werden die rohe Eingabe und ihre dekodierten Fassungen (mimicVariants): Das Modell versteht
+// "ignore%20previous%20instructions" oder Base64 genauso wie Klartext.
 func mimicInjection(kind, input string) string {
-	if injectionRe.MatchString(input) {
-		return "Anweisung an eine KI"
+	vs, texts := mimicVariants(kind, input)
+	for _, v := range vs {
+		if injectionRe.MatchString(v) {
+			return "Anweisung an eine KI"
+		}
 	}
-	if kind == "shell" && looksLikeProse(input) {
-		return "Fließtext statt Befehl"
+	if kind == "shell" {
+		for _, v := range texts { // nicht die Fassung ohne Trennzeichen: Befehle sähen wie Sätze aus
+			if looksLikeProse(v) {
+				return "Fließtext statt Befehl"
+			}
+		}
+	}
+	return ""
+}
+
+// sepRe: Zeichen, die in Adressen und Befehlen statt Leerzeichen stehen.
+var sepRe = regexp.MustCompile(`[_/+.,;:=&?|\\]+`)
+
+// b64Re (deobf.go), hexRe: lange Folgen, die als Base64 oder Hex dekodiert werden.
+var (
+	hexRe   = regexp.MustCompile(`(?i)(?:\\x[0-9a-f]{2}){6,}|\b(?:0x)?(?:[0-9a-f]{2}){8,}\b`)
+	hexByte = regexp.MustCompile(`(?i)\\x|0x`)
+)
+
+// mimicVariants: rohe Eingabe, mehrfach prozent-dekodiert, Trennzeichen als Leerzeichen und
+// (nur Shell) eingebettetes Base64 oder Hex als Text. Höchstens wenige Fassungen, damit eine
+// lange Eingabe nicht viel Arbeit kostet. texts: rohe Eingabe und dekodierter Text, ohne die
+// Fassungen mit Leerzeichen statt Trennzeichen (für die Prüfung auf Fließtext).
+func mimicVariants(kind, input string) (out, texts []string) {
+	out, texts = []string{input}, []string{input}
+	add := func(s string) {
+		for _, o := range out {
+			if o == s {
+				return
+			}
+		}
+		out = append(out, s)
+	}
+	dec := input
+	for i := 0; i < 4; i++ { // doppelt und dreifach kodiert
+		d, err := url.QueryUnescape(dec)
+		if err != nil {
+			d, err = url.PathUnescape(dec)
+		}
+		if err != nil {
+			d = lenientUnescape(dec)
+		}
+		if d == dec {
+			break
+		}
+		dec = d
+	}
+	add(dec)
+	add(sepRe.ReplaceAllString(dec, " "))
+	if kind == "shell" {
+		for _, s := range []string{input, dec} {
+			for _, m := range b64Re.FindAllString(s, 8) {
+				if b, ok := decodeB64(m); ok { // deobf.go
+					t := string(b)
+					add(t)
+					add(sepRe.ReplaceAllString(t, " "))
+					texts = append(texts, t)
+				}
+			}
+			for _, m := range hexRe.FindAllString(s, 8) {
+				if b, err := hex.DecodeString(hexByte.ReplaceAllString(m, "")); err == nil && readable(b) {
+					add(string(b))
+					texts = append(texts, string(b))
+				}
+			}
+		}
+	}
+	return out, texts
+}
+
+// lenientUnescape löst gültige %XX-Folgen auf und lässt den Rest stehen (url.QueryUnescape
+// bricht bei einem einzelnen "%" ganz ab).
+func lenientUnescape(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] == '%' && i+2 < len(s) {
+			if v, err := hex.DecodeString(s[i+1 : i+3]); err == nil {
+				b.WriteByte(v[0])
+				i += 2
+				continue
+			}
+		}
+		if s[i] == '+' {
+			b.WriteByte(' ')
+			continue
+		}
+		b.WriteByte(s[i])
+	}
+	return b.String()
+}
+
+// unsafeWebRe: Web-Antworten, die den Anschluss zur Ablage fremder Inhalte machen würden:
+// Skripte, Rahmen oder Formulare mit fremder Quelle oder fremdem Ziel, automatische
+// Weiterleitung, Umlenken per Skript, eigener Basis-Pfad.
+var unsafeWebRe = regexp.MustCompile(`(?is)<script[^>]*\ssrc\s*=\s*["']?\s*(?:[a-z][a-z0-9+.-]*:|//|\\\\)|` +
+	`<(?:iframe|frame|embed|object|img|link)[^>]*\s(?:src|data|href)\s*=\s*["']?\s*(?:javascript:|data:text/html|//[^/])|` +
+	`\s(?:action|formaction)\s*=\s*["']?\s*(?:[a-z][a-z0-9+.-]*:|//|\\\\)|` +
+	`http-equiv\s*=\s*["']?\s*refresh|<base[\s>]|` +
+	`\b(?:window|document|top|self|parent)\s*\.\s*location\b|\blocation\s*\.\s*(?:href|replace|assign)\b|\bwindow\s*\.\s*open\s*\(|` +
+	`\bimport\s*\(|\bfetch\s*\(\s*["'\x60]\s*(?:https?:)?//|\beval\s*\(|\batob\s*\(|\bfromCharCode\b`)
+
+// Adressen in Eingaben (M2 des dritten Audits): Scanner schreiben die Zieladresse oft selbst in
+// Pfad oder Befehl ("/?url=http://<öffentliche IP>/…", "wget http://<öffentliche IP>/…"). Vor dem
+// Aufruf des Modells werden die eigene öffentliche Adresse (exposure.go) und private Adressen
+// durch Dokumentationsadressen ersetzt (192.0.2.N, 2001:db8::N); in der Antwort werden sie für
+// diesen Angreifer zurückgetauscht. Der Zwischenspeicher arbeitet mit der ersetzten Fassung.
+var (
+	mimicV4Re = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	mimicV6Re = regexp.MustCompile(`(?i)[0-9a-f]{0,4}(?::[0-9a-f]{0,4}){2,7}`)
+	phV4Re    = regexp.MustCompile(`\b192\.0\.2\.\d{1,3}\b`)
+	phV6Re    = regexp.MustCompile(`(?i)\b2001:db8::[0-9a-f]{1,4}\b`)
+	docNetV4  = mustCIDR("192.0.2.0/24")
+	docNetV6  = mustCIDR("2001:db8::/32")
+)
+
+func mustCIDR(s string) *net.IPNet {
+	_, n, err := net.ParseCIDR(s)
+	if err != nil {
+		panic(err)
+	}
+	return n
+}
+
+// scrubIPs ersetzt eigene öffentliche und private Adressen; back bildet Platzhalter auf die
+// ursprünglichen Adressen ab (für restoreIPs).
+func scrubIPs(input string, own []net.IP) (string, map[string]string) {
+	back := map[string]string{}
+	fwd := map[string]string{}
+	n4, n6 := 0, 0
+	hide := func(ip net.IP) bool {
+		for _, o := range own {
+			if o.Equal(ip) {
+				return true
+			}
+		}
+		return ip.IsPrivate() || ip.IsLinkLocalUnicast() || cgnat.Contains(ip) || docNetV4.Contains(ip) || docNetV6.Contains(ip)
+	}
+	repl := func(m string, v6 bool) string {
+		ip := net.ParseIP(m)
+		if ip == nil || v6 != (ip.To4() == nil) || !hide(ip) {
+			return m
+		}
+		if p, ok := fwd[m]; ok {
+			return p
+		}
+		var p string
+		if v6 {
+			n6++
+			p = fmt.Sprintf("2001:db8::%x", n6)
+		} else {
+			n4++
+			p = fmt.Sprintf("192.0.2.%d", n4)
+		}
+		fwd[m], back[p] = p, m
+		return p
+	}
+	s := mimicV4Re.ReplaceAllStringFunc(input, func(m string) string { return repl(m, false) })
+	s = mimicV6Re.ReplaceAllStringFunc(s, func(m string) string {
+		if strings.Count(m, ":") < 2 {
+			return m
+		}
+		return repl(m, true)
+	})
+	return s, back
+}
+
+// restoreIPs tauscht die Platzhalter in einer Antwort zurück.
+func restoreIPs(out string, back map[string]string) string {
+	if len(back) == 0 {
+		return out
+	}
+	f := func(m string) string {
+		if o, ok := back[strings.ToLower(m)]; ok {
+			return o
+		}
+		return m
+	}
+	return phV6Re.ReplaceAllStringFunc(phV4Re.ReplaceAllStringFunc(out, f), f)
+}
+
+// mimicUnsafeWeb: Grund, warum eine Web-Antwort verworfen wird ("" = in Ordnung).
+func mimicUnsafeWeb(body string) string {
+	if unsafeWebRe.MatchString(body) {
+		return "fremde Quelle, fremdes Ziel oder Weiterleitung"
 	}
 	return ""
 }

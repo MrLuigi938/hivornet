@@ -134,6 +134,21 @@ func (a *Auth) SetPassword(user, pass string) error {
 	return err
 }
 
+// CreateUser legt ein neues Konto mit Rolle in EINEM Schritt an (N1 des dritten Audits: vorher
+// entstand das Konto mit der Standardrolle admin, die Rolle kam danach, ein Fehler dabei wurde
+// verschluckt). Gibt es den Namen schon, scheitert der Aufruf.
+func (a *Auth) CreateUser(user, pass, role string) error {
+	if err := validPassword(pass); err != nil {
+		return err
+	}
+	h, err := bcrypt.GenerateFromPassword([]byte(pass), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+	_, err = a.st.db.Exec(`INSERT INTO users(username,hash,role) VALUES(?,?,?)`, user, string(h), role)
+	return err
+}
+
 func (a *Auth) Check(user, pass string) bool {
 	a.bcryptSem <- struct{}{}
 	defer func() { <-a.bcryptSem }()
@@ -154,6 +169,24 @@ func clientIP(r *http.Request) string {
 	return h
 }
 
+// failKey: Schlüssel der Drossel. IPv6 je /64 (N3 des dritten Audits): Ein Anschluss bekommt
+// meist ein ganzes /64, jede Adresse darin hätte sonst eigene zehn Versuche.
+func failKey(ip string) string {
+	p := net.ParseIP(ip)
+	if p == nil || p.To4() != nil {
+		return ip
+	}
+	return p.Mask(net.CIDRMask(64, 128)).String() + "/64"
+}
+
+// localClient: Adresse aus dem Heimnetz. Sie zählt nicht zur globalen Grenze und wird von ihr
+// nicht gesperrt: Viele Fehlversuche aus dem Internet sollen den Betreiber im Heimnetz nicht
+// aussperren (N3). Die Grenze je Adresse gilt für sie trotzdem.
+func localClient(ip string) bool {
+	p := net.ParseIP(ip)
+	return p != nil && (p.IsPrivate() || p.IsLoopback() || p.IsLinkLocalUnicast())
+}
+
 // attempt zählt einen Versuch VOR dem bcrypt-Lauf (parallele Anfragen kommen nicht durch).
 func (a *Auth) attempt(ip string) bool {
 	a.mu.Lock()
@@ -161,29 +194,41 @@ func (a *Auth) attempt(ip string) bool {
 	if time.Since(a.globalFrom) > time.Minute {
 		a.globalFrom, a.globalN = time.Now(), 0
 	}
-	f := a.fails[ip]
+	key, local := failKey(ip), localClient(ip)
+	f := a.fails[key]
 	if f == nil || time.Since(f.first) > 15*time.Minute {
 		f = &failInfo{first: time.Now()}
-		a.fails[ip] = f
+		a.fails[key] = f
 	}
-	if f.n >= failsPerIP || a.globalN >= failsGlobal {
+	if f.n >= failsPerIP || !local && a.globalN >= failsGlobal {
 		return false
 	}
 	f.n++
-	a.globalN++
+	if !local {
+		a.globalN++
+	}
 	return true
 }
 
 func (a *Auth) success(ip string) {
 	a.mu.Lock()
-	delete(a.fails, ip)
-	if a.globalN > 0 {
+	delete(a.fails, failKey(ip))
+	if a.globalN > 0 && !localClient(ip) {
 		a.globalN--
 	}
 	a.mu.Unlock()
 }
 
 func (a *Auth) Login(w http.ResponseWriter, r *http.Request) {
+	// N2 des dritten Audits: wie bei der Ersteinrichtung und allen anderen schreibenden
+	// Anfragen. Sonst schickt eine fremde Webseite aus dem Browser des Betreibers Fehlversuche
+	// und sperrt dessen IP. Den Header kann eine fremde Seite nur nach einer CORS-Vorabanfrage
+	// setzen, die der Hive nicht erlaubt. (Ein Abgleich von Origin und Host fiele hinter
+	// Reverse-Proxys, die Host umschreiben, auf die Nase.)
+	if r.Header.Get("X-Requested-With") != "hivornet" {
+		httpErr(w, 403, "fehlender Header")
+		return
+	}
 	var req struct{ Username, Password string }
 	if readJSON(w, r, &req) != nil {
 		httpErr(w, 400, "ungültige Anfrage")

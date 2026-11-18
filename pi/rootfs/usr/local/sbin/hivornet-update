@@ -13,24 +13,60 @@
 # Das Ergebnis steht in /var/lib/hivornet-update/status und erscheint in der UI unter System,
 # die übernommenen Systemdateien in /var/lib/hivornet-update/system.
 set -eu
-REQ=/var/lib/hivornet/update-request
-STATE=/var/lib/hivornet-update
-DEST=/opt/hivornet
+# HIVORNET_TEST_ROOT nur für pi/test_update.sh (Pfade unterhalb eines Testordners)
+ROOT=${HIVORNET_TEST_ROOT:-}
+REQ=$ROOT/var/lib/hivornet/update-request
+STATE=$ROOT/var/lib/hivornet-update
+DEST=$ROOT/opt/hivornet
 REPO=https://github.com/MrLuigi938/hivornet/releases/download
 
 mkdir -p "$STATE"
 status() { printf '%s %s\n' "$(date '+%d.%m.%Y %H:%M')" "$*" >"$STATE/status"; echo "$*"; }
-fail() { status "Update fehlgeschlagen: $*"; rm -f "$REQ"; exit 1; }
+fail() { status "Update fehlgeschlagen: $*"; rm -rf -- "$REQ"; exit 1; }
 
 # Die Anforderung liegt in einem Ordner, in den der Hive schreiben darf: nichts
-# daraus ausführen, nur die erste Zeile lesen und streng prüfen.
+# daraus ausführen, nur die erste Zeile lesen und streng prüfen. Ein Ordner oder Link an
+# dieser Stelle wird entfernt; sonst blockierte er jede spätere Anforderung.
 if [ ! -f "$REQ" ] || [ -L "$REQ" ]; then
-  rm -f "$REQ"
+  rm -rf -- "$REQ"
   exit 0
 fi
 ver=$(head -c 40 "$REQ" | head -n 1 | tr -d '\r')
-rm -f "$REQ"
+rm -f -- "$REQ"
 printf '%s' "$ver" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$' || fail "ungültige Versionsangabe"
+
+# vercmp A B: -1, 0 oder 1 nach SemVer (Vorabversion < Release; Teile der Vorabversion
+# numerisch, sonst als Text verglichen). Führendes "v" zählt nicht.
+vercmp() {
+  awk -v a="${1#v}" -v b="${2#v}" '
+    function cmpid(x, y,   xn, yn) {
+      xn = (x ~ /^[0-9]+$/); yn = (y ~ /^[0-9]+$/)
+      if (xn && yn) return (x + 0 < y + 0) ? -1 : (x + 0 > y + 0)
+      if (xn != yn) return xn ? -1 : 1
+      return (x < y) ? -1 : (x > y)
+    }
+    BEGIN {
+      ia = index(a, "-"); ib = index(b, "-")
+      ca = ia ? substr(a, 1, ia - 1) : a; pa = ia ? substr(a, ia + 1) : ""
+      cb = ib ? substr(b, 1, ib - 1) : b; pb = ib ? substr(b, ib + 1) : ""
+      na = split(ca, x, "."); nb = split(cb, y, ".")
+      for (i = 1; i <= 3; i++) if (x[i] + 0 != y[i] + 0) { print (x[i] + 0 < y[i] + 0) ? -1 : 1; exit }
+      if (pa == pb) { print 0; exit }
+      if (pa == "") { print 1; exit }
+      if (pb == "") { print -1; exit }
+      na = split(pa, x, "."); nb = split(pb, y, ".")
+      for (i = 1; i <= na && i <= nb; i++) { c = cmpid(x[i], y[i]); if (c) { print c; exit } }
+      print (na < nb) ? -1 : (na > nb)
+    }'
+}
+
+# Keine ältere Version als die installierte (M7 des dritten Audits): Ein übernommener Hive
+# könnte sonst eine alte Version samt alter Netzsperre und bekannter Lücken anfordern.
+# Zurück geht es nur von Hand (Image neu aufspielen oder Paket selbst einspielen).
+cur=$(head -n 1 "$DEST/VERSION" 2>/dev/null | tr -d '\r' || true)
+if printf '%s' "$cur" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[a-z0-9.]+)?$' && [ "$(vercmp "$ver" "$cur")" = -1 ]; then
+  fail "$ver ist älter als die installierte Version $cur; ältere Versionen werden nicht eingespielt"
+fi
 
 case "$(uname -m)" in
   aarch64) arch=arm64 ;;

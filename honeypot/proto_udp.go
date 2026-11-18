@@ -174,6 +174,13 @@ func dnsEvent(p []byte) Event {
 
 // ---- Empfang ----
 
+// Obergrenze für UDP-Ereignisse aller Absender zusammen (Token-Bucket). Mit gefälschten
+// Absendern bekäme sonst jede erfundene Adresse ihr eigenes Kontingent.
+const (
+	udpEventsPerSec = 50
+	udpEventsBurst  = 1000
+)
+
 func (m *Manager) serveUDP(rl *runListener) {
 	buf := make([]byte, udpMaxPacket)
 	for {
@@ -191,7 +198,7 @@ func (m *Manager) serveUDP(rl *runListener) {
 		if pip := net.ParseIP(ip); pip != nil && m.fromOwnNet(pip) {
 			m.proxied.Add(1)
 		}
-		if n == 0 || !m.rate.Allow(ip) {
+		if n == 0 || !m.udpRate.Allow("") || !m.rate.Allow(ip) {
 			m.em.throttled.Add(1)
 			continue
 		}

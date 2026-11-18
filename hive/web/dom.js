@@ -28,9 +28,21 @@ function append(el, kids) {
   }
 }
 
+// Adress-Attribute nur mit harmlosen Schemata (zweite Sicherung, Hinweis aus dem dritten
+// Audit): relativ, http(s), mailto oder blob. javascript:, data: und alles andere wird
+// nicht gesetzt. Browser übergehen Leer- und Steuerzeichen im Schema ("java\tscript:"),
+// darum werden sie vor der Prüfung entfernt.
+const URL_ATTRS = new Set(["href", "src", "action", "formaction", "xlink:href", "poster", "srcset"]);
+const SAFE_SCHEME = new Set(["http", "https", "mailto", "blob"]);
+export function safeURL(v) {
+  const m = /^([a-z][a-z0-9+.-]*):/i.exec(String(v).replace(/[\u0000- \u007f-\u009f]/g, ""));
+  return !m || SAFE_SCHEME.has(m[1].toLowerCase());
+}
+
 function setAttrs(el, attrs, svg) {
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === null || v === undefined || v === false) continue;
+    if (URL_ATTRS.has(k.toLowerCase()) && !safeURL(v)) continue;
     if (k.startsWith("on") && typeof v === "function") el.addEventListener(k.slice(2), v);
     else if (k === "class") el.setAttribute("class", v);
     else if (k === "style" && typeof v === "object") {

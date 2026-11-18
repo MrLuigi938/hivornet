@@ -2,6 +2,21 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+- **Java4Shell (CVE-2026-114938):** Erkennung des veröffentlichten Auslösers für die Lücke im Base64-Dekoder von OpenJDK (volle 64er-Blöcke Base64 mit angehängtem „=“, in Kopfzeilen, Parametern und Body). Muster „Java4Shell“, CVE-Eintrag, MITRE T1190, Phase „Zugriff“ der Angriffskette, meldefähig bei AbuseIPDB. Hivornet selbst ist nicht betroffen (kein Java).
+
+### Sicherheit (drittes Audit)
+- **Docker-Netzsperre ausfallsicher:** Neue Regeln werden vollständig aufgebaut und ersetzen die alten in einem Schritt; ein Fehler lässt die bisherige Sperre stehen. Die systemd-Unit startet vor Docker und hebt die Sperre beim Anhalten nicht mehr auf. Zusätzlich wird nach Quell-Netz gesperrt, falls die Bridges anders heißen. **Nach dem Update `sudo sh tools/firewall.sh` ausführen.**
+- **Sensor:** Gefälschte UDP-Absender konnten den Speicher füllen; die Drossel-Tabelle ist begrenzt, UDP-Ereignisse haben eine Gesamtgrenze. Kleinere HTTP-Kopfzeilen, MySQL-Pakete ohne Vorab-Speicher, weiches Speicherlimit.
+- **Antworten mit Sprachmodell:** Der Schutz vor Prompt-Injection prüft auch kodierte Eingaben (Prozent-Kodierung, `+`, Base64, Hex). Web-Antworten mit fremden Skripten, Formularzielen oder Weiterleitungen werden verworfen und mit eigener CSP ausgeliefert. IP-Adressen in Eingaben werden vor dem Aufruf durch Platzhalter ersetzt. Der Sensor begrenzt Anfragen selbst. **Empfehlung: den Zwischenspeicher der KI-Antworten nach dem Update einmal leeren.**
+- **Scanner-Kennzeichen** nur noch über AS-Namen bzw. geprüftes rDNS, nicht über den User-Agent; wer Befehle ausführt oder nachlädt, fällt nie aus Blockliste und AbuseIPDB-Meldung.
+- **Hive:** teure Auswertungen (lange Zeiträume) laufen begrenzt parallel und werden zwischengespeichert; Login-Drossel je IPv6-/64 und Benutzername; Passwortprüfungen bei Passwortwechsel und Sicherung mit Versuchszähler; Symlink-Prüfung für Cowrie-Dateien; Erwähnungen wie `@everyone` in Webhook-Meldungen entschärft; Grenzen für Live-Verbindungen und Wiederherstellung.
+- **Pi:** Updates auf ältere Versionen werden abgelehnt; die Netzsperre wird in einem Schritt gesetzt und wirkt nach einem Update sofort.
+- **Release-Workflow:** Schreibrechte nur je Job, Actions per Commit-SHA festgelegt.
+- `install.sh` bindet die UI nur an private Adressen.
+
 ## [0.7.0-beta.3] – 2026-11-18
 
 ### Neu

@@ -19,8 +19,10 @@ jobs:
       run:
         working-directory: ${{ matrix.module }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           # immer den neuesten Patch, damit govulncheck nicht an alten Standardbibliotheken scheitert
           go-version: "1.26.x"
@@ -53,16 +55,24 @@ jobs:
     name: Skripte und Dockerfiles
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: shellcheck
-        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/test_firewall_nft.sh pi/test_cowrie_install.sh pi/test_cowrie_config.sh pi/rootfs/usr/local/sbin/*
+        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/test_firewall_nft.sh pi/test_cowrie_install.sh pi/test_cowrie_config.sh pi/test_update.sh pi/rootfs/usr/local/sbin/*
       - name: Web-UI ohne HTML-Senken
         # Angreiferdaten nur als Text (dom.js); innerHTML, outerHTML, insertAdjacentHTML und document.write sind verboten
         run: "! grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|document\\.write' hive/web/*.js"
+      - name: Netzsperre für Docker (tools/firewall.sh, mit Ersatzbefehlen)
+        run: sh tools/test_firewall.sh
+      - name: Hilfen der Installation (tools/common.sh, mit Ersatzbefehlen)
+        run: sh tools/test_common.sh
       - name: Netzsperre des Pi-Images (mit Ersatzbefehlen)
         run: sh pi/test_firewall.sh
       - name: Cowrie-Anmelderegel aus der Web-UI (hivornet-cowrie-config)
         run: sh pi/test_cowrie_config.sh
+      - name: Pi-Updater (Anfrage, Versionsprüfung, keine älteren Versionen)
+        run: sh pi/test_update.sh
       - name: Netzsperre des Pi-Images (echtes nftables, Verwaltungsanschluss)
         run: docker run --rm --privileged -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_firewall_nft.sh
       - name: hadolint
@@ -80,7 +90,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - name: Installieren und starten wie auf dem Pi
         run: docker run --rm -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_cowrie_install.sh
 
@@ -89,17 +101,19 @@ jobs:
     runs-on: ubuntu-latest
     needs: [go]
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
       - name: Hive bauen
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: hive
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: false
       - name: Honeypot bauen
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: honeypot
           platforms: linux/amd64,linux/arm64,linux/arm/v7

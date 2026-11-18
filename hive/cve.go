@@ -27,6 +27,7 @@ var cveRules = []cveRule{
 	cve("CVE-2017-9841", "PHPUnit eval-stdin.php", `phpunit/.*eval-stdin\.php`),
 	cve("CVE-2018-20062", "ThinkPHP invokefunction", `think\\+app/invokefunction|s=/index/\\+think`),
 	cve("CVE-2021-44228", "Log4Shell (Apache Log4j)", `\$\{jndi:`),
+	cve("CVE-2026-114938", "Java4Shell (OpenJDK Base64)", java4shellExpr),
 	cve("CVE-2018-10561", "GPON-Router: Umgehung der Anmeldung", `/GponForm/diag_Form\?images/`),
 	cve("CVE-2017-17215", "Huawei HG532: Befehlsausführung", `/ctrlt/DeviceUpgrade`),
 	cve("CVE-2014-8361", "Realtek SDK miniigd (UPnP)", `/picsdesc\.xml|NewInternalClient`),
@@ -42,8 +43,16 @@ var cveRules = []cveRule{
 	cve("CVE-2019-9082", "ThinkPHP 5.0.x Befehlsausführung", `index\.php\?s=/?index/\\+think\\+(app|container)`),
 }
 
-// eventCVEs: erkannte Lücken eines Ereignisses (Web-Anfragen und Rohdaten).
+// eventCVEs: erkannte Lücken eines Ereignisses (Web-Anfragen und Rohdaten); über den
+// Zwischenspeicher (analysiscache.go).
 func eventCVEs(text, on string) []cveRule {
+	if text == "" || on != "web" && on != "raw" {
+		return nil
+	}
+	return analyzeText(text, on).cves
+}
+
+func matchCVEs(text, on string) []cveRule {
 	if text == "" || on != "web" && on != "raw" {
 		return nil
 	}
@@ -81,6 +90,7 @@ var patternMitre = map[string][]string{
 	"prompt_injection": {"AML.T0051"},
 	"data_theft":       {"T1552.001", "T1005"},
 	"log4shell":        {"T1190"},
+	"java4shell":       {"T1190"},
 	"web_rce":          {"T1190"},
 	"secret_hunt":      {"T1595.003"},
 	"iot_exploit":      {"T1190"},

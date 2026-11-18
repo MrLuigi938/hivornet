@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -38,9 +39,51 @@ func (s *Session) emitAIReply(kind, input, output string, status int, cached boo
 	s.Emit(Event{Type: "ai_reply", Data: data})
 }
 
+// Eigene Grenzen des Sensors (N11 des dritten Audits). Der Hive begrenzt die Aufrufe des
+// Modells, aber jede Frage hält hier eine Verbindung bis zu mimicWait offen. Ein Angreifer mit
+// vielen Verbindungen hielte sonst viele Anfragen gleichzeitig offen und verbrauchte das
+// Budget allein. Darüber antwortet der Honeypot statisch, wie bei abgeschalteter Funktion.
+const (
+	mimicMaxConcurrent = 4  // gleichzeitig offene Fragen an den Hive
+	mimicMaxPerIPHour  = 30 // je Angreifer-IP und Stunde (gleiche Eingaben zählen mit: der Hive antwortet dann aus dem Speicher)
+	mimicMaxIPs        = 10000
+)
+
+var (
+	mimicSlots = make(chan struct{}, mimicMaxConcurrent)
+	mimicRate  = struct {
+		sync.Mutex
+		hour int64
+		n    map[string]int
+	}{n: map[string]int{}}
+)
+
+// mimicAllowed zählt eine Frage dieser IP; false = Grenze erreicht.
+func mimicAllowed(ip string) bool {
+	mimicRate.Lock()
+	defer mimicRate.Unlock()
+	if h := time.Now().Unix() / 3600; h != mimicRate.hour || len(mimicRate.n) >= mimicMaxIPs {
+		mimicRate.hour, mimicRate.n = h, map[string]int{}
+	}
+	if mimicRate.n[ip] >= mimicMaxPerIPHour {
+		return false
+	}
+	mimicRate.n[ip]++
+	return true
+}
+
 func (s *Session) askMimic(kind, input string) (mimicAnswer, bool) {
 	hc := s.m.em.hive
 	if hc == nil || time.Now().UnixMilli() < mimicOffUntil.Load() {
+		return mimicAnswer{}, false
+	}
+	select {
+	case mimicSlots <- struct{}{}:
+		defer func() { <-mimicSlots }()
+	default:
+		return mimicAnswer{}, false // alle Plätze belegt: statisch antworten, nicht warten
+	}
+	if !mimicAllowed(s.SrcIP) {
 		return mimicAnswer{}, false
 	}
 	p := s.m.prof()
@@ -127,10 +170,15 @@ func printableKeepNL(s string) string {
 var staticExt = map[string]bool{".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".ico": true, ".svg": true, ".css": true,
 	".js": true, ".woff": true, ".woff2": true, ".ttf": true, ".map": true, ".webp": true}
 
+// mimicCSP: Antworten des Sprachmodells laden nichts von fremden Adressen und schicken
+// Formulare nur an den eigenen Server (M1 des dritten Audits; der Hive verwirft solche
+// Antworten zusätzlich). Ohne connect-src auf fremde Ziele, ohne Rahmen, ohne <base>.
+const mimicCSP = "default-src 'self' 'unsafe-inline'; img-src 'self' data:; form-action 'self'; base-uri 'none'; frame-ancestors 'self'"
+
 // mimicWeb fragt für einen unbekannten Pfad das Sprachmodell; false = 404 wie bisher.
-func (s *Session) mimicWeb(req *http.Request) (int, string, string, bool) {
+func (s *Session) mimicWeb(req *http.Request) (int, string, string, map[string]string, bool) {
 	if req.Method != "GET" && req.Method != "POST" || staticExt[strings.ToLower(path.Ext(req.URL.Path))] || req.URL.Path == "/" {
-		return 0, "", "", false
+		return 0, "", "", nil, false
 	}
 	// Host: der eigene Hostname, nie die Angabe des Angreifers – dort steht meist die öffentliche
 	// IP des Anschlusses, die sonst an den Dienst des Sprachmodells ginge. Ohne User-Agent greift
@@ -138,7 +186,7 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, bool) {
 	in := req.Method + " " + req.URL.RequestURI() + " HTTP/1.1\nHost: " + s.m.Hostname()
 	a, ok := s.askMimic("web", in)
 	if !ok || a.Out == "" {
-		return 0, "", "", false
+		return 0, "", "", nil, false
 	}
 	if a.Status == 0 {
 		a.Status = 200
@@ -153,5 +201,5 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, bool) {
 		a.Status = 200
 	}
 	s.emitAIReply("web", req.Method+" "+req.URL.RequestURI(), a.Out, a.Status, a.Cached)
-	return a.Status, a.ContentType, a.Out, true
+	return a.Status, a.ContentType, a.Out, map[string]string{"Content-Security-Policy": mimicCSP}, true
 }

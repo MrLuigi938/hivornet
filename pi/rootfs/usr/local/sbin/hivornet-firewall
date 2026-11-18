@@ -94,6 +94,11 @@ remove() {
   if command -v nft >/dev/null 2>&1; then
     nft delete table inet hivornet 2>/dev/null || true
   fi
+  remove_ipt
+}
+
+# remove_ipt: nur die iptables-Regeln (Reste eines früheren Laufs ohne nft)
+remove_ipt() {
   if command -v iptables >/dev/null 2>&1; then
     while iptables -D OUTPUT -m owner --uid-owner "$POT" -j HIVORNET-POT 2>/dev/null; do :; done
     while iptables -D OUTPUT -m owner --uid-owner "$COW" -j HIVORNET-COW 2>/dev/null; do :; done
@@ -107,8 +112,12 @@ remove() {
 }
 
 apply() {
-  remove
   if command -v nft >/dev/null 2>&1; then
+    # Die Tabelle wird in EINEM Aufruf von nft ersetzt (N12 des dritten Audits): nft -f
+    # übernimmt alles oder nichts. Vorher wurde sie erst gelöscht und dann neu gesetzt; dazwischen
+    # und nach einem Fehler war der Honeypot ohne Sperre. Die erste Zeile legt die Tabelle an,
+    # falls es sie noch nicht gibt, damit "delete" nicht scheitert.
+    remove_ipt
     # Sprünge zum Verwaltungsanschluss: eine Regel je Name (Platzhalter wie enx* gehen
     # nicht in jeder nft-Version in einer Menge)
     jin="" jout="" jfwd=""
@@ -123,7 +132,15 @@ apply() {
     done
     mdns=""
     if [ -n "$AVAHI_UID" ]; then mdns="meta skuid $AVAHI_UID udp sport 5353 udp dport 5353 accept"; fi
-    nft -f - <<EOF
+    cow=""
+    if [ -n "$COW_UID" ]; then
+      cow="    meta skuid $COW_UID ct state established,related accept
+    meta skuid $COW_UID drop
+"
+    fi
+    nft -f - <<EOF || { write_status failed "nftables: Regeln nicht übernommen, bisherige Sperre gilt weiter"; die "nft -f gescheitert; bisherige Regeln unverändert"; }
+table inet hivornet
+delete table inet hivornet
 table inet hivornet {
   chain mgmt_in {
     ct state established,related accept
@@ -152,16 +169,14 @@ $jfwd  }
 $jout    meta skuid $POT_UID ct state established,related accept
     meta skuid $POT_UID oifname "lo" ip daddr 127.0.0.1 tcp dport 8089 accept
     meta skuid $POT_UID drop
-  }
+$cow  }
 }
 EOF
-    if [ -n "$COW_UID" ]; then
-      nft add rule inet hivornet output meta skuid "$COW_UID" ct state established,related accept
-      nft add rule inet hivornet output meta skuid "$COW_UID" drop
-    fi
     write_status ok "nftables: Honeypot gesperrt, Verwaltungsanschluss nur Port $UI_PORT"
     echo "Netzsperre aktiv (nftables)."
   elif command -v iptables >/dev/null 2>&1; then
+    # Ohne nft (sehr alte Systeme): Regeln werden neu aufgebaut, kurz ohne Sperre
+    remove
     iptables -N HIVORNET-POT
     iptables -A HIVORNET-POT -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
     iptables -A HIVORNET-POT -o lo -d 127.0.0.1 -p tcp --dport 8089 -j RETURN

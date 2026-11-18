@@ -92,7 +92,15 @@ type RateLimiter struct {
 	buckets map[string]*bucket
 	rate    float64 // Ereignisse pro Sekunde
 	burst   float64
+	max     int // höchstens so viele Quell-IPs; weitere teilen sich einen Eintrag
 }
+
+// rateMaxIPs begrenzt die Tabelle: UDP-Absender sind fälschbar, ohne Grenze ließe sich der
+// Speicher mit erfundenen Adressen füllen (etwa 100 Byte je Eintrag, hier höchstens rund 6 MB).
+const rateMaxIPs = 50000
+
+// rateOverflow: gemeinsamer Eintrag für alle Adressen, die bei voller Tabelle neu dazukommen.
+const rateOverflow = "(voll)"
 
 type bucket struct {
 	tokens float64
@@ -100,7 +108,7 @@ type bucket struct {
 }
 
 func NewRateLimiter(rate, burst float64) *RateLimiter {
-	r := &RateLimiter{buckets: map[string]*bucket{}, rate: rate, burst: burst}
+	r := &RateLimiter{buckets: map[string]*bucket{}, rate: rate, burst: burst, max: rateMaxIPs}
 	go func() {
 		for range time.Tick(time.Minute) {
 			r.cleanup()
@@ -114,6 +122,10 @@ func (r *RateLimiter) Allow(ip string) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	b := r.buckets[ip]
+	if b == nil && len(r.buckets) >= r.max {
+		ip = rateOverflow
+		b = r.buckets[ip]
+	}
 	if b == nil {
 		b = &bucket{tokens: r.burst, last: now}
 		r.buckets[ip] = b

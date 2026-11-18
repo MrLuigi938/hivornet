@@ -41,6 +41,7 @@ func main() {
 		return
 	}
 	log.SetFlags(log.LstdFlags)
+	applyMemLimit() // memlimit.go
 	cfgPath := env("HONEYPOT_CONFIG", "/etc/hivornet/honeypot.yml")
 	hiveURL := strings.TrimRight(env("HIVE_URL", "http://hive:8089"), "/")
 	token := os.Getenv("HIVORNET_TOKEN")

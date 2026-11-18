@@ -10,6 +10,7 @@ import (
 	"crypto/x509/pkix"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"math/rand/v2"
@@ -63,7 +64,34 @@ func (s *Session) Login(user, pass string, data map[string]any) {
 		}
 		data["bait"] = true
 	}
-	s.Emit(Event{Type: "login", Username: clip(user, 256), Password: clip(pass, 256), Data: data})
+	s.Emit(Event{Type: "login", Username: cleanCred(user), Password: cleanCred(pass), Data: data})
+}
+
+// cleanCred: Zugangsdaten ohne Steuer-, Richtungs- und unsichtbare Zeichen (Hinweis aus dem
+// dritten Audit: FTP, Redis, MQTT, PostgreSQL und HTTP gaben sie roh weiter; die UI ersetzt
+// sie zwar, Exporte und Meldungen aber nicht). Sie werden als \u-Folge sichtbar. Gültiges
+// UTF-8 (Umlaute) und Backslashes bleiben, die Funktion ändert schon bereinigte Werte nicht
+// (Telnet und MySQL bereinigen vorher mit printable).
+func cleanCred(s string) string {
+	s = strings.ToValidUTF8(clip(s, 256), "?")
+	if strings.IndexFunc(s, hiddenRune) < 0 {
+		return s
+	}
+	var b strings.Builder
+	for _, r := range s {
+		if hiddenRune(r) {
+			fmt.Fprintf(&b, "\\u%04x", r)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// hiddenRune: Steuerzeichen (C0, DEL, C1), Richtungs- und unsichtbare Formatzeichen.
+func hiddenRune(r rune) bool {
+	return r < 0x20 || r >= 0x7f && r <= 0x9f || r == 0x061c || r >= 0x200b && r <= 0x200f ||
+		r >= 0x202a && r <= 0x202e || r >= 0x2060 && r <= 0x2069 || r == 0xfeff
 }
 
 func (s *Session) Command(input string, data map[string]any) {

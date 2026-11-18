@@ -119,10 +119,10 @@ func isHex(s string) bool {
 // analysisText: Text eines Ereignisses samt entschlüsselter Inhalte (für Muster und Adressen).
 func analysisText(e *Event) (text, on string, revealed []string) {
 	text, on = eventText(e)
-	if text == "" || isTLSText(text) { // Handshake-Bytes sind keine Verschleierung
+	if text == "" {
 		return
 	}
-	revealed = revealHidden(text)
+	revealed = analyzeText(text, on).revealed // Zwischenspeicher (analysiscache.go)
 	return
 }
 

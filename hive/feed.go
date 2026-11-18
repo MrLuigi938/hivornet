@@ -123,7 +123,7 @@ func feedIPs(list []*Attack, c FeedConfig, skip func(*Attack) bool) []string {
 	}
 	byIP := map[string]*best{}
 	for _, a := range list {
-		if a.Own || udpOnly(a.Services) || (c.SkipScanners && a.Scanner != "") || skip != nil && skip(a) {
+		if a.Own || udpOnly(a.Services) || (c.SkipScanners && a.Scanner != "" && a.scannerExempt()) || skip != nil && skip(a) {
 			continue
 		}
 		if p := net.ParseIP(a.IP); p == nil || p.IsPrivate() || p.IsLoopback() || p.IsLinkLocalUnicast() || p.IsUnspecified() || ownHidden(a.IP) {

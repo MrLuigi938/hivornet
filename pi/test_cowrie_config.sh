@@ -36,6 +36,15 @@ for bad in "random 0 5" "random 6 3" "random 3 99" "rm -rf /" "random 3 6; reboo
 done
 [ "$(head -n 1 "$t/status/cowrie-config")" = failed ] || fail "Status nicht failed"
 
+# Ordner als Anfrage (N17, Audit 3): wird entfernt, die nächste Anfrage geht wieder
+mkdir -p "$t/req/sub" && : >"$t/req/sub/x"
+PATH="$t/bin:$PATH" HIVORNET_COWRIE_REQUEST="$t/req" HIVORNET_COWRIE_CFG="$t/cowrie.cfg" HIVORNET_STATUS_DIR="$t/status" \
+  sh "$here/rootfs/usr/local/sbin/hivornet-cowrie-config" >/dev/null 2>&1 || fail "Ordner: Fehler statt still verwerfen"
+[ ! -e "$t/req" ] || fail "Ordner als Anfrage nicht entfernt"
+cmp -s "$t/cowrie.cfg" "$t/vorher" || fail "Ordner hat cowrie.cfg verändert"
+run "random 2 4" || fail "Anfrage nach dem Ordner abgelehnt"
+cp "$t/cowrie.cfg" "$t/vorher"
+
 # Symlink als Anfrage wird nicht gelesen (nur wo echte Symlinks gehen, also nicht unter Git Bash)
 ln -s "$t/vorher" "$t/req" 2>/dev/null || true
 if [ -L "$t/req" ]; then

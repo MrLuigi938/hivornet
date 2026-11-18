@@ -74,7 +74,10 @@ func baitUsed(e *Event) bool {
 // eventPatterns: erkannte Muster eines Ereignisses (Regeln aus analyze.go, entschlüsselte
 // Inhalte, Köder).
 func eventPatterns(e *Event, text, on string, revealed []string) []string {
-	ids := matchAll(text, on, revealed)
+	var ids []string
+	if text != "" {
+		ids = analyzeText(text, on).ids // revealed ist dort dasselbe (analysisText)
+	}
 	if baitUsed(e) {
 		ids = append(ids, "bait_used")
 	}

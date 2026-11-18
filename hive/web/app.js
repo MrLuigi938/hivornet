@@ -452,10 +452,12 @@ async function viewDashboard(el, ctx) {
   header("Dashboard", { range: true });
   const r = state.range;
   const q = (p) => api(p + (p.includes("?") ? "&" : "?") + "range=" + r);
-  const [ser, tl, mp, countries, ports, ips, asns, creds, cmds, act, sys] = await Promise.all([
+  // "Gerade aktiv" ist die teuerste Abfrage: Das Dashboard wartet nicht darauf, die Liste folgt.
+  const actP = api("attacks?active=1&limit=60").catch(() => null);
+  const [ser, tl, mp, countries, ports, ips, asns, creds, cmds, sys] = await Promise.all([
     q("stats/series"), q("stats/timeline"), q("stats/map"),
     q("stats/top?field=country&limit=100"), q("stats/top?field=port"), q("stats/top?field=ip"), q("stats/top?field=asn"),
-    q("stats/top?field=cred"), q("stats/top?field=command"), api("attacks?active=1&limit=60"),
+    q("stats/top?field=cred"), q("stats/top?field=command"),
     api("system").catch(() => null),
   ]);
   const home = await homeLocation();
@@ -486,10 +488,10 @@ async function viewDashboard(el, ctx) {
 
   // ---- Karte ----
   const map = worldMap(mp, { home, countries });
-  map.seedActive(act.attacks); // Linien für Angreifer der letzten 10 Minuten
 
   // ---- Gerade aktiv (Angriffe der letzten 15 Minuten) ----
-  const active = new Map(act.attacks.map((a) => [a.id, a]));
+  const active = new Map();
+  let actLoaded = false;
   const openRows = new Set();
   const actList = h("div", { class: "list alist" });
   const actCount = h("span", { class: "hint" });
@@ -506,7 +508,7 @@ async function viewDashboard(el, ctx) {
     const keep = actList.scrollTop;
     requestAnimationFrame(() => { actList.scrollTop = keep; });
     mount(actList, list.length ? list.map((a) => { const r = attackRow(a, { open: openRows }); rowEls.set(a.id, r); return r; })
-      : h("div", { class: "empty" }, "Gerade ist niemand aktiv. Neue Angriffe erscheinen hier sofort."));
+      : h("div", { class: "empty" }, actLoaded ? "Gerade ist niemand aktiv. Neue Angriffe erscheinen hier sofort." : "Lade …"));
   };
   // Live: nur die geänderte Zeile ersetzen und nach oben setzen
   const upsertActive = (a) => {
@@ -542,6 +544,17 @@ async function viewDashboard(el, ctx) {
       card("Befehle", toplist(cmds)))));
   el.querySelector(".low .toplist")?.classList.add("heat");
   renderActive();
+  actP.then((act) => {
+    actLoaded = true;
+    if (act && el.isConnected) {
+      map.seedActive(act.attacks); // Linien für Angreifer der letzten 10 Minuten
+      for (const a of act.attacks) {
+        const cur = active.get(a.id); // Live-Meldungen können schon neuer sein
+        if (!cur || cur.last < a.last) active.set(a.id, a);
+      }
+    }
+    if (el.isConnected) renderActive();
+  });
 
   ctx.live((e) => {
     map.track(e); // Puls, Linie aktiver Angreifer, Länderzähler

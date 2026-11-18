@@ -325,6 +325,7 @@ func main() {
 	go botVerifier.run(bgStop)
 	go h.runWeekly(bgStop)
 	go h.runSpikes(bgStop) // Spitzen-Warnung (insights.go)
+	go h.warmAnalysis(bgStop)
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
 	st.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID)

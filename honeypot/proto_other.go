@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"math/rand/v2"
+	"net"
 	"path"
 	"strconv"
 	"strings"
@@ -472,6 +474,23 @@ func parseMySQLLogin(p []byte) (mysqlLogin, bool) {
 	return r, true
 }
 
+const mysqlMaxLogin = 16 << 10
+
+// mysqlClientHost: Adresse des Clients in der Fehlermeldung. Hinter dem Docker-Proxy sieht der
+// Honeypot statt des Angreifers die Gateway-Adresse des Compose-Netzes (172.30.252.1); die
+// stünde sonst bei jeder Installation gleich in der Antwort, ein Erkennungsmerkmal (N10 des
+// dritten Audits). Private Adressen werden durch eine Router-Adresse ersetzt, die je
+// Installation (Hostname) verschieden, aber fest ist.
+func mysqlClientHost(ip, host string) string {
+	p := net.ParseIP(ip)
+	if p != nil && !p.IsPrivate() && !p.IsLoopback() && !p.IsLinkLocalUnicast() {
+		return ip
+	}
+	h := fnv.New32a()
+	h.Write([]byte(host))
+	return fmt.Sprintf("192.168.%d.1", h.Sum32()%250+1)
+}
+
 func handleMySQL(s *Session) {
 	drip := func() []byte { return []byte{byte(rand.IntN(256))} }
 	if s.Mode == "tarpit" {
@@ -496,11 +515,13 @@ func handleMySQL(s *Session) {
 		return
 	}
 	n := int(hdr[0]) | int(hdr[1])<<8 | int(hdr[2])<<16
-	if n < 32 || n > 64<<10 {
+	// Ein Login-Paket ist klein (Name, Hash, Datenbank, Plugin, Attribute). readN wächst mit den
+	// gelesenen Daten statt die angekündigte Länge vorab zu belegen (M4 des dritten Audits).
+	if n < 32 || n > mysqlMaxLogin {
 		return
 	}
-	p := make([]byte, n)
-	if _, err := io.ReadFull(br, p); err != nil {
+	p, err := readN(br, n)
+	if err != nil {
 		return
 	}
 	lg, ok := parseMySQLLogin(p)
@@ -529,7 +550,7 @@ func handleMySQL(s *Session) {
 	if len(lg.Auth) > 0 {
 		using = "YES"
 	}
-	msg := fmt.Sprintf("Access denied for user '%s'@'%s' (using password: %s)", clip(lg.User, 64), s.SrcIP, using)
+	msg := fmt.Sprintf("Access denied for user '%s'@'%s' (using password: %s)", clip(lg.User, 64), mysqlClientHost(s.SrcIP, s.m.Hostname()), using)
 	e := []byte{0xff}
 	e = binary.LittleEndian.AppendUint16(e, 1045)
 	e = append(e, "#28000"...)

@@ -13,18 +13,19 @@ func TestFeedIPs(t *testing.T) {
 		{IP: "203.0.113.1", Stufe: 3, Events: 5, Services: []string{"ssh"}},
 		{IP: "203.0.113.2", Stufe: 0, Events: 50, Services: []string{"http"}}, // nur Abtasten
 		{IP: "203.0.113.3", Stufe: 1, Events: 9, Services: []string{"sip"}},   // nur UDP
-		{IP: "203.0.113.4", Stufe: 2, Events: 3, Services: []string{"http"}, Scanner: "Censys"},
-		{IP: "192.168.1.9", Stufe: 4, Events: 1, Services: []string{"ssh"}},            // privat
-		{IP: "203.0.113.5", Stufe: 1, Events: 2, Services: []string{"ftp"}, Own: true}, // eigener Test
+		{IP: "203.0.113.4", Stufe: 1, Events: 3, Services: []string{"http"}, Scanner: "Censys"},
+		{IP: "203.0.113.7", Stufe: 3, Events: 2, Services: []string{"ssh"}, Scanner: "Censys"}, // M3: Befehle, keine Ausnahme
+		{IP: "192.168.1.9", Stufe: 4, Events: 1, Services: []string{"ssh"}},                    // privat
+		{IP: "203.0.113.5", Stufe: 1, Events: 2, Services: []string{"ftp"}, Own: true},         // eigener Test
 		{IP: "203.0.113.6", Stufe: 1, Events: 7, Services: []string{"telnet", "sip"}},
 		{IP: "203.0.113.1", Stufe: 1, Events: 1, Services: []string{"ftp"}}, // zweiter Angriff derselben IP
 	}
 	got := strings.Join(feedIPs(list, FeedConfig{MinStufe: 1, SkipScanners: true}, nil), ",")
-	if got != "203.0.113.1,203.0.113.6" {
+	if got != "203.0.113.1,203.0.113.7,203.0.113.6" {
 		t.Errorf("Auswahl: %s", got)
 	}
 	got = strings.Join(feedIPs(list, FeedConfig{MinStufe: 0, SkipScanners: false}, nil), ",")
-	if got != "203.0.113.1,203.0.113.4,203.0.113.6,203.0.113.2" {
+	if got != "203.0.113.1,203.0.113.7,203.0.113.6,203.0.113.4,203.0.113.2" {
 		t.Errorf("ohne Scanner-Filter, ab Abtasten: %s", got)
 	}
 }

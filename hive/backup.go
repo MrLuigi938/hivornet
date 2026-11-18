@@ -275,11 +275,17 @@ func (h *Hive) backupExport(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, "ungültige Anfrage")
 		return
 	}
+	ip := clientIP(r)
+	if !h.auth.attempt(ip) { // N4 des dritten Audits: gleiche Drossel wie beim Login
+		httpErr(w, 429, "zu viele Fehlversuche, bitte 15 Minuten warten")
+		return
+	}
 	if len(req.Password) > maxPasswordLen || !h.auth.Check(h.auth.User(r), req.Password) {
 		time.Sleep(time.Second)
 		httpErr(w, 403, "Passwort ist falsch")
 		return
 	}
+	h.auth.success(ip)
 	if !backupMu.TryLock() {
 		httpErr(w, 409, "Es läuft schon eine Sicherung oder Wiederherstellung")
 		return
@@ -392,7 +398,15 @@ func (h *Hive) backupImport(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 500, err.Error())
 		return
 	}
-	_, err = io.Copy(f, plain)
+	// Größengrenze nach dem Entpacken (N8 des dritten Audits): Eine kleine, stark komprimierte
+	// Datei könnte sonst den Datenträger füllen. Größer als die erlaubte Datenbank plus Reserve
+	// kann eine echte Sicherung nicht sein.
+	limit := restoreLimit(h.maxDBBytes)
+	var n int64
+	n, err = io.Copy(f, io.LimitReader(plain, limit+1))
+	if err == nil && n > limit {
+		err = fmt.Errorf("entpackt größer als %d MB (HIVE_MAX_DB_MB)", limit>>20)
+	}
 	if cerr := f.Close(); err == nil {
 		err = cerr
 	}
@@ -427,6 +441,17 @@ func (h *Hive) backupImport(w http.ResponseWriter, r *http.Request) {
 		}()
 	}
 }
+
+// restoreLimit: größte entpackte Sicherung (erlaubte Datenbankgröße plus 25 %, mindestens
+// restoreMin).
+func restoreLimit(maxDB int64) int64 {
+	if maxDB <= 0 {
+		maxDB = 2048 << 20
+	}
+	return max(maxDB+maxDB/4, restoreMin)
+}
+
+var restoreMin int64 = 256 << 20 // Variable nur für Tests
 
 // checkRestoreDB prüft eine entschlüsselte Sicherung, bevor sie die Datenbank ersetzt.
 func checkRestoreDB(path string) error {

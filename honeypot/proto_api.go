@@ -193,10 +193,12 @@ func elasticResponse(s *Session, req *http.Request) (int, string, string, map[st
 	return 404, jsonUTF8, `{"error":{"root_cause":[{"type":"index_not_found_exception","reason":"no such index [` + ix + `]","index":"` + ix + `"}],"type":"index_not_found_exception","reason":"no such index [` + ix + `]","index":"` + ix + `"},"status":404}`, nil
 }
 
-// jsonSafe kürzt und maskiert einen Text für die Einbettung in eine JSON-Zeichenkette.
+// jsonSafe kürzt und maskiert einen Text für die Einbettung in eine JSON-Zeichenkette. Nur
+// die beiden äußeren Anführungszeichen fallen weg (N9 des dritten Audits: strings.Trim nahm
+// auch das maskierte am Ende mit, aus foo" wurde foo\ und die Antwort ungültiges JSON).
 func jsonSafe(s string) string {
 	b, _ := json.Marshal(clip(s, 128))
-	return strings.Trim(string(b), `"`)
+	return string(b[1 : len(b)-1])
 }
 
 // ---------- Kubernetes (API-Server und Kubelet) ----------

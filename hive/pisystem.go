@@ -152,6 +152,20 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			}
 		}
 	}
+	// Geänderte Netzsperre sofort anwenden, nicht erst nach dem nächsten Neustart (M8 des
+	// dritten Audits). Direkt "apply" statt "systemctl restart": restart ruft vorher ExecStop
+	// (remove) auf, der Honeypot liefe kurz ohne Sperre; apply ersetzt die Regeln in einem
+	// Schritt (nft -f).
+	for _, c := range changed {
+		if c == "usr/local/sbin/hivornet-firewall" || c == "etc/systemd/system/hivornet-firewall.service" {
+			if err := run("/usr/local/sbin/hivornet-firewall", "apply"); err != nil {
+				fmt.Fprintf(w, "Netzsperre neu setzen: %v\n", err)
+			} else {
+				fmt.Fprintln(w, "Netzsperre neu gesetzt")
+			}
+			break
+		}
+	}
 	if ch, err := ensureCowrieAuth(cowrieCfgPath); err != nil {
 		fmt.Fprintf(w, "Cowrie-Anmelderegel: %v\n", err)
 	} else if ch {

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -304,15 +305,40 @@ const topUpsert = `INSERT INTO top_hourly(hour, field, key, label, n) VALUES(?, 
 	label = CASE WHEN excluded.label != '' THEN excluded.label ELSE label END`
 
 func dataString(d json.RawMessage, key string) string {
+	s, _ := dataMap(d)[key].(string)
+	return s
+}
+
+// dataMemo: zuletzt gelesene Ereignisdaten. Die Auswertung fragt dieselben Daten oft mehrmals
+// hintereinander ab (Pfad, Methode, Body, Kopfzeilen …); jedes Mal das ganze JSON zu lesen
+// kostete beim Aufbau der Angriffe rund ein Drittel der Zeit. Verglichen wird der Inhalt,
+// nicht die Adresse; das Ergebnis darf nur gelesen werden.
+var dataMemo struct {
+	mu  sync.Mutex
+	raw []byte
+	m   map[string]any
+}
+
+// dataMap: Ereignisdaten als Map (nil bei leeren oder ungültigen Daten). Nur lesen.
+func dataMap(d json.RawMessage) map[string]any {
 	if len(d) == 0 {
-		return ""
+		return nil
 	}
+	dataMemo.mu.Lock()
+	if dataMemo.raw != nil && bytes.Equal(dataMemo.raw, d) {
+		m := dataMemo.m
+		dataMemo.mu.Unlock()
+		return m
+	}
+	dataMemo.mu.Unlock()
 	var m map[string]any
 	if json.Unmarshal(d, &m) != nil {
-		return ""
+		m = nil
 	}
-	s, _ := m[key].(string)
-	return s
+	dataMemo.mu.Lock()
+	dataMemo.raw, dataMemo.m = append([]byte(nil), d...), m
+	dataMemo.mu.Unlock()
+	return m
 }
 
 // topKeys liefert (Feld, Schlüssel, Beschriftung) für die Zähltabelle.
