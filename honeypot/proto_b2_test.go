@@ -288,7 +288,7 @@ func FuzzB2Parsers(f *testing.F) {
 		r.props()
 		r.u16()
 		readVarint(bytes.NewReader(b))
-		pgQueryReply(string(b))
+		pgQueryReply(string(b), profiles[""])
 	})
 }
 

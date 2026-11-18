@@ -94,6 +94,7 @@ type mimicReq struct {
 	Host       string `json:"host"`
 	Shell      string `json:"shell"` // Begrüßung der Shell (BusyBox …)
 	Kernel     string `json:"kernel"`
+	Arch       string `json:"arch"` // uname -m (seit Geräteprofilen mit Architektur)
 	OS         string `json:"os"`
 	HTTPServer string `json:"http_server"`
 }
@@ -147,7 +148,7 @@ func (s *mimicState) allow(ip string, c MimicConfig) bool {
 }
 
 func mimicKey(r mimicReq) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{r.Kind, r.Host, r.Shell, r.Kernel, r.OS, r.HTTPServer, r.Input}, "\x00")))
+	sum := sha256.Sum256([]byte(strings.Join([]string{r.Kind, r.Host, r.Shell, r.Kernel, r.Arch, r.OS, r.HTTPServer, r.Input}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -178,8 +179,17 @@ func mimicMessages(r mimicReq, nonce string) []map[string]string {
 		return []map[string]string{{"role": "system", "content": fmt.Sprintf(mimicWebPrompt, nonEmptyFirst(r.HTTPServer, "nginx"), r.Host, nonEmptyFirst(r.OS, "Linux"), nonce, nonce)},
 			{"role": "user", "content": user}}
 	}
-	return []map[string]string{{"role": "system", "content": fmt.Sprintf(mimicShellPrompt, r.Host, nonEmptyFirst(r.Shell, r.OS, "Linux"), nonEmptyFirst(r.Kernel, "unknown"), nonce, nonce)},
+	return []map[string]string{{"role": "system", "content": fmt.Sprintf(mimicShellPrompt, r.Host, nonEmptyFirst(r.Shell, r.OS, "Linux"), mimicKernel(r), nonce, nonce)},
 		{"role": "user", "content": user}}
+}
+
+// mimicKernel: Kernel und, falls bekannt, Architektur für den Shell-Prompt.
+func mimicKernel(r mimicReq) string {
+	k := nonEmptyFirst(r.Kernel, "unknown")
+	if r.Arch != "" {
+		k += " on " + r.Arch
+	}
+	return k
 }
 
 // mimicSem: höchstens zwei Modellaufrufe gleichzeitig (Kosten, Speicher).
@@ -332,7 +342,7 @@ func (h *Hive) mimic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req.Input = clip(req.Input, mimicMaxInput)
-	for _, p := range []*string{&req.Host, &req.Shell, &req.Kernel, &req.OS, &req.HTTPServer} {
+	for _, p := range []*string{&req.Host, &req.Shell, &req.Kernel, &req.Arch, &req.OS, &req.HTTPServer} {
 		*p = clip(*p, 120)
 	}
 	// Eigene öffentliche und private Adressen gehen nie an den Anbieter (mimicguard.go);

@@ -242,8 +242,8 @@ var (
 // Abschnitte, sonst nur den genannten (unbekannt: leer).
 func redisInfo(p deviceProfile, section string) string {
 	secs := [][2]string{
-		{"server", "# Server\r\nredis_version:" + p.RedisVersion + "\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\nos:Linux " + p.Kernel + " x86_64\r\narch_bits:64\r\n" +
-			"multiplexing_api:epoll\r\ngcc_version:11.4.0\r\nprocess_id:1123\r\n" +
+		{"server", "# Server\r\nredis_version:" + p.RedisVersion + "\r\nredis_git_sha1:00000000\r\nredis_mode:standalone\r\nos:Linux " + p.Kernel + " " + p.Arch + "\r\n" + fmt.Sprintf("arch_bits:%d\r\n", p.archBits()) +
+			"multiplexing_api:epoll\r\ngcc_version:" + p.GCC + "\r\nprocess_id:1123\r\n" +
 			fmt.Sprintf("tcp_port:6379\r\nuptime_in_seconds:%d\r\nuptime_in_days:%d\r\n", redisUptime, redisUptime/86400) +
 			"hz:10\r\nexecutable:/usr/bin/redis-server\r\nconfig_file:/etc/redis/redis.conf\r\n"},
 		{"clients", "# Clients\r\nconnected_clients:1\r\nblocked_clients:0\r\n"},

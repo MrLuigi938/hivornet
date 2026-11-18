@@ -395,6 +395,46 @@ details.more[open] > summary { margin-bottom: 10px; }
 .modes dt { font-weight: 600; margin-top: 8px; }
 .modes dd { margin: 2px 0 0; color: var(--text-2); }
 
+/* ---------- Einstellungen: Unterseiten, Bereiche mit eigenem Speichern ---------- */
+.settings { max-width: 1040px; }
+.subnav { display: flex; gap: 2px; overflow-x: auto; border-bottom: 1px solid var(--border); margin: 0 0 12px; scrollbar-width: none; }
+.subnav::-webkit-scrollbar { display: none; }
+.subnav a { padding: 9px 12px; color: var(--text-2); white-space: nowrap; border-bottom: 2px solid transparent; margin-bottom: -1px; font-size: 13.5px; }
+.subnav a:hover { color: var(--text); text-decoration: none; }
+.subnav a.on { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+.settings > .lead { color: var(--text-2); margin: 0 0 14px; }
+.card.setting { padding-bottom: 0; }
+.card.setting > :last-child:not(.card-foot) { margin-bottom: 14px; }
+.card.setting > .sub { margin-bottom: 12px; }
+.card.setting.is-dirty { border-color: color-mix(in srgb, var(--warning) 60%, var(--border)); }
+.card-foot { display: flex; align-items: center; justify-content: flex-end; flex-wrap: wrap; gap: 8px 10px; margin: 14px -16px 0; padding: 10px 16px;
+  border-top: 1px solid var(--border); background: color-mix(in srgb, var(--surface-2) 55%, var(--surface)); border-radius: 0 0 var(--radius) var(--radius); }
+form > .card-foot, div > .card-foot { margin-bottom: 0; }
+.save-status { margin-right: auto; font-size: 12.5px; color: var(--muted); min-width: 0; }
+.save-status.ok { color: var(--good-text); }
+.save-status.err { color: var(--critical); }
+.dirty-badge { font-size: 11.5px; padding: 1px 8px; border-radius: 6px; font-weight: 500; color: var(--text);
+  background: color-mix(in srgb, var(--warning) 18%, transparent); border: 1px solid color-mix(in srgb, var(--warning) 55%, transparent); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary:disabled:hover { background: var(--accent); }
+input.wide, textarea.wide { width: 100%; max-width: 460px; }
+.checklist { display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
+.card.setting details { margin: 8px 0; }
+.card.setting summary { cursor: pointer; color: var(--text-2); }
+table.ports td { vertical-align: middle; }
+table.ports .port-in { width: 92px; }
+table.ports td.hint { font-size: 12.5px; min-width: 180px; }
+@media (max-width: 700px) {
+  table.ports thead { display: none; }
+  table.ports tr { display: grid; grid-template-columns: auto minmax(0, 1fr) 92px; gap: 8px 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--border); }
+  table.ports td { padding: 0; border: 0; min-width: 0; }
+  table.ports td.svc select { width: 100%; }
+  table.ports td.mode { grid-column: 2; grid-row: 2; }
+  table.ports td.act { grid-column: 3; grid-row: 2; justify-self: end; }
+  table.ports td.hint { grid-column: 1 / -1; grid-row: 3; min-width: 0; }
+  table.ports td.mode select { width: 100%; }
+}
+
 /* Fußzeile */
 .credit { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; padding: 28px 16px 8px; font-size: 13px; color: var(--muted); text-align: center; }
 .credit b { font-weight: 600; color: var(--text); }

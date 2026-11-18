@@ -8,6 +8,7 @@ package main
 import (
 	"bufio"
 	"encoding/binary"
+	"fmt"
 	"io"
 	"strings"
 	"time"
@@ -57,15 +58,18 @@ func pgRow(col, val string) []byte {
 	return append(pgMsg('T', desc), pgMsg('D', row)...)
 }
 
-const pgVersion = "PostgreSQL 14.9 (Debian 14.9-1.pgdg120+1) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14) 12.2.0, 64-bit"
+// pgVersion: Antwort auf version(), passend zur Architektur des Geräteprofils (Debian-Paket wie im offiziellen Docker-Abbild).
+func pgVersion(p deviceProfile) string {
+	return fmt.Sprintf("PostgreSQL 14.9 (Debian 14.9-1.pgdg120+1) on %s, compiled by gcc (Debian 12.2.0-14) 12.2.0, %d-bit", p.gnuTriple(), p.archBits())
+}
 
-func pgQueryReply(q string) []byte {
+func pgQueryReply(q string, p deviceProfile) []byte {
 	u := strings.ToUpper(strings.TrimSpace(q))
 	switch {
 	case u == "":
 		return append(pgMsg('I', nil), pgReady()...)
 	case strings.Contains(u, "VERSION()"):
-		return append(append(pgRow("version", pgVersion), pgMsg('C', pgCStr("SELECT 1"))...), pgReady()...)
+		return append(append(pgRow("version", pgVersion(p)), pgMsg('C', pgCStr("SELECT 1"))...), pgReady()...)
 	case strings.HasPrefix(u, "SELECT"):
 		return append(append(pgRow("?column?", "1"), pgMsg('C', pgCStr("SELECT 1"))...), pgReady()...)
 	}
@@ -200,7 +204,7 @@ func handlePostgres(s *Session) {
 		case 'Q':
 			q := strings.TrimRight(string(body), "\x00")
 			s.Command(printable([]byte(q), budgetCommand), nil)
-			if s.Write(pgQueryReply(q)) != nil {
+			if s.Write(pgQueryReply(q, s.m.prof())) != nil {
 				return
 			}
 		case 'P': // erweitertes Protokoll: nur die Abfrage aufzeichnen, dann ablehnen

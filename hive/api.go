@@ -684,6 +684,7 @@ func (h *Hive) getSettings(w http.ResponseWriter, r *http.Request) {
 		"sensor": sensor, "sensors": names, "own_config": own,
 		"sensor_config": cfg, "retention_days": h.retentionDays(), "published": pub, "direct_ports": direct,
 		"services": knownServices, "modes": knownModes, "max_tarpit_conns": maxTarpitConns,
+		"default_ports": defaultPorts, "reserved_ports": reservedPorts(), "profiles": knownProfiles,
 		"cowrie":        map[string]string{"ssh": os.Getenv("PORT_SSH"), "telnet": os.Getenv("PORT_TELNET")},
 		"allowed_hosts": nonNil(h.uiAllowedHosts()), "allowed_hosts_env": nonNil(h.hosts.env),
 	})

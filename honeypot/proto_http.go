@@ -151,7 +151,7 @@ func serveHTTP(s *Session, api *httpAPI) {
 				if api != nil {
 					s.WriteString("HTTP/1.1 400 Bad Request\r\nContent-Type: text/plain; charset=utf-8\r\nConnection: close\r\n\r\n400 Bad Request")
 				} else {
-					writeHTTP(s, "GET", 400, "text/html", nginxError(400, s.m.prof().HTTPServer), nil, nil, true)
+					writeHTTP(s, "GET", 400, "text/html", errorPage(400, s.m.prof().HTTPServer, ""), nil, nil, true)
 				}
 			}
 			return
@@ -316,9 +316,25 @@ var loginPaths = map[string]string{
 	"/cgi-bin/luci": "LuCI", "/webui": "", "/user/login": "",
 }
 
-// nginxError: Fehlerseite, wie nginx (bzw. der Webserver des Profils) sie schickt.
-func nginxError(code int, server string) string {
+// errorPage: Fehlerseite im Stil des Webservers aus dem Geräteprofil (lighttpd und Boa
+// sehen anders aus als nginx; eine nginx-Seite unter "Server: lighttpd" verrät den Honeypot).
+func errorPage(code int, server, path string) string {
 	t := fmt.Sprintf("%d %s", code, http.StatusText(code))
+	switch {
+	case strings.HasPrefix(server, "lighttpd"):
+		return "<?xml version=\"1.0\" encoding=\"iso-8859-1\"?>\n<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"\n" +
+			"         \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd\">\n<html xmlns=\"http://www.w3.org/1999/xhtml\" xml:lang=\"en\" lang=\"en\">\n" +
+			" <head>\n  <title>" + t + "</title>\n </head>\n <body>\n  <h1>" + t + "</h1>\n </body>\n</html>\n"
+	case strings.HasPrefix(server, "Boa"):
+		msg := ""
+		switch code {
+		case 400:
+			msg = "Your client has issued a malformed or illegal request.\n"
+		case 404:
+			msg = "The requested URL " + html.EscapeString(clip(path, 256)) + " was not found on this server.\n"
+		}
+		return "<HTML><HEAD><TITLE>" + t + "</TITLE></HEAD>\n<BODY><H1>" + t + "</H1>\n" + msg + "</BODY></HTML>\n"
+	}
 	if code == 405 {
 		t = "405 Not Allowed"
 	}
@@ -335,7 +351,7 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 	switch req.Method {
 	case "GET", "HEAD", "POST":
 	default: // nginx liefert statische Seiten nur für GET/HEAD; alles andere: 405
-		return 405, "text/html", nginxError(405, s.m.prof().HTTPServer), nil
+		return 405, "text/html", errorPage(405, s.m.prof().HTTPServer, path), nil
 	}
 	if ctype, body, ok := baitFile(path, s.m.Hostname()); ok && req.Method != "POST" {
 		return 200, ctype, body, nil
@@ -353,7 +369,7 @@ func webResponse(s *Session, req *http.Request) (int, string, string, map[string
 	if status, ctype, body, hdr, ok := s.mimicWeb(req); ok { // unbekannter Pfad: ggf. vom Sprachmodell (mimic.go)
 		return status, ctype, body, hdr
 	}
-	return 404, "text/html", nginxError(404, s.m.prof().HTTPServer), nil
+	return 404, "text/html", errorPage(404, s.m.prof().HTTPServer, path), nil
 }
 
 func loginPage(host, product, action string, failed bool) string {
@@ -484,21 +500,23 @@ func mustJSON(v any) string {
 func dockerResponse(s *Session, req *http.Request) (int, string, string, map[string]string) {
 	const js = "application/json"
 	p := dockerPath(req)
+	pr := s.m.prof()
+	db := pr.docker()
 	switch {
 	case p == "/_ping":
 		return 200, "text/plain; charset=utf-8", "OK", nil
 	case p == "/version":
 		return 200, js, mustJSON(map[string]any{
-			"Platform": map[string]string{"Name": "Docker Engine - Community"}, "Version": s.m.prof().DockerVer, "ApiVersion": "1.43",
-			"MinAPIVersion": "1.12", "GitCommit": "311b9ff", "GoVersion": "go1.20.10", "Os": "linux", "Arch": "amd64",
-			"KernelVersion": s.m.prof().Kernel, "BuildTime": "2023-10-26T09:08:02.000000000+00:00",
+			"Platform": map[string]string{"Name": "Docker Engine - Community"}, "Version": pr.DockerVer, "ApiVersion": db.API,
+			"MinAPIVersion": db.MinAPI, "GitCommit": db.Commit, "GoVersion": db.Go, "Os": "linux", "Arch": pr.goArch(),
+			"KernelVersion": pr.Kernel, "BuildTime": db.Built,
 		}), nil
 	case p == "/info":
 		return 200, js, mustJSON(map[string]any{
 			"ID": strings.ToUpper(randHex(16)), "Containers": 3, "ContainersRunning": 2, "ContainersPaused": 0,
 			"ContainersStopped": 1, "Images": 5, "Driver": "overlay2", "Name": s.m.Hostname(),
-			"OperatingSystem": s.m.prof().OSName, "OSType": "linux", "Architecture": "x86_64", "NCPU": 4,
-			"MemTotal": int64(8232407040), "ServerVersion": s.m.prof().DockerVer, "KernelVersion": s.m.prof().Kernel,
+			"OperatingSystem": pr.OSName, "OSType": "linux", "Architecture": pr.Arch, "NCPU": pr.nCPU(),
+			"MemTotal": pr.MemTotal, "ServerVersion": pr.DockerVer, "KernelVersion": pr.Kernel,
 		}), nil
 	case p == "/containers/json":
 		return 200, js, dockerContainers(req.URL.Query().Get("all") == "1" || req.URL.Query().Get("all") == "true"), nil

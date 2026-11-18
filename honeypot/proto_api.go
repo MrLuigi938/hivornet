@@ -27,7 +27,8 @@ type httpAPI struct {
 
 var dockerAPI = &httpAPI{
 	headers: func(s *Session) string {
-		return "Server: Docker/" + s.m.prof().DockerVer + " (linux)\r\nApi-Version: 1.43\r\nOstype: linux\r\n"
+		p := s.m.prof()
+		return "Server: Docker/" + p.DockerVer + " (linux)\r\nApi-Version: " + p.docker().API + "\r\nOstype: linux\r\n"
 	},
 	command: dockerCommand,
 	respond: dockerResponse,
@@ -313,7 +314,7 @@ func k8sResponse(s *Session, req *http.Request) (int, string, string, map[string
 	p := strings.TrimSuffix(req.URL.Path, "/")
 	switch {
 	case p == "/version":
-		return 200, "application/json", `{"major":"1","minor":"28","gitVersion":"v1.28.4","gitCommit":"bae2c62678db2b5053817bc97181fcc2e8388103","gitTreeState":"clean","buildDate":"2023-11-15T16:48:54Z","goVersion":"go1.20.11","compiler":"gc","platform":"linux/amd64"}`, nil
+		return 200, "application/json", `{"major":"1","minor":"28","gitVersion":"v1.28.4","gitCommit":"bae2c62678db2b5053817bc97181fcc2e8388103","gitTreeState":"clean","buildDate":"2023-11-15T16:48:54Z","goVersion":"go1.20.11","compiler":"gc","platform":"linux/` + s.m.prof().goArch() + `"}`, nil
 	case p == "/healthz" || p == "/livez" || p == "/readyz":
 		return 200, "text/plain; charset=utf-8", "ok", nil
 	case p == "/api":

@@ -7,10 +7,12 @@ import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName 
 import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
-import { viewLive, reportCard, chainCard, ttyCard, intelCard, extrasCards, homeLocation, feedCard, sensorTokensCard } from "./extra.js";
+import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
+// Einstellungen mit Unterseiten (#/settings/<bereich>)
+import { viewSettings } from "./settings.js";
 
 const app = document.getElementById("app");
-const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null };
+const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null, leaveGuard: null };
 
 // Navigation in der Kopfleiste; Einstellungen, System und Protokolle stehen im Benutzermenü.
 const NAV = [
@@ -302,7 +304,7 @@ function header(title, { range = false, extra = null } = {}) {
 const routes = [
   [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
-  [/^#\/tarpit$/, viewTarpit], [/^#\/settings$/, viewSettings], [/^#\/system$/, viewSystem],
+  [/^#\/tarpit$/, viewTarpit], [/^#\/settings(?:\/([a-z]+))?$/, viewSettings], [/^#\/system$/, viewSystem],
   [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/logs(\?.*)?$/, viewLogs],
 ];
 
@@ -311,6 +313,13 @@ const routes = [
 // Das nutzen die regelmäßigen Aktualisierungen (Dashboard, Tarpit, System).
 async function route(opts = {}) {
   if (!mainEl) return;
+  // Ungespeicherte Änderungen (Einstellungen): beim Wechsel nachfragen, sonst zurück zur alten Adresse
+  const want = location.hash || "#/";
+  if (state.leaveGuard && shownHash !== null && want !== shownHash && !state.leaveGuard()) {
+    history.replaceState(null, "", shownHash);
+    return;
+  }
+  shownHash = want;
   const quiet = opts.quiet === true && mainEl.firstChild;
   if (state.cleanup) { state.cleanup(); state.cleanup = null; }
   hideTip(); // Tooltip der vorigen Ansicht nicht stehen lassen
@@ -336,6 +345,7 @@ async function route(opts = {}) {
     const ctx = {
       live: (fn) => cleanups.push(onLive(fn)),
       every: (ms, fn) => { const t = setInterval(fn, ms); cleanups.push(() => clearInterval(t)); },
+      onCleanup: (fn) => cleanups.push(fn),
       current: () => seq === routeSeq,
     };
     await view(host, ctx, ...(m || []).slice(1).map((x) => (x == null ? "" : decodeURIComponent(x))));
@@ -359,6 +369,7 @@ async function route(opts = {}) {
   }
 }
 let routeSeq = 0;
+let shownHash = null; // zuletzt angezeigte Adresse (für state.leaveGuard)
 
 // ---------- gemeinsame Bausteine ----------
 
@@ -761,335 +772,6 @@ async function viewAttacker(el, ctx, ip) {
     attacks.unshift(a);
     mount(list, attacks.map((x, k) => { x.seen = attacks.length - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === a.id }); }));
   });
-}
-
-// ---------- Einstellungen ----------
-
-async function viewSettings(el) {
-  header("Einstellungen");
-  const sensor = store("settingsSensor") || "";
-  const s = await api("settings?sensor=" + encodeURIComponent(sensor));
-  const extras = await extrasCards();
-  const cfg = s.sensor_config ? structuredClone(s.sensor_config) : null;
-  const msg = h("div", { class: "msg", hidden: true });
-  const show = (text, ok) => { msg.className = "msg " + (ok ? "ok" : "err"); msg.textContent = text; msg.hidden = false; };
-
-  // Mehrere Sensoren: Konfiguration für alle oder eigene für einen
-  const sensorPick = s.sensors && s.sensors.length > 1 ? card("Sensor",
-    h("div", { class: "filters" },
-      h("select", { "aria-label": "Sensor", onchange: (e) => { store("settingsSensor", e.target.value); route(); } },
-        h("option", { value: "", selected: !sensor }, "Alle Sensoren (Standard)"),
-        s.sensors.map((n) => h("option", { value: n, selected: n === sensor }, n))),
-      sensor ? h("span", { class: "muted" }, s.own_config ? "Dieser Sensor hat eine eigene Konfiguration." : "Dieser Sensor nutzt den Standard; Speichern legt eine eigene an.") : null,
-      sensor && s.own_config ? h("button", {
-        class: "btn small",
-        onclick: async () => { await api("settings", { method: "PUT", body: { sensor, reset_own: true } }); route(); },
-      }, "Auf Standard zurücksetzen") : null)) : null;
-
-  if (!cfg) {
-    mount(el, card("Noch keine Sensor-Konfiguration",
-      h("p", null, "Der Honeypot hat sich noch nicht beim Hive gemeldet. Sobald er läuft (ca. 10 Sekunden nach dem Start), erscheint hier seine Konfiguration."),
-      h("button", { class: "btn", onclick: route }, "Neu laden")), extras,
-      state.user.role === "admin" ? cowrieAuthCard() : null,
-      state.user.role === "admin" ? feedCard() : null,
-      state.user.role === "admin" ? sensorTokensCard() : null,
-      state.user.role === "admin" ? accessCard(s) : null,
-      state.user.role === "admin" ? backupCard() : null); // Import auch auf einem frisch installierten Gerät
-    return;
-  }
-
-  const listBody = h("tbody");
-  const hostIn = h("input", { value: cfg.hostname, maxlength: 64, onchange: (e) => { cfg.hostname = e.target.value.trim(); } });
-  const pubInfo = (port) => {
-    if (s.direct_ports) return h("span", { class: "num" }, port, h("span", { class: "muted" }, " (direkt am Gerät)"));
-    const p = s.published[String(port)];
-    if (p && p.host) return h("span", { class: "num" }, p.host, h("span", { class: "muted" }, ` (${p.env})`));
-    if (p) return h("span", { class: "warn-text" }, `${p.env} fehlt in .env`);
-    return h("span", { class: "warn-text" }, "nicht in docker-compose.yml freigegeben");
-  };
-  function renderListeners() {
-    listBody.replaceChildren(...cfg.listeners.map((l, i) => {
-      const pub = h("td", null, pubInfo(l.port));
-      return h("tr", null,
-        h("td", null, h("input", { type: "checkbox", checked: l.enabled, "aria-label": "aktiv", onchange: (e) => { l.enabled = e.target.checked; } })),
-        h("td", null, h("select", { "aria-label": "Dienst", onchange: (e) => { l.service = e.target.value; } }, s.services.map((v) => h("option", { value: v, selected: v === l.service }, svcName(v))))),
-        h("td", null, h("input", { type: "number", "aria-label": "Port", min: 1, max: 65535, value: l.port, style: { width: "90px" }, onchange: (e) => { l.port = Number(e.target.value); mount(pub, pubInfo(l.port)); } })),
-        h("td", null, h("select", { "aria-label": "Modus", onchange: (e) => { l.mode = e.target.value; } }, s.modes.map((v) => h("option", { value: v, selected: v === l.mode }, MODE_NAME[v] || v)))),
-        pub,
-        h("td", null, h("button", { class: "btn small", onclick: () => { cfg.listeners.splice(i, 1); renderListeners(); } }, "Entfernen")));
-    }));
-  }
-  renderListeners();
-
-  const num = (val, min, max, onset, step) => h("input", { type: "number", min, max, step: step || 1, value: val, style: { width: "110px" }, onchange: (e) => onset(Number(e.target.value)) });
-  const row = (label, input, help) => h("div", { class: "form-row" }, h("label", null, label), input, help ? h("div", { class: "help" }, help) : null);
-  let retention = s.retention_days;
-
-  async function save() {
-    try {
-      await api("settings", { method: "PUT", body: { sensor, sensor_config: cfg, retention_days: retention } });
-      show("Gespeichert. Der Sensor übernimmt die Änderung innerhalb von 15 Sekunden.", true);
-    } catch (e) { show(e.message, false); }
-  }
-
-  const pwCur = h("input", { type: "password", autocomplete: "current-password", maxlength: 72 });
-  const pwNew = h("input", { type: "password", autocomplete: "new-password", minlength: 10, maxlength: 72 });
-  const pwMsg = h("div", { class: "msg", hidden: true });
-  async function changePw(e) {
-    e.preventDefault();
-    try {
-      await api("password", { method: "POST", body: { current: pwCur.value, new: pwNew.value } });
-      pwMsg.className = "msg ok"; pwMsg.textContent = "Passwort geändert. Alle anderen Sitzungen wurden abgemeldet.";
-      pwCur.value = pwNew.value = "";
-    } catch (ex) { pwMsg.className = "msg err"; pwMsg.textContent = ex.message; }
-    pwMsg.hidden = false;
-  }
-
-  mount(el, h("div", { class: "stack" },
-    sensorPick,
-    card("Ports und Modi",
-      h("p", { class: "sub" }, "Welche Dienste der Go-Honeypot anbietet. Die Spalte „Öffentlich“ zeigt den Port auf der NAS laut .env; nur dort freigegebene Ports sind von außen erreichbar."),
-      h("div", { class: "tablewrap" }, h("table", null,
-        h("thead", null, h("tr", null, ["Aktiv", "Dienst", "Port", "Modus", "Öffentlich (NAS-Port)", ""].map((t) => h("th", null, t)))), listBody)),
-      h("p", null, h("button", { class: "btn", onclick: () => { cfg.listeners.push({ service: "raw", port: 5900, mode: "tarpit", enabled: true }); renderListeners(); } }, "Port hinzufügen")),
-      h("p", { class: "muted" }, `SSH und Telnet laufen über Cowrie (NAS-Ports ${s.cowrie.ssh || "–"} und ${s.cowrie.telnet || "–"}) und werden in der .env eingestellt.`),
-      h("dl", { class: "modes" },
-        h("dt", null, "Aufzeichnen"), h("dd", null, "Spielt den Dienst nach, zeichnet Logins, Befehle und Anfragen auf und antwortet normal."),
-        h("dt", null, "Tarpit"), h("dd", null, "Hält die Verbindung sofort fest und sendet endlos winzige Datenstücke. Bremst Scanner aus, zeichnet aber kaum etwas auf."),
-        h("dt", null, "Hybrid"), h("dd", null, "Zeichnet erst den Login oder die erste Anfrage auf und hält die Verbindung dann fest. Daten und Ausbremsen zugleich."))),
-    card("Tarpit",
-      row("Intervall (Sekunden)", num(cfg.tarpit.interval_ms / 1000, 0.2, 600, (v) => { cfg.tarpit.interval_ms = Math.round(v * 1000); }, 0.1), "Abstand zwischen zwei Datenstücken. 10 s ist ein guter Wert."),
-      row("Max. Verbindungen gesamt", num(cfg.tarpit.max_conns, 1, s.max_tarpit_conns, (v) => { cfg.tarpit.max_conns = v; }),
-        `Höchstens ${fmtNum(s.max_tarpit_conns)}. Jede gehaltene Verbindung kostet etwa 10–20 KB RAM; 4096 sind rund 60 MB.`),
-      row("Max. Verbindungen pro IP", num(cfg.tarpit.max_per_ip, 1, s.max_tarpit_conns, (v) => { cfg.tarpit.max_per_ip = v; })),
-      row("Max. Dauer (Minuten)", num(cfg.tarpit.max_duration_min, 0, 525600, (v) => { cfg.tarpit.max_duration_min = v; }), "Danach wird die Verbindung losgelassen. 1440 = 24 Stunden, 0 = unbegrenzt.")),
-    profileCard(cfg, () => { renderListeners(); hostIn.value = cfg.hostname; }),
-    card("Allgemein",
-      row("Hostname im Honeypot", hostIn, "Erscheint in Login-Seiten, Docker- und Redis-Antworten."),
-      row("Rohdaten aufbewahren (Tage)", num(retention, 1, 3650, (v) => { retention = v; }), "Gilt für alle Sensoren. Danach werden Ereignisse und Angreifer-IPs gelöscht; Statistiken ohne IPs bleiben.")),
-    h("div", null, h("button", { class: "btn primary", onclick: save }, sensor ? `Für ${sensor} speichern` : "Speichern"), msg),
-    extras,
-    card("Admin-Passwort ändern",
-      h("form", { onsubmit: changePw },
-        row("Aktuelles Passwort", pwCur), row("Neues Passwort", pwNew, "10 bis 72 Zeichen. Andere angemeldete Geräte werden abgemeldet."),
-        h("button", { class: "btn", type: "submit" }, "Passwort ändern"), pwMsg)),
-    state.user.role === "admin" ? cowrieAuthCard() : null,
-    state.user.role === "admin" ? feedCard() : null,
-    state.user.role === "admin" ? sensorTokensCard() : null,
-    state.user.role === "admin" ? accessCard(s) : null,
-    state.user.role === "admin" ? backupCard() : null));
-}
-
-// ---------- SSH und Telnet (Cowrie): Anmelderegel ----------
-// Raspberry Pi: wird über hivornet-cowrie-config (root) angewendet; Docker: nur Anzeige, Regel in .env.
-function cowrieAuthCard() {
-  const body = h("div", null, h("p", { class: "muted" }, "Lade …"));
-  const box = card("SSH und Telnet (Cowrie): Anmeldung", body);
-  const load = async () => {
-    let d;
-    try { d = await api("cowrie/auth"); } catch (e) { mount(body, h("div", { class: "msg err" }, e.message)); return; }
-    if (d.platform === "none") { mount(body, h("p", { class: "muted" }, "Cowrie ist hier nicht eingerichtet.")); return; }
-    const cur = d.current || { mode: "random", min: 2, max: 5 };
-    const mode = h("select", { "aria-label": "Anmelderegel" },
-      h("option", { value: "random", selected: cur.mode === "random" }, "Erst nach mehreren Versuchen (empfohlen)"),
-      h("option", { value: "all", selected: cur.mode === "all" }, "Jede Kombination sofort (auffällig)"));
-    const min = h("input", { type: "number", min: 1, max: 20, value: cur.min || 2, style: { width: "80px" }, "aria-label": "Mindestens" });
-    const max = h("input", { type: "number", min: 1, max: 20, value: cur.max || 5, style: { width: "80px" }, "aria-label": "Höchstens" });
-    const range = h("div", { class: "form-row" }, h("label", null, "Versuche je IP"),
-      h("div", null, "zwischen ", min, " und ", max, h("div", { class: "help", style: { marginTop: "4px" } },
-        "Cowrie wählt je Angreifer-IP zufällig eine Zahl in diesem Bereich. Erst dann klappt eine Anmeldung; die erfolgreiche Kombination gilt für diese IP weiter.")));
-    const sync = () => { range.style.display = mode.value === "random" ? "" : "none"; };
-    mode.addEventListener("change", sync);
-    sync();
-    const msg = h("span", { class: "muted" });
-    const st = d.status;
-    const save = async () => {
-      msg.textContent = "Wird übernommen …";
-      try {
-        await api("cowrie/auth", { method: "PUT", body: { mode: mode.value, min: Number(min.value), max: Number(max.value) } });
-        msg.textContent = "Angefordert; Cowrie startet in wenigen Sekunden neu.";
-        setTimeout(load, 6000);
-      } catch (e) { msg.textContent = "Fehler: " + e.message; }
-    };
-    mount(body,
-      h("p", { class: "sub" }, "Wie leicht Angreifer in die gefälschte Shell kommen. Nimmt Cowrie jede Kombination sofort an, erkennen geübte Bots den Honeypot; ",
-        "zu hohe Hürden bedeuten dagegen, dass weniger Angreifer Befehle eingeben."),
-      h("p", null, "Aktuell: ", h("b", null, d.current_text || "unbekannt"),
-        st ? h("span", { class: "muted" }, ` · zuletzt geändert ${relTime(st.since)}${st.state === "failed" ? " (fehlgeschlagen: " + st.text + ")" : ""}`) : null,
-        d.pending ? h("span", { class: "muted" }, " · Änderung wird gerade übernommen …") : null),
-      d.can_apply ? [
-        h("div", { class: "form-row" }, h("label", null, "Regel"), mode), range,
-        h("div", { class: "btnrow" }, h("button", { class: "btn primary", onclick: save }, "Übernehmen"), msg),
-      ] : h("div", { class: "msg" }, "Im Docker-Betrieb steht die Regel in der Datei .env: ",
-        h("code", null, "COWRIE_AUTH_CLASS=AuthRandom"), " und ", h("code", null, "COWRIE_AUTH_PARAMS=2, 5, 10"),
-        " (Mindest- und Höchstzahl der Versuche) bzw. ", h("code", null, "COWRIE_AUTH_CLASS=UserDB"), " für jede Kombination sofort. Danach ",
-        h("code", null, "docker compose up -d"), "."));
-  };
-  load();
-  return box;
-}
-
-// ---------- Geräteprofil ----------
-
-// Profile wie in honeypot/profile.go: Dienste, die zum Gerät passen, und ein Hostname.
-// Die Kennungen (Banner, Versionen) setzt der Honeypot selbst passend zum Profil.
-const PROFILES = {
-  "": { name: "Bisher (gemischt, wie vor 0.5.3)", desc: "Alle Dienste mit den bisherigen Kennungen. Von außen wirkt das Gerät widersprüchlich (Windows-RDP, Router-Telnet und Ubuntu-Mailserver zugleich)." },
-  "linux-server": { name: "Linux-Server (Ubuntu)", host: "srv-web01", desc: "Web-, Mail- und Datenbankserver: HTTP/HTTPS, FTP, SMTP, MySQL, Redis, Docker-API.",
-    services: ["http", "https", "ftp", "smtp", "mysql", "redis", "dockerapi", "ssh-tarpit"] },
-  "nas": { name: "NAS", host: "nas-backup01", desc: "Heim-NAS: Weboberfläche, FTP, MariaDB, SNMP.", services: ["http", "https", "ftp", "mysql", "snmp"] },
-  "router": { name: "Router oder Kamera", host: "router", desc: "Gerät mit BusyBox: Weboberfläche, Telnet, FTP, SNMP, SIP.", services: ["http", "https", "telnet", "ftp", "snmp", "sip"] },
-};
-function profileCard(cfg, refresh) {
-  const info = h("p", { class: "muted" });
-  const sel = h("select", { onchange: () => show() }, Object.entries(PROFILES).map(([k, p]) => h("option", { value: k, selected: (cfg.profile || "") === k }, p.name)));
-  const show = () => { info.textContent = PROFILES[sel.value].desc; };
-  show();
-  const apply = () => {
-    const p = PROFILES[sel.value];
-    cfg.profile = sel.value;
-    if (p.services) for (const l of cfg.listeners) l.enabled = p.services.includes(l.service);
-    if (p.host) cfg.hostname = p.host;
-    refresh(); // Formular zeigt die neuen Werte; gespeichert wird erst mit „Speichern“
-  };
-  return card("Geräteprofil",
-    h("p", { class: "sub" }, "Damit das Gerät von außen stimmig wirkt: Das Profil bestimmt Banner und Versionen aller Dienste. ",
-      "„Übernehmen“ schaltet zusätzlich die passenden Dienste ein, die übrigen aus, und setzt den Hostnamen; danach speichern. Cowrie (SSH/Telnet) behält seine eigenen Einstellungen."),
-    h("div", { class: "form-row" }, h("label", null, "Profil"), sel, info),
-    h("div", { class: "btnrow" }, h("button", { class: "btn", onclick: apply }, "Profil übernehmen")));
-}
-
-// ---------- Zugriff über einen Reverse-Proxy (erlaubte Hostnamen) ----------
-
-function accessCard(s) {
-  const msg = h("div", { class: "msg", hidden: true });
-  const show = (text, cls) => { msg.className = "msg " + cls; msg.textContent = text; msg.hidden = false; };
-  const area = h("textarea", { rows: 3, maxlength: 4000, spellcheck: false, autocomplete: "off",
-    placeholder: "hivornet.example.de", style: { width: "100%", fontFamily: "var(--mono, monospace)" } });
-  area.value = (s.allowed_hosts || []).join("\n");
-  const env = s.allowed_hosts_env || [];
-  async function save(e) {
-    e.preventDefault();
-    const list = area.value.split(/[\s,]+/).filter(Boolean);
-    try {
-      const r = await api("settings", { method: "PUT", body: { allowed_hosts: list } });
-      area.value = r.allowed_hosts.join("\n");
-      show(r.allowed_hosts.length ? "Gespeichert. Die Namen gelten sofort." : "Gespeichert. Es sind nur noch IP-Adressen und Heimnetz-Namen erlaubt.", "ok");
-    } catch (ex) { show(ex.message, "err"); }
-  }
-  return card("Zugriff über Reverse-Proxy",
-    h("p", { class: "sub" }, "Die Web-UI antwortet nur auf IP-Adressen und Heimnetz-Namen (z. B. .local, .lan, .fritz.box). Das schützt vor DNS-Rebinding. Rufst du sie über einen Reverse-Proxy unter eigener Domain auf, trage diese hier ein, einen Namen pro Zeile. Ein Punkt am Anfang (.example.de) erlaubt alle Unterdomänen."),
-    h("form", { onsubmit: save },
-      h("div", { class: "form-row" }, h("label", null, "Erlaubte Hostnamen"), area,
-        h("div", { class: "help" }, "Nur den Namen, ohne https:// und Port. Über die IP-Adresse bleibt die Web-UI immer erreichbar.")),
-      env.length ? h("p", { class: "muted" }, "Zusätzlich aus der Konfiguration (HIVE_ALLOWED_HOSTS): " + env.join(", ")) : null,
-      h("button", { class: "btn", type: "submit" }, "Hostnamen speichern"), msg),
-    h("p", { class: "muted" }, "Das Anmelde-Cookie ist automatisch nur über HTTPS gültig, wenn du dich über HTTPS anmeldest (der Proxy muss dafür X-Forwarded-Proto: https mitschicken). Gib die Web-UI nie ohne zusätzliche Anmeldung am Proxy oder VPN ins Internet frei."));
-}
-
-// ---------- Sicherung (Export und Import aller Daten, verschlüsselt) ----------
-
-function backupCard() {
-  const msg = h("div", { class: "msg", hidden: true });
-  const show = (text, cls) => { msg.className = "msg " + cls; msg.textContent = text; msg.hidden = false; };
-  const pwOut = h("input", { type: "password", autocomplete: "current-password", maxlength: 72 });
-  const pwIn = h("input", { type: "password", autocomplete: "off", maxlength: 72 });
-  const file = h("input", { type: "file", accept: ".hvbak" });
-  const btnOut = h("button", { class: "btn", type: "submit" }, "Sicherung herunterladen");
-  const btnIn = h("button", { class: "btn", type: "submit" }, "Sicherung einspielen");
-
-  async function doExport(e) {
-    e.preventDefault();
-    if (!pwOut.value) { show("Bitte dein Passwort eingeben.", "err"); return; }
-    btnOut.disabled = true;
-    show("Sicherung wird erstellt und verschlüsselt … das kann bei vielen Daten etwas dauern.", "warn");
-    try {
-      const r = await fetch("api/backup/export", {
-        method: "POST", credentials: "same-origin",
-        headers: { "Content-Type": "application/json", "X-Requested-With": "hivornet" },
-        body: JSON.stringify({ password: pwOut.value }),
-      });
-      if (!r.ok) {
-        let err = r.statusText;
-        try { err = (await r.json()).error || err; } catch { /* leer */ }
-        throw new Error(err);
-      }
-      const blob = await r.blob();
-      const name = (/filename="([^"]+)"/.exec(r.headers.get("Content-Disposition") || "") || [])[1] || "hivornet-sicherung.hvbak";
-      const url = URL.createObjectURL(blob);
-      const a = h("a", { href: url, download: name });
-      document.body.append(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60000);
-      pwOut.value = "";
-      show(`Sicherung gespeichert (${fmtBytes(blob.size)}). Bewahre die Datei sicher auf; zum Einspielen brauchst du dasselbe Passwort.`, "ok");
-    } catch (ex) {
-      show("Export fehlgeschlagen: " + ex.message, "err");
-    } finally { btnOut.disabled = false; }
-  }
-
-  // Nach dem Einspielen startet der Hive neu; warten, bis er wieder antwortet.
-  async function waitForRestart() {
-    await new Promise((r) => setTimeout(r, 3000));
-    for (let i = 0; i < 60; i++) {
-      try {
-        const r = await fetch("healthz", { cache: "no-store" });
-        if (r.ok) { location.hash = "#/"; location.reload(); return; }
-      } catch { /* startet noch */ }
-      await new Promise((r) => setTimeout(r, 2000));
-    }
-    show("Der Hive meldet sich nicht zurück. Startet er nicht von selbst neu (z. B. ohne Docker oder systemd), bitte von Hand starten.", "err");
-  }
-
-  function doImport(e) {
-    e.preventDefault();
-    const f = file.files && file.files[0];
-    if (!f) { show("Bitte eine Sicherungsdatei (.hvbak) auswählen.", "err"); return; }
-    if (!pwIn.value) { show("Bitte das Passwort der Sicherung eingeben.", "err"); return; }
-    if (!confirm("Alle aktuellen Daten, Einstellungen und Benutzer werden durch die Sicherung ersetzt. Die bisherige Datenbank wird vorher unter backups/ aufgehoben. Fortfahren?")) return;
-    const fd = new FormData();
-    fd.append("password", pwIn.value); // zuerst: der Hive liest die Felder in dieser Reihenfolge
-    fd.append("file", f);
-    const xhr = new XMLHttpRequest();
-    xhr.open("POST", "api/backup/import");
-    xhr.setRequestHeader("X-Requested-With", "hivornet");
-    xhr.upload.onprogress = (ev) => {
-      if (ev.lengthComputable) show(`Lade hoch … ${Math.round((ev.loaded / ev.total) * 100)} %`, "warn");
-    };
-    xhr.upload.onload = () => show("Entschlüssele und prüfe die Sicherung …", "warn");
-    xhr.onload = () => {
-      let d = null;
-      try { d = JSON.parse(xhr.responseText); } catch { /* leer */ }
-      if (xhr.status === 200) {
-        pwIn.value = "";
-        const m = (d && d.meta) || {};
-        show(`Sicherung vom ${m.created ? fmtDateTime(m.created) : "?"} mit ${fmtNum(m.events)} Ereignissen übernommen. Hivornet startet neu; danach meldest du dich mit den Zugangsdaten aus der Sicherung an …`, "ok");
-        waitForRestart();
-      } else {
-        btnIn.disabled = false;
-        show("Einspielen fehlgeschlagen: " + ((d && d.error) || xhr.statusText), "err");
-      }
-    };
-    xhr.onerror = () => { btnIn.disabled = false; show("Verbindung abgebrochen.", "err"); };
-    btnIn.disabled = true;
-    xhr.send(fd);
-  }
-
-  const row = (label, input, help) => h("div", { class: "form-row" }, h("label", null, label), input, help ? h("div", { class: "help" }, help) : null);
-  return card("Sicherung",
-    h("p", { class: "sub" }, "Sichert alles in eine verschlüsselte Datei: Einstellungen, Zusatzfunktionen mit allen API-Schlüsseln, Benutzer sowie alle Angriffe, Statistiken und Berichte. ",
-      "So geht nichts verloren, wenn du den Raspberry Pi neu aufsetzt oder auf ein anderes Gerät umziehst. Nicht enthalten sind Cowrie-Mitschnitte und -Downloads."),
-    h("h3", null, "Exportieren"),
-    h("form", { onsubmit: doExport },
-      row("Dein Passwort", pwOut, "Zur Bestätigung. Mit diesem Passwort wird die Datei verschlüsselt; ohne es lässt sie sich nicht einspielen."),
-      btnOut),
-    h("h3", null, "Importieren"),
-    h("form", { onsubmit: doImport },
-      row("Sicherungsdatei", file),
-      row("Passwort der Sicherung", pwIn, "Das Admin-Passwort, mit dem die Sicherung erstellt wurde."),
-      btnIn),
-    msg);
 }
 
 // ---------- System ----------

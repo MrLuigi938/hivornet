@@ -528,8 +528,9 @@ func backfillPatterns(st *Store, maxID int64) {
 var recountFields = []string{"username", "password", "cred", "command", "path", "useragent", "client", "tag", "tool", "url", "snmp", "sip", "dns", "ja3", "ja4", "hassh", "httpfp", "cve", "wallet", "pool"}
 
 // 0.7.0: neues Muster honeypot_check, Wallets und Pools (indicators.go);
-// 0.7.0-beta.3: Adressen mit Backslashes vollständig (deobf.go), Muster prompt_injection
-const recountKey = "top_recounted_073"
+// 0.7.0-beta.3: Adressen mit Backslashes vollständig (deobf.go), Muster prompt_injection;
+// 0.7.5: Muster und CVE-Regel java4shell
+const recountKey = "top_recounted_075"
 
 // prepareRecount löscht die alten Zähler dieser Felder, einmalig und VOR dem Start des
 // Schreibers; danach zählt recountTop alle Ereignisse bis maxID im Hintergrund neu.

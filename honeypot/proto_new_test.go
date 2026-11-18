@@ -350,7 +350,7 @@ func FuzzTelnetReadLine(f *testing.F) {
 			if len(l) > 64 {
 				t.Fatalf("Zeile länger als erlaubt: %d", len(l))
 			}
-			telnetReply("h", l)
+			telnetReply(profiles["router"], "h", l)
 		}
 	})
 }

@@ -89,7 +89,7 @@ func (s *Session) askMimic(kind, input string) (mimicAnswer, bool) {
 	p := s.m.prof()
 	body, _ := json.Marshal(map[string]string{
 		"kind": kind, "input": clip(input, 2048), "ip": s.SrcIP, "service": s.Service, "host": s.m.Hostname(),
-		"shell": p.TelnetShell, "kernel": p.Kernel, "os": p.OSName, "http_server": p.HTTPServer,
+		"shell": p.TelnetShell, "kernel": p.Kernel, "arch": p.Arch, "os": p.OSName, "http_server": p.HTTPServer,
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), mimicWait)
 	defer cancel()
@@ -143,7 +143,7 @@ func telnetUnknown(out string) bool {
 // mimicShell liefert die Antwort für eine Befehlszeile: statisch, und wenn dort etwas
 // unbekannt war, vom Sprachmodell (Zeilenenden für Telnet als \r\n).
 func (s *Session) mimicShell(host, line string) string {
-	out := telnetReply(host, line)
+	out := telnetReply(s.m.prof(), host, line)
 	if !telnetUnknown(out) {
 		return out
 	}

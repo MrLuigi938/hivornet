@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -32,12 +33,35 @@ type SensorConfig struct {
 }
 
 // Geräteprofile, die der Honeypot kennt (honeypot/profile.go).
-var knownProfiles = []string{"", "linux-server", "nas", "router"}
+var knownProfiles = []string{"", "linux-server", "nas", "router", "ip-camera", "smart-home", "dev-server"}
 
 // Muss zur Tabelle "handlers" im Honeypot passen (dort prüft das TestServiceListsInSync).
 var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw", "telnet", "smtp", "vnc", "rdp", "sip", "snmp", "dns",
 	"adb", "mqtt", "postgres", "elasticsearch", "ollama", "kubernetes"}
 var knownModes = []string{"emulate", "tarpit", "hybrid"}
+
+// defaultPorts: üblicher Port je Dienst. Die Web-UI setzt ihn beim Hinzufügen eines Ports,
+// sobald der Dienst gewählt wird (eine Quelle für UI und Tests). SSH (22) und Telnet (23)
+// gehören Cowrie, auf dem Raspberry Pi wie im Docker-Betrieb; der Go-Honeypot nimmt dafür
+// 2222 (SSH-Tarpit) und 2323 (Telnet) wie in den mitgelieferten Konfigurationen.
+// "raw" hat keinen festen Port.
+var defaultPorts = map[string]int{
+	"http": 80, "https": 443, "dockerapi": 2375, "ftp": 21, "redis": 6379, "mysql": 3306,
+	"ssh-tarpit": 2222, "telnet": 2323, "smtp": 25, "vnc": 5900, "rdp": 3389,
+	"sip": 5060, "snmp": 161, "dns": 53,
+	"adb": 5555, "mqtt": 1883, "postgres": 5432, "elasticsearch": 9200, "ollama": 11434, "kubernetes": 6443,
+}
+
+// reservedPorts: alle Ports, die reservedPort ablehnt, für Hinweise in der UI.
+func reservedPorts() map[string]string {
+	out := map[string]string{}
+	for _, p := range []int{22, 23, 8088, 8089} {
+		if why := reservedPort(p); why != "" {
+			out[strconv.Itoa(p)] = why
+		}
+	}
+	return out
+}
 
 const maxTarpitConns = 8000 // wie im Honeypot
 

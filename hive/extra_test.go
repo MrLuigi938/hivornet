@@ -832,17 +832,18 @@ func TestUpdateChannelAndCheckNow(t *testing.T) {
 	}
 }
 
-// Jedes Geheimnis aus secretFields muss die Einstellungsseite beim Speichern mitschicken
-// (der GreyNoise-Schlüssel fehlte dort und ging so beim Speichern verloren).
+// Jedes Geheimnis aus secretFields muss die Einstellungsseite kennen: als Eingabefeld
+// (ex.secret) und mit seinem Ort im Objekt (SECRET_AT), sonst ginge es beim Speichern verloren
+// (der GreyNoise-Schlüssel fehlte einmal und wurde so gelöscht).
 func TestExtrasSecretsSentByUI(t *testing.T) {
-	js, err := os.ReadFile("web/extra.js")
+	js, err := os.ReadFile("web/settings.js")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var x Extras
 	for name := range x.secretFields() {
-		if !strings.Contains(string(js), "secrets."+name+" ||") {
-			t.Errorf("web/extra.js schickt %s beim Speichern nicht mit", name)
+		if !strings.Contains(string(js), "ex.secret(\""+name+"\")") || !strings.Contains(string(js), " "+name+": [") {
+			t.Errorf("web/settings.js kennt das Geheimnis %s nicht (Eingabefeld oder SECRET_AT fehlt)", name)
 		}
 	}
 }
@@ -869,5 +870,39 @@ func TestWebhookDiscordAndErrorDetail(t *testing.T) {
 	err := n.Send(NotifyConfig{WebhookURL: srv.URL + "/nein"}, nt)
 	if err == nil || !strings.Contains(err.Error(), "400 Bad Request: {\"message\": \"Cannot send an empty message\", \"code\": 50006}") {
 		t.Fatalf("Fehlertext ohne Grund: %v", err)
+	}
+}
+
+// Standardports für „Port hinzufügen“: jeder Dienst außer "raw" hat einen, keiner ist
+// reserviert (auch nicht auf dem Raspberry Pi, wo 22 und 23 Cowrie gehören), und jeder ist
+// im Docker-Betrieb freigegeben (publishedPorts), sonst zeigte die UI gleich eine Warnung.
+func TestDefaultPorts(t *testing.T) {
+	t.Setenv("HIVE_DIRECT_PORTS", "1")
+	for _, svc := range knownServices {
+		p, ok := defaultPorts[svc]
+		if svc == "raw" {
+			if ok {
+				t.Errorf("raw sollte keinen Standardport haben")
+			}
+			continue
+		}
+		if !ok {
+			t.Errorf("Dienst %s ohne Standardport", svc)
+			continue
+		}
+		if why := reservedPort(p); why != "" {
+			t.Errorf("Standardport %d von %s ist reserviert (%s)", p, svc, why)
+		}
+		if _, ok := publishedPorts[p]; !ok {
+			t.Errorf("Standardport %d von %s ist nicht in publishedPorts", p, svc)
+		}
+	}
+	for svc := range defaultPorts {
+		if !contains(knownServices, svc) {
+			t.Errorf("Standardport für unbekannten Dienst %s", svc)
+		}
+	}
+	if r := reservedPorts(); r["22"] != "Cowrie" || r["23"] != "Cowrie" || r["8088"] == "" {
+		t.Errorf("reservierte Ports auf dem Pi: %v", r)
 	}
 }

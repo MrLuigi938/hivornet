@@ -111,9 +111,6 @@ func (m *Manager) telnetAccept(ip, user, pass string) bool {
 // telnetDelay ist die Pause nach einem falschen Passwort (in Tests verkürzt).
 var telnetDelay = func() time.Duration { return 1500*time.Millisecond + time.Duration(rand.IntN(1200))*time.Millisecond }
 
-const telnetCPUInfo = "system type\t\t: MT7620\r\nmachine\t\t\t: Ralink MT7620 SoC\r\nprocessor\t\t: 0\r\ncpu model\t\t: MIPS 24KEc V5.0\r\nBogoMIPS\t\t: 385.84\r\n"
-const telnetMounts = "rootfs / rootfs rw 0 0\r\n/dev/root / squashfs ro,relatime 0 0\r\nproc /proc proc rw,relatime 0 0\r\ntmpfs /tmp tmpfs rw,relatime 0 0\r\ntmpfs /var tmpfs rw,relatime 0 0\r\n"
-
 // echoArgs bildet "echo" nach: -e wertet \xNN, \n und \r aus, -n unterdrückt den Zeilenumbruch.
 func echoArgs(f []string) string {
 	esc, nl := false, true
@@ -216,8 +213,9 @@ func telnetReadLine(br *bufio.Reader, max int) (string, error) {
 	}
 }
 
-// telnetReply liefert die Antwort der Schein-Shell auf eine Eingabezeile.
-func telnetReply(host, line string) string {
+// telnetReply liefert die Antwort der Schein-Shell auf eine Eingabezeile. uname, /proc/cpuinfo
+// und /proc/mounts kommen aus dem Geräteprofil, damit sie zu Redis und Docker passen.
+func telnetReply(p deviceProfile, host, line string) string {
 	var out strings.Builder
 	for _, part := range strings.FieldsFunc(line, func(r rune) bool { return r == ';' || r == '&' || r == '|' }) {
 		f := strings.Fields(part)
@@ -238,11 +236,7 @@ func telnetReply(host, line string) string {
 		case "echo":
 			out.WriteString(echoArgs(f[1:]))
 		case "uname":
-			if len(f) > 1 && strings.Contains(f[1], "a") {
-				out.WriteString("Linux " + host + " 3.10.14 #1 Thu Apr 15 09:12:41 CST 2021 mips GNU/Linux\r\n")
-			} else {
-				out.WriteString("Linux\r\n")
-			}
+			out.WriteString(p.uname(host, f[1:]) + "\r\n")
 		case "id":
 			out.WriteString("uid=0(root) gid=0(root)\r\n")
 		case "whoami":
@@ -250,14 +244,14 @@ func telnetReply(host, line string) string {
 		case "cat":
 			switch {
 			case len(f) > 1 && f[1] == "/proc/cpuinfo":
-				out.WriteString(telnetCPUInfo)
+				out.WriteString(telnetLines(p.CPUInfo))
 			case len(f) > 1 && f[1] == "/proc/mounts":
-				out.WriteString(telnetMounts)
+				out.WriteString(telnetLines(p.Mounts))
 			case len(f) > 1:
 				out.WriteString("cat: can't open '" + clip(f[1], 64) + "': No such file or directory\r\n")
 			}
 		case "mount":
-			out.WriteString(telnetMounts)
+			out.WriteString(telnetLines(p.Mounts))
 		case "ps":
 			out.WriteString("  PID USER       VSZ STAT COMMAND\r\n    1 root      1484 S    init\r\n  312 root      1488 S    /sbin/syslogd -n\r\n  401 root      1492 S    telnetd\r\n  987 root      1496 S    -sh\r\n")
 		case "ls":
@@ -271,6 +265,9 @@ func telnetReply(host, line string) string {
 	}
 	return out.String()
 }
+
+// telnetLines: Zeilenenden für Telnet.
+func telnetLines(s string) string { return strings.ReplaceAll(s, "\n", "\r\n") }
 
 func handleTelnet(s *Session) {
 	drip := func() []byte { return []byte(randWord(1, 2)) }
