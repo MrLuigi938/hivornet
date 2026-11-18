@@ -167,7 +167,6 @@ var (
 	cmdSplit  = regexp.MustCompile(`[;\n|&]+`)
 	installRe = regexp.MustCompile(`(?i)\b(?:apt(?:-get)?|yum|dnf|apk|pip3?|npm|opkg)\s+(?:-\S+\s+)*(?:install|add)\s+((?:[\w.+-]+\s*){1,6})`)
 	pullRe    = regexp.MustCompile(`(?i)\b(?:docker\s+)?pull\s+([\w./:-]+)|\bcreate image=([\w./:-]+)`)
-	urlRe     = regexp.MustCompile(`(?i)\b(?:https?|ftp|tftp)://[^\s'"<>|;)\\]+`)
 	// Zieldatei: "-O datei", "-o datei" oder Umleitung "> datei" (nicht "</tag>" oder "2>&1")
 	outFileRe   = regexp.MustCompile(`(?:\s-[Oo]|(?:^|\s)>{1,2})\s*([\w./-]{1,80})`)
 	uaToolRe    = regexp.MustCompile(`(?i)\b(zgrab|masscan|nmap|censys|shodan|nuclei|sqlmap|nikto|gobuster|dirbuster|wpscan|hydra|python-requests|python-urllib|aiohttp|go-http-client|curl|wget|libwww-perl|okhttp|java|httpx|l9explore|l9tcpid|expanse|internetmeasurement|netcraft|bingbot|googlebot)\b`)
