@@ -732,7 +732,7 @@ export async function extrasCards() {
       row("Aktiv", check(x.mimic, "enabled", "Sprachmodell-Antworten einschalten")),
       row("Wofür", [check(x.mimic, "shell", "unbekannte Befehle der Telnet-Shell"), " ", check(x.mimic, "web", "unbekannte Pfade des Web-Honeypots")]),
       row("Adresse", text(x.mimic, "base_url", { placeholder: "leer = wie KI-Auswertung" }), "Eigene Schnittstelle, z. B. https://openrouter.ai/api/v1. Leer: Adresse und Schlüssel der KI-Auswertung."),
-      row("Modell", text(x.mimic, "model", { placeholder: "leer = wie KI-Auswertung" }), "Ein kleines, schnelles Modell genügt; der Angreifer wartet höchstens 12 Sekunden."),
+      row("Modell", text(x.mimic, "model", { placeholder: "leer = wie KI-Auswertung" }), "Ein kleines, schnelles Modell genügt; der Angreifer wartet höchstens 10 Sekunden; langsamere Antworten werden im Hintergrund fertig erzeugt und beim nächsten gleichen Befehl verwendet."),
       row("API-Schlüssel", secret("mimic_api_key"), "Nur nötig, wenn oben eine eigene Adresse steht."),
       row("Höchstens pro Stunde", numIn(x.mimic, "max_per_hour", 1, 5000, 1), "Neue Anfragen ans Modell insgesamt; gespeicherte Antworten zählen nicht."),
       row("Je Angreifer pro Stunde", numIn(x.mimic, "max_per_ip_hour", 1, 500, 1)),

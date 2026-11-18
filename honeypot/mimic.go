@@ -120,7 +120,10 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, bool) {
 	if req.Method != "GET" && req.Method != "POST" || staticExt[strings.ToLower(path.Ext(req.URL.Path))] || req.URL.Path == "/" {
 		return 0, "", "", false
 	}
-	in := req.Method + " " + req.URL.RequestURI() + " HTTP/1.1\nHost: " + req.Host + "\nUser-Agent: " + req.UserAgent()
+	// Host: der eigene Hostname, nie die Angabe des Angreifers – dort steht meist die öffentliche
+	// IP des Anschlusses, die sonst an den Dienst des Sprachmodells ginge. Ohne User-Agent greift
+	// der Zwischenspeicher auch, wenn verschiedene Scanner denselben Pfad abfragen.
+	in := req.Method + " " + req.URL.RequestURI() + " HTTP/1.1\nHost: " + s.m.Hostname()
 	a, ok := s.askMimic("web", in)
 	if !ok || a.Out == "" {
 		return 0, "", "", false

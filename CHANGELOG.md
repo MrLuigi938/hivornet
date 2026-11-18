@@ -2,6 +2,14 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.7.0-beta.3] – 2026-11-18
+
+### Behoben
+- **Antworten vom Sprachmodell scheiterten oft mit „KI-Antwort nicht lesbar: leere Antwort“.** Ursache war eine Zeitüberschreitung: OpenRouter meldet sofort „OK“ und liefert die Antwort erst später; nach 12 Sekunden brach der Hive ab und hielt das für eine leere Antwort. Jetzt entsteht die Antwort im Hintergrund (bis 90 Sekunden). Der Angreifer wartet höchstens 10 Sekunden und bekommt sonst wie bisher die statische Antwort; die fertige Antwort wird gespeichert und gilt ab dem nächsten gleichen Befehl. Gleiche Anfragen gleichzeitig kosten nur einen Modellaufruf. Fehlermeldungen nennen die Ursache („Modell zu langsam“, „nicht erreichbar“).
+
+### Geändert
+- **Datenschutz:** Bei unbekannten Web-Pfaden geht an das Sprachmodell nicht mehr die Host-Angabe des Angreifers (meist die öffentliche IP des Anschlusses) und kein User-Agent, sondern der eigene Hostname. Dadurch greift der Zwischenspeicher auch, wenn verschiedene Scanner denselben Pfad abfragen.
+
 ## [0.7.0-beta.2] – 2026-11-17
 
 ### Behoben

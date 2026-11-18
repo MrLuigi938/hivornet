@@ -23,7 +23,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
@@ -76,10 +78,12 @@ func (m MimicConfig) effective(ai AIConfig) AIConfig {
 
 const (
 	mimicCacheMax  = 20000
-	mimicTimeout   = 12 * time.Second
 	mimicMaxInput  = 2048
 	mimicMaxOutput = 16 << 10
 )
+
+// mimicTimeout: so lange wartet der Angreifer höchstens (der Honeypot gibt 13 s). Variable nur für Tests.
+var mimicTimeout = 10 * time.Second
 
 type mimicReq struct {
 	Kind       string `json:"kind"`  // shell | web
@@ -113,6 +117,7 @@ type mimicState struct {
 	limited int64 // wegen Grenze statisch beantwortet
 	failed  int64
 	lastErr string
+	jobs    map[string]*mimicJob // laufende Erzeugungen je Schlüssel
 }
 
 func (s *mimicState) allow(ip string, c MimicConfig) bool {
@@ -184,9 +189,10 @@ var mimicAsk = func(ctx context.Context, c AIConfig, msgs []map[string]string) (
 	if c.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 	}
+	start := time.Now()
 	resp, err := aiHTTP.Do(req)
 	if err != nil {
-		return "", err
+		return "", mimicErr(ctx, err, start)
 	}
 	defer resp.Body.Close()
 	raw := make([]byte, 0, 4096)
@@ -194,14 +200,27 @@ var mimicAsk = func(ctx context.Context, c AIConfig, msgs []map[string]string) (
 	for len(raw) < 1<<20 {
 		n, err := resp.Body.Read(buf)
 		raw = append(raw, buf[:n]...)
-		if err != nil {
+		if err == io.EOF {
 			break
+		}
+		if err != nil {
+			// OpenRouter schickt sofort "200 OK" und Füllzeichen, die Antwort erst später:
+			// Ein Abbruch hier ist eine Zeitüberschreitung, keine leere Antwort.
+			return "", mimicErr(ctx, err, start)
 		}
 	}
 	if resp.StatusCode != 200 {
 		return "", fmt.Errorf("Modell antwortet %s: %s", resp.Status, clip(string(raw), 160))
 	}
 	return parseAIResponse(raw)
+}
+
+// mimicErr benennt Zeitüberschreitungen verständlich.
+func mimicErr(ctx context.Context, err error, start time.Time) error {
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) || errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Errorf("Modell zu langsam: nach %d s keine vollständige Antwort", int(time.Since(start).Seconds()))
+	}
+	return fmt.Errorf("Modell nicht erreichbar: %w", err)
 }
 
 // cleanShellOut entfernt, was Modelle gern hinzufügen (Code-Zäune), und begrenzt die Länge.
@@ -293,41 +312,88 @@ func (h *Hive) mimic(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), mimicTimeout)
-	defer cancel()
+	// Die Antwort entsteht im Hintergrund (bis mimicGenTimeout). Der Angreifer wartet höchstens
+	// mimicTimeout; ist das Modell langsamer, antwortet der Honeypot diesmal statisch, die fertige
+	// Antwort landet trotzdem im Speicher und gilt beim nächsten gleichen Befehl.
+	job := h.mimicStart(key, req, c.effective(x.AI))
+	timer := time.NewTimer(mimicTimeout)
+	defer timer.Stop()
 	select {
-	case mimicSem <- struct{}{}:
-		defer func() { <-mimicSem }()
-	case <-ctx.Done():
-		w.WriteHeader(http.StatusNoContent)
-		return
-	}
-	txt, err := mimicAsk(ctx, c.effective(x.AI), mimicMessages(req))
-	var out mimicResp
-	ok := err == nil
-	if ok {
-		if req.Kind == "web" {
-			out, ok = parseWebOut(txt)
-			if !ok {
-				err = fmt.Errorf("Antwort des Modells ist kein gültiges JSON")
-			}
-		} else {
-			out = mimicResp{Out: cleanShellOut(txt)}
+	case <-job.done:
+		if job.err != nil {
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
-	}
-	h.mimicSt.mu.Lock()
-	h.mimicSt.asked++
-	if !ok {
-		h.mimicSt.failed++
-		h.mimicSt.lastErr = clip(err.Error(), 200)
-	}
-	h.mimicSt.mu.Unlock()
-	if !ok {
+		writeJSON(w, job.out)
+	case <-timer.C:
 		w.WriteHeader(http.StatusNoContent)
-		return
+	case <-r.Context().Done():
 	}
-	h.mimicStore(key, req, out)
-	writeJSON(w, out)
+}
+
+const mimicGenTimeout = 90 * time.Second
+
+type mimicJob struct {
+	done chan struct{}
+	out  mimicResp
+	err  error
+}
+
+// mimicStart startet die Erzeugung einer Antwort oder hängt sich an eine laufende mit
+// demselben Schlüssel an (gleiche Eingaben gleichzeitig kosten nur einen Aufruf).
+func (h *Hive) mimicStart(key string, req mimicReq, ai AIConfig) *mimicJob {
+	s := &h.mimicSt
+	s.mu.Lock()
+	if s.jobs == nil {
+		s.jobs = map[string]*mimicJob{}
+	}
+	if j := s.jobs[key]; j != nil {
+		s.mu.Unlock()
+		return j
+	}
+	j := &mimicJob{done: make(chan struct{})}
+	s.jobs[key] = j
+	s.mu.Unlock()
+	go func() {
+		defer func() {
+			s.mu.Lock()
+			delete(s.jobs, key)
+			s.mu.Unlock()
+			close(j.done)
+		}()
+		ctx, cancel := context.WithTimeout(context.Background(), mimicGenTimeout)
+		defer cancel()
+		select {
+		case mimicSem <- struct{}{}:
+			defer func() { <-mimicSem }()
+		case <-ctx.Done():
+			j.err = fmt.Errorf("zu viele gleichzeitige Anfragen ans Modell")
+			return
+		}
+		txt, err := mimicAsk(ctx, ai, mimicMessages(req))
+		if err == nil {
+			if req.Kind == "web" {
+				var ok bool
+				if j.out, ok = parseWebOut(txt); !ok {
+					err = fmt.Errorf("Antwort des Modells ist kein gültiges JSON")
+				}
+			} else {
+				j.out = mimicResp{Out: cleanShellOut(txt)}
+			}
+		}
+		j.err = err
+		s.mu.Lock()
+		s.asked++
+		if err != nil {
+			s.failed++
+			s.lastErr = clip(err.Error(), 200)
+		}
+		s.mu.Unlock()
+		if err == nil {
+			h.mimicStore(key, req, j.out)
+		}
+	}()
+	return j
 }
 
 // mimicStatus: GET /api/mimic/status – Zähler und Größe des Zwischenspeichers (Einstellungen).

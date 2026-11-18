@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 )
 
 func TestMimicEndpoint(t *testing.T) {
@@ -91,5 +93,71 @@ func TestMimicValidate(t *testing.T) {
 	}
 	if _, ok := parseWebOut("kein json"); ok {
 		t.Error("ungültige Web-Antwort angenommen")
+	}
+}
+
+// Langsames Modell: Der Angreifer bekommt nach mimicTimeout die statische Antwort (204), die
+// Antwort entsteht im Hintergrund fertig und kommt beim nächsten gleichen Befehl aus dem Speicher.
+// Gleichzeitige gleiche Anfragen kosten nur einen Aufruf.
+func TestMimicSlowModelBackground(t *testing.T) {
+	h := testHive(t)
+	oldAsk, oldWait := mimicAsk, mimicTimeout
+	t.Cleanup(func() { mimicAsk, mimicTimeout = oldAsk, oldWait })
+	mimicTimeout = 50 * time.Millisecond
+	var calls atomic.Int32
+	release := make(chan struct{})
+	mimicAsk = func(ctx context.Context, c AIConfig, msgs []map[string]string) (string, error) {
+		calls.Add(1)
+		<-release
+		return "slow output", nil
+	}
+	x := h.Extras()
+	x.AI = AIConfig{BaseURL: "http://127.0.0.1:1/v1", Model: "m"}
+	x.Mimic = defaultMimic()
+	x.Mimic.Enabled = true
+	h.extras.x = x
+	ask := func() int {
+		w := httptest.NewRecorder()
+		h.mimic(w, httptest.NewRequest("POST", "/api/sensor/mimic", strings.NewReader(`{"kind":"shell","input":"slowcmd","ip":"203.0.113.9"}`)))
+		return w.Code
+	}
+	if c1, c2 := ask(), ask(); c1 != 204 || c2 != 204 {
+		t.Fatalf("erst statisch erwartet: %d %d", c1, c2)
+	}
+	close(release)
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, ok := h.mimicCached(mimicKey(mimicReq{Kind: "shell", Input: "slowcmd", IP: "203.0.113.9"})); ok {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("Antwort nicht im Speicher angekommen")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if code := ask(); code != 200 {
+		t.Errorf("zweites Mal aus dem Speicher erwartet: %d", code)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("Modellaufrufe: %d (gleiche Eingabe sollte nur einmal gehen)", n)
+	}
+	// Bis der Hintergrundauftrag abgemeldet ist (unter der Sperre), bevor Cleanup mimicAsk zurücksetzt
+	for {
+		h.mimicSt.mu.Lock()
+		n := len(h.mimicSt.jobs)
+		h.mimicSt.mu.Unlock()
+		if n == 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestMimicErrTimeout(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	<-ctx.Done()
+	if err := mimicErr(ctx, ctx.Err(), time.Now().Add(-11*time.Second)); !strings.Contains(err.Error(), "zu langsam") {
+		t.Errorf("Zeitüberschreitung nicht benannt: %v", err)
 	}
 }
