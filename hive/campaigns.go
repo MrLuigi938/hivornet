@@ -254,8 +254,7 @@ func (h *Hive) campaigns(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 60*time.Second)
 	defer cancel()
 	since := time.Now().Add(-7 * 24 * time.Hour)
-	switch r.URL.Query().Get("range") {
-	case "1h", "24h", "7d", "30d", "90d":
+	if _, ok := parseRange(r.URL.Query().Get("range")); ok {
 		since, _ = rangeSince(r)
 	}
 	list, truncated, err := h.loadAttacks(ctx, since, nil)

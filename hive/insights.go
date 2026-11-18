@@ -339,20 +339,23 @@ func (c *insightsCache) get(rng string) (map[string]any, bool) {
 	return nil, false
 }
 
-// insightBuckets: Fächer für den Kalenderstreifen der Wiederkehrer (Stunden bei 24 h, sonst Tage).
+// insightBuckets: Fächer für den Kalenderstreifen der Wiederkehrer: Stunden bis zwei Tage,
+// Tage bis 60 Tage, darüber Wochen.
 func insightBuckets(rng string) (int, time.Duration) {
-	switch rng {
-	case "24h":
-		return 24, time.Hour
-	case "30d":
-		return 30, 24 * time.Hour
+	d := rangeDur(rng, 7*24*time.Hour)
+	step := 24 * time.Hour
+	switch {
+	case d <= 48*time.Hour:
+		step = time.Hour
+	case d > 60*24*time.Hour:
+		step = 7 * 24 * time.Hour
 	}
-	return 7, 24 * time.Hour
+	return int((d + step - 1) / step), step
 }
 
 func (h *Hive) insights(w http.ResponseWriter, r *http.Request) {
 	rng := r.URL.Query().Get("range")
-	if rng != "24h" && rng != "7d" && rng != "30d" {
+	if d, ok := parseRange(rng); !ok || d < 24*time.Hour {
 		rng = "7d"
 	}
 	c := &h.insightsC

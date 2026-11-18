@@ -7,7 +7,7 @@ package main
 //
 // Felder:  ip, country/land, asn, org, service/dienst, port, stufe, events, user, pass, cred,
 //          cmd/befehl, path/pfad, url, tag/muster, cve, client, fp, wallet, art/profile,
-//          scanner (ja/nein), login (ja/nein)
+//          scanner (ja/nein), login (ja/nein), ki (ja/nein: das Sprachmodell hat geantwortet)
 // Werte:   ohne * = enthält (Groß-/Kleinschreibung egal), mit * = Platzhalter über den ganzen Wert
 // Zahlen:  stufe, port, events, asn mit = < > <= >=; Stufe auch als Name (befehle, download …)
 //
@@ -38,12 +38,12 @@ var qFieldRe = regexp.MustCompile(`^(-?)([a-zäöü]+)(>=|<=|:|=|<|>)(.*)$`)
 var qAliases = map[string]string{
 	"land": "country", "dienst": "service", "svc": "service", "befehl": "cmd", "command": "cmd", "pfad": "path",
 	"muster": "tag", "pattern": "tag", "profile": "art", "benutzer": "user", "passwort": "pass", "password": "pass",
-	"fingerprint": "fp", "organisation": "org", "as": "asn",
+	"fingerprint": "fp", "organisation": "org", "as": "asn", "ai": "ki",
 }
 
 var qFields = map[string]bool{"ip": true, "country": true, "asn": true, "org": true, "service": true, "port": true, "stufe": true,
 	"events": true, "user": true, "pass": true, "cred": true, "cmd": true, "path": true, "url": true, "tag": true, "cve": true,
-	"client": true, "fp": true, "wallet": true, "art": true, "scanner": true, "login": true}
+	"client": true, "fp": true, "wallet": true, "art": true, "scanner": true, "login": true, "ki": true}
 
 var stufeNames = map[string]int{"abtasten": 0, "scan": 0, "versuche": 1, "login": 2, "befehle": 3, "download": 4, "datei": 4}
 
@@ -209,6 +209,8 @@ func (a *Attack) matchTerm(t qTerm) bool {
 		return (a.Scanner != "") == yes(t.val)
 	case "login":
 		return a.Success == yes(t.val)
+	case "ki":
+		return (len(a.AIReplies) > 0) == yes(t.val)
 	}
 	return false
 }

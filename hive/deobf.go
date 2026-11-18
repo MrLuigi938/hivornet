@@ -144,11 +144,17 @@ func matchAll(text, on string, revealed []string) []string {
 	return ids
 }
 
-// allURLs: Adressen im Text und in den entschlüsselten Inhalten.
+// urlEscRe findet Adressen auch dann, wenn Backslashes darin stehen: Angreifer verschleiern
+// Adressen gern so ("http://ex\\am\\ple.org"); die Shell entfernt die Backslashes beim
+// Ausführen. Ohne diese Regel endete die Adresse beim ersten Backslash ("http://ex").
+var urlEscRe = regexp.MustCompile(`(?i)\b(?:https?|ftp|tftp)://(?:[^\s'"<>|;)\\]|\\+[^\s'"<>|;)\\])+`)
+
+// allURLs: Adressen im Text und in den entschlüsselten Inhalten (Backslashes entfernt).
 func allURLs(text string, revealed []string, max int) []string {
 	var out []string
 	for _, s := range append([]string{text}, revealed...) {
-		for _, u := range urlRe.FindAllString(s, max) {
+		for _, u := range urlEscRe.FindAllString(s, max) {
+			u = strings.ReplaceAll(u, `\`, "")
 			if !contains(out, u) && len(out) < max {
 				out = append(out, u)
 			}

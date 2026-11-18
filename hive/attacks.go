@@ -55,10 +55,11 @@ type Attack struct {
 	Commands      []string       `json:"commands,omitempty"`       // ausgeführte Befehle (einstufung.go)
 	ProtoCommands []string       `json:"proto_commands,omitempty"` // Protokoll-Befehle vor der Anmeldung, Eingaben an der Login-Abfrage
 	URLs          []string       `json:"urls,omitempty"`
-	Wallets       []string       `json:"wallets,omitempty"` // Krypto-Wallets aus Miner-Befehlen (indicators.go)
-	Pools         []string       `json:"pools,omitempty"`   // Mining-Pools
-	Sensors       []string       `json:"sensors,omitempty"` // meldende Sensoren (feed.go: Vertrauen)
-	Decoded       []string       `json:"decoded,omitempty"` // entschlüsselte Inhalte (Base64, Hex …)
+	Wallets       []string       `json:"wallets,omitempty"`    // Krypto-Wallets aus Miner-Befehlen (indicators.go)
+	Pools         []string       `json:"pools,omitempty"`      // Mining-Pools
+	Sensors       []string       `json:"sensors,omitempty"`    // meldende Sensoren (feed.go: Vertrauen)
+	AIReplies     []AIReply      `json:"ai_replies,omitempty"` // Antworten des Sprachmodells (mimic.go)
+	Decoded       []string       `json:"decoded,omitempty"`    // entschlüsselte Inhalte (Base64, Hex …)
 	Clients       []string       `json:"clients,omitempty"`
 	Fingerprints  []string       `json:"fingerprints,omitempty"` // JA4, JA3, HASSH, HTTP-Kopfzeilen (tlsfp.go)
 	Tags          []Count        `json:"tags,omitempty"`         // erkannte Muster (Key = ID, Label = Name)
@@ -82,6 +83,7 @@ type Attack struct {
 	port                         map[int]bool
 	seenCmd, seenSess, seenCli   map[string]bool
 	okSess                       map[string]bool // Sitzungen mit angenommenem Login
+	stripStride, stripSeen       int             // Ausdünnung des Zeitstreifens (addStrip)
 }
 
 type stripEvent struct {
@@ -90,6 +92,48 @@ type stripEvent struct {
 }
 
 const stripMax = 400
+
+// stripRare: Arten, die im Zeitstreifen immer einen Strich bekommen (sonst gehen die
+// wenigen Befehle zwischen Hunderten Logins unter).
+var stripRare = map[string]bool{"command": true, "download": true, "tty": true, "ai_reply": true, "payload": true}
+
+// addStrip: Der Streifen hält höchstens stripMax Striche. Ist er voll, wird jeder zweite
+// häufige Strich gestrichen und von da an nur noch jedes zweite (vierte, achte …) häufige
+// Ereignis aufgenommen. So deckt der Streifen auch lange Angriffe bis zum Ende ab; vorher
+// endete er nach den ersten 400 Ereignissen.
+func (a *Attack) addStrip(ms int64, typ string) {
+	if a.stripStride == 0 {
+		a.stripStride = 1
+	}
+	if !stripRare[typ] {
+		a.stripSeen++
+		if a.stripSeen%a.stripStride != 0 {
+			return
+		}
+	}
+	a.Strip = append(a.Strip, stripEvent{ms, typ})
+	for len(a.Strip) >= stripMax {
+		kept := a.Strip[:0]
+		n, common := 0, 0
+		for _, x := range a.Strip {
+			if !stripRare[x.Type] {
+				common++
+			}
+		}
+		for _, x := range a.Strip {
+			if stripRare[x.Type] && common > 0 { // nur seltene übrig: dann auch diese ausdünnen
+				kept = append(kept, x)
+				continue
+			}
+			if n%2 == 0 {
+				kept = append(kept, x)
+			}
+			n++
+		}
+		a.Strip = kept
+		a.stripStride *= 2
+	}
+}
 
 func newAttack(e *Event) *Attack {
 	ms := e.TS.UnixMilli()
@@ -150,8 +194,8 @@ func (a *Attack) add(e *Event) {
 		a.Sessions = append(a.Sessions, e.Session)
 	}
 	a.TarpitMs += e.TarpitMs
-	if e.Type != "disconnect" && len(a.Strip) < stripMax {
-		a.Strip = append(a.Strip, stripEvent{ms, e.Type})
+	if e.Type != "disconnect" {
+		a.addStrip(ms, e.Type)
 	}
 	if e.Type == "connect" || e.Type == "disconnect" {
 		return // häufigste Ereignisse: nichts weiter auszuwerten
@@ -219,6 +263,12 @@ func (a *Attack) add(e *Event) {
 		if u := str("url"); u != "" && len(a.URLs) < 10 && !slices.Contains(a.URLs, u) {
 			a.URLs = append(a.URLs, clip(u, 300))
 		}
+	case "ai_reply":
+		// Text des Modells: keine Muster- oder Adressprüfung (stammt nicht vom Angreifer)
+		if len(a.AIReplies) < 10 {
+			a.AIReplies = append(a.AIReplies, aiReplyFrom(e))
+		}
+		return
 	case "client_version":
 		if v := str("version"); v != "" && !a.seenCli[v] && len(a.Clients) < 5 {
 			a.seenCli[v] = true
@@ -512,11 +562,10 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	q := r.URL.Query()
 	since := time.Now().Add(-24 * time.Hour)
-	switch rng := q.Get("range"); rng {
-	case "1h", "24h", "7d", "30d", "90d":
-		since, _ = rangeSince(r)
-	case "all": // alles, was die Aufbewahrung hält
+	if rng := q.Get("range"); rng == "all" { // alles, was die Aufbewahrung hält
 		since = time.Now().AddDate(0, 0, -max(h.retentionDays(), 1))
+	} else if _, ok := parseRange(rng); ok {
+		since, _ = rangeSince(r)
 	}
 	active := q.Get("active") == "1"
 	if active {

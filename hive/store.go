@@ -53,7 +53,8 @@ type Event struct {
 var validTypes = map[string]bool{
 	"connect": true, "disconnect": true, "login": true, "request": true, "command": true,
 	"download": true, "client_version": true, "payload": true, "tls": true, "fingerprint": true,
-	"tty": true, // Cowrie-Mitschnitt vorhanden (nur vom Cowrie-Leser erzeugt)
+	"tty":      true, // Cowrie-Mitschnitt vorhanden (nur vom Cowrie-Leser erzeugt)
+	"ai_reply": true, // das Sprachmodell hat dem Angreifer geantwortet (mimic.go)
 }
 
 // Sanitize prüft und kürzt Felder von Sensoren, bevor sie gespeichert werden.

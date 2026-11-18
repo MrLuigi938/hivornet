@@ -3,13 +3,13 @@
 // vermuteter Art, Zusammenfassung und Zeitstreifen; kompakte Zeile fürs Dashboard.
 import { h, mount, api, fmtNum, fmtTime, fmtDur, toMs, relTime, flag, store } from "./dom.js";
 import { svcName, svcColor, countryName } from "./charts.js";
-import { header, card, TYPE_NAME } from "./app.js";
+import { header, card, TYPE_NAME, rangePicker, rangeOK } from "./app.js";
 
 export const STUFE = ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"];
 export const STUFE_KURZ = ["Scan", "Versuche", "Login ok", "Befehle", "Download"];
 export const sevColor = (n) => `var(--sev${n})`;
 const TYPCOL = { connect: "var(--other)", client_version: "var(--other)", tls: "var(--other)", fingerprint: "var(--other)",
-  login: "var(--sev1)", request: "var(--s2)", payload: "var(--s7)", command: "var(--sev3)", download: "var(--sev4)", tty: "var(--sev3)" };
+  login: "var(--sev1)", request: "var(--s2)", payload: "var(--s7)", command: "var(--sev3)", download: "var(--sev4)", tty: "var(--sev3)", ai_reply: "var(--s7)" };
 const RANGES = [["1h", "1 Std"], ["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"], ["90d", "90 Tage"], ["all", "Alles"]];
 
 // Kurzfassung in einer Zeile
@@ -26,6 +26,7 @@ export function summary(a) {
   if (c.prompt) p.push(`${fmtNum(c.prompt)}× Befehle an der Login-Abfrage`);
   if (c.tls_plain) p.push("TLS-Handshake am Klartext-Port");
   if (c.download) p.push(`${fmtNum(c.download)} Download${c.download > 1 ? "s" : ""}`);
+  if (c.ai_reply) p.push(`${fmtNum(c.ai_reply)}× von der KI beantwortet`);
   if (!p.length) p.push(a.ports.length > 1 ? `${a.ports.length} Ports abgetastet` : `Verbindung zu Port ${a.ports[0] || "?"}`);
   return p.join(" · ");
 }
@@ -49,6 +50,7 @@ function evText(e) {
     case "tls": return d.sni ? `SNI ${d.sni}` : "TLS";
     case "fingerprint": return d.hassh ? `HASSH ${d.hassh}` : "";
     case "tty": return "Terminal-Mitschnitt";
+    case "ai_reply": return `${d.input || ""} → ${String(d.output || "").split("\n").find((l) => l.trim()) || "(leer)"}`;
   }
   return "";
 }
@@ -74,6 +76,24 @@ function eventGroups({ groups, more }) {
       h("b", null, TYPE_NAME[g.type] || g.type, " ", h("span", { class: "muted" }, svcName(g.service)), g.items.length > 1 ? h("span", { class: "xn" }, "×" + fmtNum(g.items.length)) : null),
       h("span", { class: "mono" }, kinds.slice(0, 6).join("  ·  ") + (kinds.length > 6 ? `  · +${kinds.length - 6}` : "")));
   }), more ? h("p", { class: "muted" }, "Nur die neuesten 500 Ereignisse; alle unter Angreifer-Profil.") : null];
+}
+
+// Antworten des Sprachmodells (Einstellungen → Antworten mit Sprachmodell): Eingabe des
+// Angreifers und was der Honeypot daraufhin ausgeliefert hat. Nur Text, nie ausgeführt.
+export function aiReplies(list, { max = 3 } = {}) {
+  if (!list || !list.length) return null;
+  const one = (r) => h("details", { class: "aireply" },
+    h("summary", null, h("span", { class: "badge ai" }, r.kind === "web" ? "Web" : "Shell"), " ",
+      h("span", { class: "mono" }, r.input), r.status ? h("span", { class: "muted" }, ` · HTTP ${r.status}`) : null,
+      r.cached ? h("span", { class: "muted", title: "Aus dem Zwischenspeicher, das Modell wurde nicht erneut gefragt" }, " · gespeichert") : null,
+      h("span", { class: "muted" }, " · " + fmtTime(r.t))),
+    h("pre", { class: "mono" }, r.output || "(leer)"));
+  const box = h("div", { class: "ai-list" }, list.slice(0, max).map(one));
+  if (list.length > max) {
+    const btn = h("button", { class: "linklike", onclick: () => { mount(box, list.map(one)); btn.remove(); } }, `alle ${list.length} anzeigen`);
+    return h("div", null, box, btn);
+  }
+  return box;
 }
 
 // Große Karte (Seite "Angriffe", Angreifer-Profil)
@@ -113,6 +133,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
         a.own ? h("span", { class: "badge", title: "Adresse aus einem eigenen Netz (Einstellungen → Eigene Netze)" }, "eigener Test") : null,
         a.scanner ? h("span", { class: "badge", title: "Bekannter Forschungs- oder Vermessungsdienst bzw. per DNS geprüfter Suchmaschinen-Bot" }, "Scanner: " + a.scanner) : null,
         a.bot && !a.scanner ? h("span", { class: "badge" + (a.bot.includes("gefälscht") ? " err" : ""), title: "Prüfung per Rückwärts- und Vorwärtsauflösung" }, a.bot) : null,
+        a.ai_replies && a.ai_replies.length ? h("span", { class: "badge ai", title: "Das Sprachmodell hat diesem Angreifer geantwortet (Einstellungen → Antworten mit Sprachmodell)" }, "beantwortet durch KI") : null,
         a.seen > 1 ? h("span", { class: "badge" }, `${a.seen}. Angriff dieser IP`) : null,
         active ? h("span", { class: "badge active" }, "● aktiv") : null,
         h("span", { class: "num" }, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)} · ${fmtDur(span)}`),
@@ -129,6 +150,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     facts.length ? h("div", { class: "facts", style: a.strip && a.strip.length > 1 ? null : { marginTop: "12px" } }, facts.map(([k, items, more, cls]) => h("div", { class: "fact" },
       h("div", { class: "k" }, k),
       h("div", { class: "v" }, items.map((x) => h("span", { class: "pill mono" + (cls ? " " + cls : ""), title: x }, x)), more ? h("span", { class: "muted" }, more) : null)))) : null,
+    a.ai_replies && a.ai_replies.length ? h("div", { class: "fact ai-fact" }, h("div", { class: "k" }, "Antworten der KI (vom Honeypot ausgeliefert, nichts ausgeführt)"), aiReplies(a.ai_replies)) : null,
     h("div", { class: "foot" },
       toggle,
       showIP ? h("a", { href: "#/attacker/" + encodeURIComponent(a.ip) }, "Angreifer-Profil und Bericht") : null,
@@ -201,18 +223,17 @@ export async function viewAttacks(el, ctx, query = "") {
   const params = new URLSearchParams(query.replace(/^\?/, ""));
   // Filter aus dem Link übernehmen (z. B. von den Kennzahlen im Dashboard)
   const f = {
-    range: RANGES.some(([v]) => v === params.get("range")) ? params.get("range") : store("attRange") || "24h",
+    range: rangeOK(params.get("range")) ? params.get("range") : rangeOK(store("attRange")) ? store("attRange") : "24h",
     stufe: new Set((params.get("stufe") || "").split(",").filter((x) => /^[0-4]$/.test(x)).map(Number)),
     service: params.get("service") || "", q: params.get("q") || "", success: params.get("success") === "1", paused: false,
+    ai: params.get("ki") === "1",
     own: params.get("own") === "1",
   };
   let nOwn = 0;
   const open = new Set();
   let list = [], matched = 0, stufen = [0, 0, 0, 0, 0], truncated = false;
 
-  const rangeSeg = h("div", { class: "seg", role: "group", "aria-label": "Zeitraum" }, RANGES.map(([v, l]) => h("button", {
-    class: f.range === v ? "on" : "", onclick: (ev) => { f.range = v; store("attRange", v); rangeSeg.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === ev.target)); load(); },
-  }, l)));
+  const rangeSeg = rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); load(); });
   const pauseBtn = h("button", { class: "btn", onclick: () => { f.paused = !f.paused; pauseBtn.textContent = f.paused ? "Fortsetzen" : "Pausieren"; if (!f.paused) load(); } }, "Pausieren");
   header("Angriffe", { extra: [viewSwitch("gruppen"), rangeSeg, pauseBtn] });
 
@@ -237,9 +258,9 @@ export async function viewAttacks(el, ctx, query = "") {
     h("details", { class: "aw-small" }, h("summary", null, "Suchsprache"),
       h("div", { class: "muted", style: { maxWidth: "640px" } },
         "Mehrere Teile müssen alle zutreffen, „-“ davor kehrt um, Anführungszeichen halten Wörter zusammen. Felder: ",
-        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve client fp wallet art scanner login"),
+        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve client fp wallet art scanner login ki"),
         ". Zahlen mit = < > <= >= (", h("code", null, "stufe>=3"), ", ", h("code", null, "port:5555"), "), Stufe auch als Wort (", h("code", null, "stufe:befehle"),
-        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), ".")));
+        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), " / ", h("code", null, "ki:ja"), " (das Sprachmodell hat geantwortet).")));
   api("searches").then(renderSaved).catch(() => {});
   const chips = h("div", { class: "filters" });
   const info = h("div", { class: "muted", style: { fontSize: "12.5px" } });
@@ -256,6 +277,8 @@ export async function viewAttacks(el, ctx, query = "") {
       STUFE.map((st, i) => chip(f.stufe.has(i), st, stufen[i], sevColor(i), () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); load(); })),
       h("span", { class: "fsep" }),
       ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"].map((sv) => chip(f.service === sv, svcName(sv), null, svcColor(sv), () => { f.service = f.service === sv ? "" : sv; load(); })),
+      h("span", { class: "fsep" }),
+      chip(f.ai, "Beantwortet durch KI", null, "var(--s7)", () => { f.ai = !f.ai; load(); }),
       nOwn || f.own ? [h("span", { class: "fsep" }), chip(f.own, "Eigene Tests zeigen", nOwn, null, () => { f.own = !f.own; load(); })] : null);
   }
   function renderSide() {
@@ -310,7 +333,8 @@ export async function viewAttacks(el, ctx, query = "") {
     if (f.service) p.set("service", f.service);
     if (f.success) p.set("success", "1");
     if (f.own) p.set("own", "1");
-    if (f.q) p.set("q", f.q);
+    const q = [f.q, f.ai ? "ki:ja" : ""].filter(Boolean).join(" ");
+    if (q) p.set("q", q);
     if (before) p.set("before", String(before));
     return p.toString();
   };
@@ -337,7 +361,7 @@ export async function viewAttacks(el, ctx, query = "") {
         ". Die Art (z. B. „SSH-Brute-Force“) ist aus dem Verhalten geschätzt.")))));
   await load();
 
-  const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && (!f.success || a.success) && !f.q;
+  const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && (!f.success || a.success) && (!f.ai || (a.ai_replies || []).length > 0) && !f.q;
   liveAttacks(ctx, (updated) => {
     if (f.paused) return;
     if (!f.own) updated = updated.filter((a) => !a.own);

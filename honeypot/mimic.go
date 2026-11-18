@@ -25,6 +25,17 @@ type mimicAnswer struct {
 	Out         string `json:"out"`
 	Status      int    `json:"status"`
 	ContentType string `json:"content_type"`
+	Cached      bool   `json:"cached"`
+}
+
+// emitAIReply meldet dem Hive, dass das Sprachmodell geantwortet hat (Ereignis "ai_reply"):
+// sichtbar in Angriffen, Angriffskette und Bericht.
+func (s *Session) emitAIReply(kind, input, output string, status int, cached bool) {
+	data := map[string]any{"kind": kind, "input": printable([]byte(input), 512), "output": printable([]byte(output), budgetCommand), "cached": cached}
+	if status > 0 {
+		data["status"] = status
+	}
+	s.Emit(Event{Type: "ai_reply", Data: data})
 }
 
 func (s *Session) askMimic(kind, input string) (mimicAnswer, bool) {
@@ -97,6 +108,7 @@ func (s *Session) mimicShell(host, line string) string {
 	if !ok {
 		return out
 	}
+	s.emitAIReply("shell", line, a.Out, 0, a.Cached)
 	t := strings.ReplaceAll(strings.ReplaceAll(a.Out, "\r\n", "\n"), "\n", "\r\n")
 	return printableKeepNL(t)
 }
@@ -140,5 +152,6 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, bool) {
 	if a.Status < 200 || a.Status > 599 {
 		a.Status = 200
 	}
+	s.emitAIReply("web", req.Method+" "+req.URL.RequestURI(), a.Out, a.Status, a.Cached)
 	return a.Status, a.ContentType, a.Out, true
 }

@@ -68,6 +68,9 @@ var patterns = []Pattern{
 	// Shell fällt an einigen davon durch; der Bot merkt sich die IP dann als Honeypot.
 	pat("honeypot_check", "Honeypot-Prüfung", "Testet nach dem Login, ob die Shell echt ist (Rechnen, Subshells, Quoting, Marker-Ausgaben); scheitert die Emulation, meidet der Bot das Gerät künftig.", "cmd", 2,
 		`\bcheck_[0-9a-f]{16,}_\w+|\bv=outer;\s*\(\s*v=inner\b|printf\s+'%s\\n'\s+'a b;\$\(\)'|\becho\s+'?dGVzdA==|^\s*echo\s+"?\$\(\(\s*\d+\s*[-+*]\s*\d+\s*\)\)"?\s*$`),
+	// Versuche, ein Sprachmodell umzusteuern ("ignore previous instructions …"); Regeln in mimicguard.go
+	pat("prompt_injection", "KI-Manipulation", "Schickt Anweisungen an ein Sprachmodell (z. B. „ignore previous instructions“), etwa um eine KI-gestützte Shell zu entlarven oder umzusteuern. Solche Eingaben gehen nie ans Modell.", "cmd", 2,
+		injectionExpr),
 	pat("data_theft", "Daten suchen", "Sucht nach Zugangsdaten, Wallets oder Messenger-Daten.", "cmd", 2,
 		`TelegramDesktop|tdata|wallet\.dat|\.aws/credentials|id_rsa\b|\.ssh/|smsd|ttyGSM|\bfind\b[^\n]*(\.pem|\.key|password)`),
 
@@ -268,7 +271,8 @@ type Report struct {
 	Timeline  []string  `json:"-"`       // Ablauf für die KI-Auswertung
 	Requests  []Count   `json:"requests"`
 	Clients   []string  `json:"clients"`
-	CVEs      []Count   `json:"cves"` // bekannte Lücken (cve.go)
+	CVEs      []Count   `json:"cves"`       // bekannte Lücken (cve.go)
+	AIReplies []AIReply `json:"ai_replies"` // Antworten des Sprachmodells an den Angreifer
 	TarpitMs  int64     `json:"tarpit_ms"`
 	Severity  string    `json:"severity"` // niedrig | mittel | hoch
 	Summary   []string  `json:"summary"`
@@ -340,6 +344,8 @@ func timelineLine(e *Event, kind evKind, text string, revealed []string, loc *ti
 		d = "Daten: " + text
 	case "tty":
 		d = "Terminal-Mitschnitt vorhanden"
+	case "ai_reply":
+		d = "Antwort der KI (vom Honeypot ausgeliefert) auf „" + clip(dataString(e.Data, "input"), 200) + "“: " + clip(strings.Join(strings.Fields(dataString(e.Data, "output")), " "), 300)
 	default:
 		d = e.Type + ": " + text
 	}
@@ -406,7 +412,7 @@ func (c *counter) keys(max int) []string {
 
 // BuildReport wertet Ereignisse aus (aufsteigend nach Zeit). subject ist die Überschrift.
 func BuildReport(subject string, evs []*Event, truncated bool) *Report {
-	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}}
+	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}, AIReplies: []AIReply{}}
 	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions, decoded, cves counter
 	loc, _ := time.LoadLocation("Local")
 	var lastBody, lastLine string
@@ -522,6 +528,10 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			}
 		case "client_version":
 			clients.add(clip(dataString(e.Data, "version"), 120))
+		case "ai_reply":
+			if len(r.AIReplies) < 20 {
+				r.AIReplies = append(r.AIReplies, aiReplyFrom(e))
+			}
 		}
 		for _, f := range eventFingerprints(e) {
 			clients.add(f)
@@ -679,6 +689,11 @@ func (r *Report) Text() string {
 	sec("Dateien", r.Files)
 	sec("SHA-256 der Downloads", r.Hashes)
 	sec("Clients", r.Clients)
+	var ai []string
+	for _, x := range r.AIReplies {
+		ai = append(ai, fmt.Sprintf("%s %s → %s", x.Kind, x.Input, clip(strings.Join(strings.Fields(x.Output), " "), 300)))
+	}
+	sec("Antworten der KI (vom Honeypot ausgeliefert, nichts ausgeführt)", ai)
 	if len(r.Timeline) > 0 {
 		title := "Ablauf (Uhrzeit [Dienst:Port] Ereignis; gleiche Zeilen hintereinander zusammengefasst)"
 		if len(r.Timeline) >= reportMaxTimeline {

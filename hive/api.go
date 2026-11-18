@@ -87,20 +87,31 @@ func (h *Hive) sendRows(w http.ResponseWriter, r *http.Request, q string, args .
 	writeJSON(w, res)
 }
 
+// rangeDur liest einen Zeitraum: Zahl und Einheit h (Stunden), d (Tage), w (Wochen) oder
+// m (Monate zu 30 Tagen), z. B. 24h, 7d, 6w, 8m. Höchstens drei Jahre; sonst def.
 func rangeDur(v string, def time.Duration) time.Duration {
-	switch v {
-	case "1h":
-		return time.Hour
-	case "24h":
-		return 24 * time.Hour
-	case "7d":
-		return 7 * 24 * time.Hour
-	case "30d":
-		return 30 * 24 * time.Hour
-	case "90d":
-		return 90 * 24 * time.Hour
+	d, ok := parseRange(v)
+	if !ok {
+		return def
 	}
-	return def
+	return d
+}
+
+const maxRange = 3 * 365 * 24 * time.Hour
+
+func parseRange(v string) (time.Duration, bool) {
+	if len(v) < 2 || len(v) > 6 {
+		return 0, false
+	}
+	n, err := strconv.Atoi(v[:len(v)-1])
+	if err != nil || n <= 0 || v[0] == '+' {
+		return 0, false
+	}
+	unit := map[byte]time.Duration{'h': time.Hour, 'd': 24 * time.Hour, 'w': 7 * 24 * time.Hour, 'm': 30 * 24 * time.Hour}[v[len(v)-1]]
+	if unit == 0 || time.Duration(n) > maxRange/unit {
+		return 0, false
+	}
+	return time.Duration(n) * unit, true
 }
 
 func rangeSince(r *http.Request) (time.Time, time.Duration) {
@@ -206,7 +217,7 @@ func (h *Hive) me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_, role := h.auth.Who(r)
-	writeJSON(w, map[string]any{"username": u, "role": role, "version": version, "update": h.newerRelease(),
+	writeJSON(w, map[string]any{"username": u, "role": role, "version": version, "update": h.newerRelease(), "retention_days": h.retentionDays(),
 		"can_install": os.Getenv("HIVE_UPDATE_REQUEST") != "", "logs": logsEnabled() && role == "admin"})
 }
 
@@ -243,6 +254,8 @@ func (h *Hive) timeline(w http.ResponseWriter, r *http.Request) {
 	since, d := rangeSince(r)
 	bucket := int64(1)
 	switch {
+	case d > 120*24*time.Hour:
+		bucket = 24 * 7
 	case d > 8*24*time.Hour:
 		bucket = 24
 	case d > 2*24*time.Hour:

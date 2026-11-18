@@ -21,7 +21,7 @@ const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
 const TYPE_NAME = {
   connect: "Verbindung", disconnect: "Ende", login: "Login", request: "Anfrage", command: "Befehl",
   download: "Download", client_version: "Client", payload: "Daten", tls: "TLS", fingerprint: "Fingerabdruck",
-  tty: "Mitschnitt",
+  tty: "Mitschnitt", ai_reply: "KI-Antwort",
 };
 // Muss alle Dienste des Honeypots enthalten (Test TestServiceListsInSync im Honeypot).
 const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "sip", "snmp", "dns", "ssh-tarpit", "raw",
@@ -246,12 +246,56 @@ function renderShell() {
   window.onhashchange = route;
 }
 
+// ---------- Zeitraum ----------
+// Feste Auswahl plus „Eigener“: Zahl und Einheit, z. B. 3 Monate (Server: rangeDur in api.go).
+const RANGE_UNITS = [["d", "Tage", "Tag", 1095], ["w", "Wochen", "Woche", 156], ["m", "Monate", "Monat", 36]];
+const RANGE_RE = /^([1-9]\d{0,3})([hdwm])$/;
+const rangeOK = (v) => v === "all" || RANGE_RE.test(v || "");
+const rangeDays = (v) => { const m = RANGE_RE.exec(v || ""); return m ? Number(m[1]) * { h: 1 / 24, d: 1, w: 7, m: 30 }[m[2]] : 0; };
+function rangeLabel(v) {
+  const m = RANGE_RE.exec(v || "");
+  if (!m) return v;
+  const n = Number(m[1]);
+  if (m[2] === "h") return n + " Std";
+  const u = RANGE_UNITS.find(([k]) => k === m[2]);
+  return `${n} ${n === 1 ? u[2] : u[1]}`;
+}
+function rangePicker(cur, presets, pick) {
+  const box = h("div", { class: "range-pick" });
+  const render = () => {
+    const custom = !presets.some(([v]) => v === cur);
+    const m = custom ? /^(\d+)([dwm])$/.exec(cur) : null;
+    const num = h("input", { type: "number", min: 1, max: 1095, value: m ? m[1] : 3, "aria-label": "Anzahl", style: { width: "70px" } });
+    const unit = h("select", { "aria-label": "Einheit" }, RANGE_UNITS.map(([u, l]) => h("option", { value: u, selected: (m ? m[2] : "m") === u }, l)));
+    const ret = state.user && state.user.retention_days;
+    const pop = h("form", { class: "range-pop", hidden: true, onsubmit: (e) => {
+      e.preventDefault();
+      const n = Math.floor(Number(num.value)), max = RANGE_UNITS.find(([u]) => u === unit.value)[3];
+      if (!(n >= 1)) { num.focus(); return; }
+      set(`${Math.min(n, max)}${unit.value}`);
+    } },
+      h("div", { class: "range-row" }, h("span", null, "Letzte"), num, unit, h("button", { class: "btn small", type: "submit" }, "Anwenden")),
+      ret ? h("div", { class: "muted aw-small" }, `Angriffe, Listen und Muster reichen ${ret} Tage zurück (Einstellungen → Rohdaten aufbewahren); der Verlauf der Verbindungen bis 400 Tage.`) : null);
+    const btn = h("button", { class: custom ? "on" : "", "aria-expanded": "false", title: "Eigenen Zeitraum wählen",
+      onclick: () => { pop.hidden = !pop.hidden; btn.setAttribute("aria-expanded", String(!pop.hidden)); if (!pop.hidden) num.focus(); } },
+      custom ? rangeLabel(cur) + " ▾" : "Eigener …");
+    pop.addEventListener("keydown", (e) => { if (e.key === "Escape") { pop.hidden = true; btn.focus(); } });
+    const short = ret && rangeDays(cur) > ret;
+    mount(box,
+      h("div", { class: "seg", role: "group", "aria-label": "Zeitraum" },
+        presets.map(([v, l]) => h("button", { class: cur === v ? "on" : "", "aria-pressed": String(cur === v), onclick: () => set(v) }, l)), btn),
+      pop,
+      short ? h("span", { class: "range-warn", title: `Rohdaten werden ${ret} Tage aufbewahrt; Angriffe und Listen zeigen nur diese Zeit.` }, `nur ${ret} Tage Daten`) : null);
+  };
+  const set = (v) => { cur = v; render(); pick(v); };
+  render();
+  return box;
+}
+
 let topTarget = null; // bei stiller Aktualisierung baut header() unsichtbar vor
 function header(title, { range = false, extra = null } = {}) {
-  const seg = range ? h("div", { class: "seg", role: "group", "aria-label": "Zeitraum" },
-    RANGES.map(([v, l]) => h("button", {
-      class: state.range === v ? "on" : "", onclick: () => { state.range = v; store("range", v); route(); },
-    }, l))) : null;
+  if (range && !RANGE_RE.test(state.range)) state.range = "24h";
+  const seg = range ? rangePicker(state.range, RANGES, (v) => { state.range = v; store("range", v); route(); }) : null;
   mount(topTarget || topEl, h("h1", null, title), h("div", { class: "grow" }), extra, seg);
 }
 
@@ -348,6 +392,8 @@ function describe(e) {
     case "tls": return d.sni ? `SNI ${d.sni}` : "TLS";
     case "fingerprint": return d.hassh ? `HASSH ${d.hassh}` : "";
     case "tty": return `Terminal-Mitschnitt, ${fmtBytes(d.size)} (in der Sitzung ansehen)`;
+    case "ai_reply": return [h("span", { class: "badge ai" }, "KI"), " ", h("span", { class: "mono" }, d.input || ""), " → ",
+      h("span", { class: "mono muted", title: d.output || "" }, String(d.output || "").replace(/\s+/g, " ").slice(0, 160) || "(leer)")];
     case "connect": return d.mode ? `Modus ${MODE_NAME[d.mode] || d.mode}` : "";
     case "disconnect": return [`Dauer ${fmtDur(e.duration_ms)}`, e.tarpit ? [" ", h("span", { class: "badge tarpit" }, `festgehalten ${fmtDur(e.tarpit_ms)}`)] : null];
   }
@@ -678,6 +724,7 @@ async function viewAttacker(el, ctx, ip) {
           h("div", { class: "t2" }, [[i.city, i.country_name || i.country].filter(Boolean).join(", ") || "Herkunft unbekannt", i.asn ? `AS${i.asn} ${i.as_org || ""}` : ""].filter(Boolean).join(" · "))),
         h("div", { class: "grow" }),
         attacks.length ? h("span", { class: "badge stufe", style: { "--c": `var(--sev${top})` } }, "Höchste Stufe: ", ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"][top]) : null,
+        attacks.some((a) => (a.ai_replies || []).length) ? h("span", { class: "badge ai", title: "Das Sprachmodell hat dieser IP geantwortet; Einzelheiten in den Angriffen und im Bericht" }, "beantwortet durch KI") : null,
         Date.now() - toMs(i.last_seen) < 15 * 60e3 ? h("span", { class: "badge active" }, "● gerade aktiv") : null),
       h("div", { class: "facts-row" },
         fact("Erstmals gesehen", fmtDateTime(i.first_seen)), fact("Zuletzt gesehen", relTime(i.last_seen)),
@@ -1232,6 +1279,6 @@ async function viewLogs(el, ctx) {
 
 // Bausteine für extra.js. Die beiden Module importieren sich gegenseitig; das ist
 // in Ordnung, weil extra.js diese Namen nur innerhalb von Funktionen benutzt.
-export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME, MODE_NAME, route };
+export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME, MODE_NAME, route, rangePicker, rangeOK };
 
 boot();

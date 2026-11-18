@@ -36,6 +36,23 @@ function rank(rows, { key = (r) => r.key, n = (r) => r.n, link = null, extra = n
   }));
 }
 
+// Liste mit „Mehr anzeigen“: erst n Einträge, ein Klick zeigt alle (und wieder weniger).
+function moreList(items, n, render) {
+  if (!items || items.length <= n) return render(items || []);
+  let all = false;
+  const box = h("div");
+  const btn = h("button", { class: "linklike aw-more" });
+  const draw = () => {
+    mount(box, render(all ? items : items.slice(0, n)));
+    btn.textContent = all ? "Weniger anzeigen" : `Mehr anzeigen (${fmtNum(items.length - n)} weitere)`;
+    btn.setAttribute("aria-expanded", String(all));
+  };
+  btn.onclick = () => { all = !all; draw(); };
+  draw();
+  return h("div", null, box, btn);
+}
+const rankMore = (rows, n, opts) => moreList(rows, n, (r) => rank(r, opts));
+
 // Anteilsstreifen: [{label, n, color}]
 function mix(parts, { height = 26, unit = "" } = {}) {
   const total = parts.reduce((a, p) => a + p.n, 0) || 1;
@@ -68,7 +85,7 @@ export async function viewAnalysis(el, ctx) {
   header("Analyse", { range: true });
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
   const [pd, tools, urls, wallets, pools, cves, ja4, hassh, httpfp] = await Promise.all([
-    api("analysis/patterns?range=" + state.range), q("tool", 80), q("url", 15), q("wallet", 10), q("pool", 10), q("cve", 20), q("ja4", 10), q("hassh", 10), q("httpfp", 10)]);
+    api("analysis/patterns?range=" + state.range), q("tool", 100), q("url", 60), q("wallet", 30), q("pool", 30), q("cve", 60), q("ja4", 30), q("hassh", 30), q("httpfp", 30)]);
   const pats = pd.patterns || [];
   const total = pats.reduce((a, p) => a + p.n, 0);
   const deepest = pats.length ? Math.max(...pats.map((p) => p.phase)) : -1;
@@ -99,14 +116,14 @@ export async function viewAnalysis(el, ctx) {
     const gi = TOOL_GROUPS.findIndex(([, p]) => p && t.key.startsWith(p));
     const g = groups[gi >= 0 ? gi : 3];
     if (gi < 0 && t.key.includes(": ")) continue; // andere Präfixe gehören nicht hierher
-    if (g.rows.length < 8) g.rows.push({ key: gi >= 0 ? t.key.slice(TOOL_GROUPS[gi][1].length) : t.key, n: t.n });
+    if (g.rows.length < 40) g.rows.push({ key: gi >= 0 ? t.key.slice(TOOL_GROUPS[gi][1].length) : t.key, n: t.n });
   }
   const toolsCard = card("Werkzeuge der Angreifer",
     h("p", { class: "sub" }, "Links, womit sie kommen; rechts, was sie auf dem Gerät benutzen oder nachziehen wollen."),
     tools.length ? [mix(groups.map((g) => ({ label: g.name, n: g.rows.reduce((a, r) => a + r.n, 0), color: g.color, short: fmtNum(g.rows.reduce((a, r) => a + r.n, 0)) })), { height: 22, unit: "Treffer" }),
       h("div", { class: "aw-tools" }, groups.map((g) => h("div", null,
         h("div", { class: "aw-cap" }, h("i", { class: "dot", style: { background: g.color } }), g.name),
-        rank(g.rows, { color: () => g.color, empty: "Nichts beobachtet." }))))]
+        rankMore(g.rows, 8, { color: () => g.color, empty: "Nichts beobachtet." }))))]
       : h("div", { class: "empty" }, "Noch keine Werkzeuge erkannt."));
 
   // Indikatoren: Nachlade-Adressen, Wallets, Pools
@@ -120,18 +137,18 @@ export async function viewAnalysis(el, ctx) {
   ];
   const indCard = card("Indikatoren",
     h("p", { class: "sub" }, "Adressen, Wallets und Pools, die Angreifer benutzen wollten. Nicht aufrufen: Dahinter liegt in der Regel Schadsoftware."),
-    indicators.length ? indicators : h("div", { class: "empty" }, "Im Zeitraum keine."));
+    indicators.length ? moreList(indicators, 10, (x) => x) : h("div", { class: "empty" }, "Im Zeitraum keine."));
 
   // Wiedererkannte Werkzeuge (Fingerabdrücke); IP-Anzahl kommt mit /api/campaigns
   const fps = [...hassh.map((x) => ({ kind: "HASSH", ...x })), ...ja4.map((x) => ({ kind: "JA4", ...x })), ...httpfp.map((x) => ({ kind: "HTTP", ...x }))]
-    .sort((a, b) => b.n - a.n).slice(0, 8);
+    .sort((a, b) => b.n - a.n);
   const fpIPs = {};
   const fpCard = card("Wiedererkannte Werkzeuge",
     h("p", { class: "sub" }, "Fingerabdrücke aus SSH-Schlüsselaustausch, TLS und der Reihenfolge der HTTP-Kopfzeilen. Taucht einer bei mehreren IPs auf, ist es vermutlich dasselbe Programm."),
-    fps.length ? fps.map((f) => h("div", { class: "aw-fp" },
+    fps.length ? moreList(fps, 8, (list) => list.map((f) => h("div", { class: "aw-fp" },
       chip(f.kind), h("a", { class: "mono k", href: find(f.key), title: f.key }, f.key),
       (fpIPs[f.kind + " " + f.key] = h("span", { class: "muted num" }, fmtNum(f.n) + "×")),
-      f.kind === "HTTP" && f.label ? h("div", { class: "hdr" }, f.label.split(",").map((x) => h("span", null, x))) : null))
+      f.kind === "HTTP" && f.label ? h("div", { class: "hdr" }, f.label.split(",").map((x) => h("span", null, x))) : null)))
       : h("div", { class: "empty" }, "Noch keine Fingerabdrücke."));
 
   // Kampagnen, Honeypot-Prüfungen, Lücken: Platzhalter, gefüllt nach /api/campaigns
@@ -139,7 +156,7 @@ export async function viewAnalysis(el, ctx) {
   const hpBody = h("div", { class: "muted" }, "Wird berechnet …");
   const noCveBody = h("div");
   const cveCard = card("Bekannte Lücken",
-    rank(cves, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => find(x.key), color: () => "var(--sev4)", empty: "Keine Ausnutzungsversuche bekannter Lücken erkannt." }),
+    rankMore(cves, 8, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => find(x.key), color: () => "var(--sev4)", empty: "Keine Ausnutzungsversuche bekannter Lücken erkannt." }),
     h("p", { class: "muted aw-small" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre."),
     noCveBody);
 
@@ -159,25 +176,25 @@ export async function viewAnalysis(el, ctx) {
   tNoCve.set(fmtNum(nc.attacks), nc.attacks ? "Regeln fehlen, Liste unten" : "alle Exploits zugeordnet");
   for (const t of d.tools || []) if (fpIPs[t.fingerprint]) fpIPs[t.fingerprint].textContent = `${fmtNum(t.n_ips)} IPs · ${fpIPs[t.fingerprint].textContent}`;
 
-  campBody.replaceWith(camps.length ? h("div", null, camps.slice(0, 8).map((c) => h("div", { class: "aw-item" },
+  campBody.replaceWith(camps.length ? moreList(camps, 6, (list) => h("div", null, list.map((c) => h("div", { class: "aw-item" },
     h("div", { class: "row" }, h("b", null, c.profile || "Kampagne"), c.reasons.map((r) => chip(r, r.startsWith("gleiche Wallet") ? "warn" : ""))),
     h("div", { class: "muted aw-small" }, `${fmtNum(c.n_ips)} IPs · ${fmtNum(c.attacks)} Angriffe · `, c.countries.map((x) => [flag(x.key), " "]),
       `· ${fmtDateTime(c.first)} – ${fmtDateTime(c.last)}`),
-    h("div", { class: "aw-ips" }, c.ips.slice(0, 8).map((ip) => [ipLink(ip), " "]), c.n_ips > 8 ? h("span", { class: "muted" }, `+${c.n_ips - 8}`) : null))))
+    h("div", { class: "aw-ips" }, moreList(c.ips, 8, (ips) => [ips.map((ip) => [ipLink(ip), " "]), c.n_ips > c.ips.length && ips.length === c.ips.length ? h("span", { class: "muted" }, `+${c.n_ips - c.ips.length}`) : null]))))))
     : h("div", { class: "empty" }, "Im Zeitraum keine zusammengehörigen Angreifer erkannt."));
 
   hpBody.replaceWith(h("div", null,
     h("p", { class: "sub" }, "Bots prüfen nach dem Login mit Rechenaufgaben, Subshells und Marker-Ausgaben, ob die Shell echt ist. Wer danach weitermacht, hat den Honeypot nicht erkannt."),
     hp.attacks ? [mix([{ label: "danach weitergemacht", n: hp.continued, color: "var(--good)" }, { label: "danach abgebrochen", n: hp.attacks - hp.continued, color: "var(--sev3)" }], { height: 20, unit: "Angriffe" }),
-      h("div", { class: "aw-list" }, hp.recent.slice(0, 6).map((x) => h("div", { class: "aw-item" },
+      moreList(hp.recent, 6, (list) => h("div", { class: "aw-list" }, list.map((x) => h("div", { class: "aw-item" },
         h("div", { class: "row" }, flag(x.country || ""), ipLink(x.ip), x.continued ? chip("weitergemacht", "ok") : chip("abgebrochen", "warn"), h("span", { class: "muted aw-right" }, relTime(x.last))),
-        x.next ? h("div", { class: "mono aw-small muted", title: x.next }, "danach: " + x.next) : null)))]
+        x.next ? h("div", { class: "mono aw-small muted", title: x.next }, "danach: " + x.next) : null))))]
       : h("div", { class: "empty" }, "Im Zeitraum keine Honeypot-Prüfungen.")));
 
   if (nc.attacks) noCveBody.replaceWith(h("div", { class: "aw-note" },
     h("b", null, `${fmtNum(nc.attacks)} Exploit-Versuche ohne CVE-Zuordnung`),
     h("div", { class: "muted aw-small" }, "Häufigste Pfade; Vorlage für neue Regeln in hive/cve.go."),
-    h("div", null, nc.paths.slice(0, 10).map((p) => code(p.key, p.n)))));
+    moreList(nc.paths, 10, (list) => h("div", null, list.map((p) => code(p.key, p.n))))));
 }
 
 // ================= Zugangsdaten =================
@@ -217,8 +234,8 @@ export async function viewCreds(el) {
   header("Zugangsdaten und Muster", { range: true });
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
   const [sum, users, pws, pws100, combos, cmds, paths, uas, clients, snmp, sip, dns] = await Promise.all([
-    api("creds/summary?range=" + state.range), q("username", 12), q("password", 12), q("password", 100), q("cred", 12), q("command", 60), q("path", 100),
-    q("useragent", 60), q("client", 10), q("snmp", 10), q("sip", 10), q("dns", 10)]);
+    api("creds/summary?range=" + state.range), q("username", 100), q("password", 100), q("password", 100), q("cred", 100), q("command", 100), q("path", 100),
+    q("useragent", 100), q("client", 60), q("snmp", 60), q("sip", 60), q("dns", 60)]);
   const pct = (a, b) => (b ? Math.round((100 * a) / b) + " %" : "–");
   const credExtra = (r) => [r.rare ? chip("ungewöhnlich", "rare", "Nicht in gängigen Standard- und Werkslisten") : null, r.list ? chip(r.list + "-Liste", "list", "Stammt aus der bekannten Liste dieses Botnetzes") : null];
 
@@ -238,7 +255,7 @@ export async function viewCreds(el) {
   const fam = new Map();
   for (const u of uas) fam.set(uaFamily(u.key), (fam.get(uaFamily(u.key)) || 0) + u.n);
 
-  const udp = (title, list, chipEl) => list.length ? [h("h3", { class: "aw-h3" }, chipEl, title), h("div", null, list.map((x) => code(x.key, x.n)))] : null;
+  const udp = (title, list, chipEl) => list.length ? [h("h3", { class: "aw-h3" }, chipEl, title), moreList(list, 10, (l) => h("div", null, l.map((x) => code(x.key, x.n))))] : null;
 
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Womit Angreifer sich anmelden wollen und was sie danach eingeben. Ein Klick auf einen Eintrag zeigt die Angriffe, in denen er vorkam."),
@@ -254,10 +271,10 @@ export async function viewCreds(el) {
           columns(LEN_BUCKETS.map(([label], i) => ({ label: label + " Zeichen", n: lens[i] })), { color: "var(--s7)" })] : h("div", { class: "empty" }, "Noch keine Passwörter.")),
       card("Kombinationen",
         h("p", { class: "sub" }, "Markiert, was aus der Mirai-Liste stammt oder in keiner Werksliste steht (deutet auf gezielte Angriffe oder abgeflossene Zugangsdaten)."),
-        rank(combos.slice(0, 10), { link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => (r.list ? "var(--sev4)" : r.rare ? "var(--sev2)" : null) }))),
+        rankMore(combos, 10, { link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => (r.list ? "var(--sev4)" : r.rare ? "var(--sev2)" : null) }))),
     h("div", { class: "grid two" },
-      card("Benutzernamen", rank(users.slice(0, 10), { link: (r) => find(r.key), extra: credExtra, mono: true })),
-      card("Passwörter", rank(pws.slice(0, 10), { link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => PW_CLASSES[pwClass(r.key)][1] }),
+      card("Benutzernamen", rankMore(users, 10, { link: (r) => find(r.key), extra: credExtra, mono: true })),
+      card("Passwörter", rankMore(pws, 10, { link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => PW_CLASSES[pwClass(r.key)][1] }),
         h("div", { class: "aw-legend" }, PW_CLASSES.map(([l, c]) => h("span", null, h("i", { class: "dot", style: { background: c } }), l))))),
     h("div", { class: "grid aw-21" },
       card("Befehle nach Dienst",
@@ -265,19 +282,19 @@ export async function viewCreds(el) {
         bySvc.size ? [...bySvc].map(([svc, list]) => [
           h("h3", { class: "aw-h3" }, svcBadge(svc), h("span", { class: "muted num" }, fmtNum(list.reduce((a, c) => a + c.n, 0)) + "×"),
             list.some((c) => HP_CHECK.test(c.key)) ? chip("Honeypot-Prüfung erkannt", "warn") : null),
-          h("div", null, list.slice(0, 14).map((c) => h("a", { class: "aw-codelink", href: find(c.key) }, code(c.key, c.n))))])
+          moreList(list, 14, (l) => h("div", null, l.map((c) => h("a", { class: "aw-codelink", href: find(c.key) }, code(c.key, c.n)))))])
           : h("div", { class: "empty" }, "Noch keine Befehle.")),
       card("HTTP-Pfade nach Zweck",
         h("p", { class: "sub" }, "Die 100 häufigsten Pfade, einer Kategorie zugeordnet: Was suchen Web-Scanner?"),
         rank([...cats].map(([key, n]) => ({ key, n })).sort((a, b) => b.n - a.n), { color: () => "var(--s2)", empty: "Keine zuordenbaren Pfade." }),
         other ? h("p", { class: "muted aw-small" }, `Ohne Kategorie: ${fmtNum(other)} Anfragen (z. B. /, /favicon.ico).`) : null,
         h("h3", { class: "aw-h3" }, "Häufigste Pfade"),
-        rank(paths.slice(0, 8), { link: (r) => find(r.key), mono: true, extra: (r) => [pathCat(r.key) ? chip(pathCat(r.key)) : null, r.label && r.label !== "http" ? chip(svcName(r.label)) : null] }))),
+        rankMore(paths, 8, { link: (r) => find(r.key), mono: true, extra: (r) => [pathCat(r.key) ? chip(pathCat(r.key)) : null, r.label && r.label !== "http" ? chip(svcName(r.label)) : null] }))),
     h("div", { class: "grid three" },
       card("Wer stellt die Web-Anfragen?",
         uas.length ? [mix([...fam].map(([label, n]) => ({ label, n, color: UA_COLOR[label] })), { unit: "Anfragen" }),
-          h("div", { class: "aw-gap" }), rank(uas.slice(0, 6), { extra: (r) => chip(uaFamily(r.key)) })] : h("div", { class: "empty" }, "Keine Web-Anfragen.")),
-      card("SSH- und andere Clients", rank(clients.slice(0, 8), { mono: true, extra: (r) => (r.label ? svcBadge(r.label) : null) })),
+          h("div", { class: "aw-gap" }), rankMore(uas, 6, { extra: (r) => chip(uaFamily(r.key)) })] : h("div", { class: "empty" }, "Keine Web-Anfragen.")),
+      card("SSH- und andere Clients", rankMore(clients, 8, { mono: true, extra: (r) => (r.label ? svcBadge(r.label) : null) })),
       card("UDP: SIP, SNMP, DNS",
         h("p", { class: "sub" }, "UDP-Absender lassen sich fälschen. IP-Adressen in SIP-Adressen sind durch ‹IP› ersetzt."),
         sip.length || snmp.length || dns.length ? [udp("SIP-Ziele", sip, chip("SIP")), udp("Community-Strings", snmp, chip("SNMP")), udp("Abfragen", dns, chip("DNS"))]
@@ -468,12 +485,13 @@ function recurringHeat(d) {
   const max = Math.max(1, ...d.recurring.flatMap((r) => r.per_slot || []));
   const label = (i) => {
     const t = new Date(d.from + i * step);
-    return step < 86400000 ? String(t.getHours()).padStart(2, "0") : String(t.getDate()).padStart(2, "0") + ".";
+    if (step < 86400000) return String(t.getHours()).padStart(2, "0");
+    return String(t.getDate()).padStart(2, "0") + "." + (step > 86400000 ? String(t.getMonth() + 1).padStart(2, "0") + "." : "");
   };
   const every = nb > 14 ? Math.ceil(nb / 10) : 1;
   return h("div", { class: "aw-heat", style: { gridTemplateColumns: `minmax(130px, 200px) repeat(${nb}, minmax(0, 1fr)) 64px` } },
     h("span"), Array.from({ length: nb }, (_, i) => h("span", { class: "hd" }, i % every === 0 ? label(i) : "")), h("span"),
-    d.recurring.slice(0, 15).map((r) => [
+    d.recurring.map((r) => [
       h("span", { class: "who", title: r.as_org || "" }, flag(r.country || ""), " ", ipLink(r.ip)),
       (r.per_slot || []).map((n, i) => hoverTip(h("span", { class: "c", style: n ? { background: `color-mix(in srgb, ${SEV_COLOR[Math.min(3, Math.max(1, r.stufe - 1))]} ${25 + (75 * n) / max}%, var(--surface-3))` } : null }),
         () => [r.ip, [["Zeit", label(i) + (step < 86400000 ? " Uhr" : "")], ["Angriffe", fmtNum(n)]]])),
@@ -483,12 +501,12 @@ function recurringHeat(d) {
 // Paare Scanner → Angreifer (Konzept B)
 function handoffPairs(d) {
   if (!d.handoffs.length) return h("div", { class: "empty" }, "Keine solchen Paare erkannt.");
-  return h("div", { class: "aw-pairs" }, d.handoffs.slice(0, 12).map((x) => h("div", null,
+  return moreList(d.handoffs, 12, (list) => h("div", { class: "aw-pairs" }, list.map((x) => h("div", null,
     h("div", { class: "aw-pair" },
       h("div", { class: "node", style: { "--c": "var(--sev0)" } }, ipLink(x.scan_ip), h("div", { class: "muted aw-small" }, "tastet ab · ", relTime(x.scan_at))),
       h("div", { class: "arrow" }, h("b", null, "→"), fmtDur(x.attack_at - x.scan_at)),
       h("div", { class: "node", style: { "--c": SEV_COLOR[Math.min(3, Math.max(1, x.stufe))] } }, ipLink(x.attack_ip), h("div", { class: "muted aw-small" }, x.profile || STUFE_N[x.stufe], " · ", relTime(x.attack_at)))),
-    h("div", { class: "mono muted aw-small", style: { marginTop: "3px" } }, x.fingerprint))));
+    h("div", { class: "mono muted aw-small", style: { marginTop: "3px" } }, x.fingerprint)))));
 }
 
 export async function viewInsights(el, ctx) {
@@ -524,16 +542,16 @@ export async function viewInsights(el, ctx) {
   tSpike.set(fmtNum(d.spikes.length), d.spikes.length ? "zuletzt " + relTime(d.spikes[0].hour) : "keine im Zeitraum");
   mount(newsBody, newsFeed(items));
   const famMax = Math.max(1, ...d.families.map((f) => f.attacks));
-  mount(famBody, d.families.length ? h("div", { class: "aw-famlist" }, d.families.slice(0, 25).map((f) => h("details", null,
+  mount(famBody, d.families.length ? moreList(d.families, 12, (list) => h("div", { class: "aw-famlist" }, list.map((f) => h("details", null,
     h("summary", null,
       h("span", { class: "k" }, h("i", { class: "dot", style: { background: SEV_COLOR[Math.min(3, Math.max(1, f.stufe - 1))] } }), h("span", { title: f.name }, f.name), f.new ? chip("neu", "warn") : null),
       h("span", { class: "n muted aw-small num" }, `${fmtNum(f.attacks)} · ${fmtNum(f.ips)} IPs`),
       h("span", { class: "aw-bar" }, h("i", { style: { width: (100 * f.attacks) / famMax + "%", background: SEV_COLOR[Math.min(3, Math.max(1, f.stufe - 1))] } }))),
     h("div", { class: "aw-small muted" }, STUFE_N[f.stufe], " · seit ", fmtDateTime(f.first), " · zuletzt ", relTime(f.last), " · ", f.countries.map((c) => [flag(c.key), " "])),
     h("div", { class: "term" }, f.example.map((c) => h("div", null, h("span", { class: "cmd" }, c)))),
-    h("div", { class: "aw-ips" }, f.sample_ips.map((ip) => [ipLink(ip), " "]), f.ips > f.sample_ips.length ? h("span", { class: "muted" }, `+${f.ips - f.sample_ips.length}`) : null))))
+    h("div", { class: "aw-ips" }, f.sample_ips.map((ip) => [ipLink(ip), " "]), f.ips > f.sample_ips.length ? h("span", { class: "muted" }, `+${f.ips - f.sample_ips.length}`) : null)))))
     : h("div", { class: "empty" }, "Im Zeitraum keine Angriffe mit Befehlen."));
-  mount(recBody, recurringHeat(d));
+  mount(recBody, moreList(d.recurring, 15, (list) => recurringHeat({ ...d, recurring: list })));
   mount(handBody, handoffPairs(d));
 }
 

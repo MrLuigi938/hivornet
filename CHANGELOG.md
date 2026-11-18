@@ -4,7 +4,16 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [0.7.0-beta.3] – 2026-11-18
 
+### Neu
+- **Antworten der KI sichtbar:** Liefert der Honeypot eine Antwort des Sprachmodells aus, entsteht ein Ereignis „KI-Antwort“ (Eingabe, Antwort, ob aus dem Zwischenspeicher). Angriffe tragen dann die Plakette „beantwortet durch KI“ und zeigen die Antworten aufklappbar; im Angriffe-Tab filtert der Knopf „Beantwortet durch KI“ (Suche `ki:ja`). Auch im Angreifer-Profil, im Angriffsbericht (auch als Text) und in der Angriffskette (violett gepunktet). Der Text des Modells wird nicht als Befehl ausgewertet.
+- **Schutz vor Prompt-Injection:** Eingaben, die sich an ein Sprachmodell richten („ignore previous instructions“, „du bist jetzt …“, Rollen-Marker wie `<|im_start|>`, längerer Fließtext statt Befehl), gehen gar nicht erst an das Modell; der Angreifer bekommt die statische Antwort. Die übrigen Eingaben stehen für das Modell zwischen zufälligen Markierungen und gelten ausdrücklich als Daten. Antworten, die sich verraten („As an AI“, „honeypot“, „system prompt“ …), werden verworfen und nicht gespeichert. Die Einstellungen zeigen, wie oft beides geschah. Neues Muster **„KI-Manipulation“** (MITRE ATLAS AML.T0051).
+- **Zeitraum frei wählbar:** Neben 24 Std, 7 und 30 Tagen über „Eigener …“ eine beliebige Zahl Tage, Wochen oder Monate (bis drei Jahre), auf allen Seiten mit Zeitraum und im Angriffe-Tab. Reicht der Zeitraum über die Aufbewahrung der Rohdaten hinaus, steht ein Hinweis daneben. Lange Zeiträume werden in Wochen zusammengefasst.
+- **„Mehr anzeigen“** für die kurzen Listen in Analyse, Erkenntnisse und Zugangsdaten (Werkzeuge, Indikatoren, Fingerabdrücke, Lücken, Kampagnen, Familien, Wiederkehrer, Kombinationen, Benutzernamen, Passwörter, Befehle, Pfade, Clients u. a.).
+
 ### Behoben
+- **Nachlade-Adresse nur „http://ex“:** Angreifer verschleiern Adressen mit Backslashes (`http://ex\am\ple.org/x.sh`); die Erkennung brach beim ersten Backslash ab. Jetzt wird die ganze Adresse erkannt; vorhandene Zähler werden beim Start einmal neu gezählt.
+- **Zeitstreifen eines Angriffs endete vorzeitig:** Bei Angriffen mit mehr als 400 Ereignissen zeigte der Streifen nur den Anfang. Jetzt wird er ausgedünnt und reicht bis zum Ende; Befehle, Downloads und KI-Antworten behalten immer ihren Strich.
+- „Ältere laden“ und andere ausgeblendete Knöpfe waren trotzdem sichtbar.
 - **Antworten vom Sprachmodell scheiterten oft mit „KI-Antwort nicht lesbar: leere Antwort“.** Ursache war eine Zeitüberschreitung: OpenRouter meldet sofort „OK“ und liefert die Antwort erst später; nach 12 Sekunden brach der Hive ab und hielt das für eine leere Antwort. Jetzt entsteht die Antwort im Hintergrund (bis 90 Sekunden). Der Angreifer wartet höchstens 10 Sekunden und bekommt sonst wie bisher die statische Antwort; die fertige Antwort wird gespeichert und gilt ab dem nächsten gleichen Befehl. Gleiche Anfragen gleichzeitig kosten nur einen Modellaufruf. Fehlermeldungen nennen die Ursache („Modell zu langsam“, „nicht erreichbar“).
 
 ### Geändert

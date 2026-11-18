@@ -208,3 +208,37 @@ func TestCowrieAcceptsAll(t *testing.T) {
 		t.Error("pi/rootfs/etc/hivornet/cowrie.cfg legt keine Anmelderegel fest")
 	}
 }
+
+// Zeitstreifen eines langen Angriffs reicht bis zum Ende, seltene Ereignisse bleiben.
+func TestStripThinning(t *testing.T) {
+	a := &Attack{}
+	for i := 0; i < 5000; i++ {
+		typ := "login"
+		if i == 4990 || i == 10 {
+			typ = "command"
+		}
+		a.addStrip(int64(i), typ)
+	}
+	if len(a.Strip) >= stripMax || len(a.Strip) < stripMax/4 {
+		t.Fatalf("Länge %d", len(a.Strip))
+	}
+	if last := a.Strip[len(a.Strip)-1].T; last < 4900 {
+		t.Fatalf("Streifen endet bei %d", last)
+	}
+	n := 0
+	for _, x := range a.Strip {
+		if x.Type == "command" {
+			n++
+		}
+	}
+	if n != 2 {
+		t.Fatalf("Befehle im Streifen: %d", n)
+	}
+	b := &Attack{}
+	for i := 0; i < 2000; i++ {
+		b.addStrip(int64(i), "command")
+	}
+	if len(b.Strip) >= stripMax {
+		t.Fatalf("nur seltene: Länge %d", len(b.Strip))
+	}
+}

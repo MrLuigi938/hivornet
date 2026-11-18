@@ -6,6 +6,7 @@
 import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag } from "./dom.js";
 import { worldMap, toplist, svcName, countryName } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME } from "./app.js";
+import { aiReplies } from "./attacks.js";
 
 // ---------- Standort des Honeypots (Ziel der Angriffslinien) ----------
 
@@ -105,6 +106,9 @@ function lookupBtn(name, path, fmt) {
   } }, name);
   return h("span", null, b, out);
 }
+// MITRE-Link: ATT&CK (T1234.001) oder ATLAS für KI-Angriffe (AML.T0051)
+const mitreURL = (m) => (m.startsWith("AML.") ? "https://atlas.mitre.org/techniques/" + m : "https://attack.mitre.org/techniques/" + m.replace(".", "/") + "/");
+
 // Statische Auswertung einer nachgeladenen Datei auf dem Gerät (hive/sample.go); nichts wird ausgeführt.
 function sampleBtn(hash) {
   const out = h("div", { class: "aw-note", hidden: true });
@@ -151,7 +155,7 @@ const bazaarText = (d) => d.query_status === "hash_not_found" ? "bei MalwareBaza
 // Verschieben, Zoomen und Umsetzen mit Maus, Touch oder Knöpfen. Klick zeigt Einzelheiten.
 // Angreiferdaten nur als Textknoten (s()/h()).
 const KIND_NAME = { service: "Dienst", login: "Anmeldeversuche", login_ok: "Login angenommen", exploit: "Exploit", pattern: "Muster",
-  commands: "Befehle", host: "Nachlade-Host", file: "Datei", forward: "Weiterleitung", prompt: "Login-Abfrage", web: "Web-Anfragen", more: "Sammelknoten" };
+  commands: "Befehle", host: "Nachlade-Host", file: "Datei", forward: "Weiterleitung", prompt: "Login-Abfrage", web: "Web-Anfragen", ai: "Antwort der KI", more: "Sammelknoten" };
 const short = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
 
 // Hauptpfad: von jedem Anfang (Knoten ohne Vorgänger) der stärksten Verbindung folgen;
@@ -282,7 +286,7 @@ function chainView(c, prev = null) {
   world.append(bands, edgeG, nodeG);
   const edgeEls = edges.map((e) => {
     const w = 1.2 + 3 * Math.log1p(e.n) / Math.log1p(maxE);
-    const p = s("path", { class: "cg-edge" + (e.label ? " flow" : ""), "stroke-width": w.toFixed(2), "marker-end": "url(#cg-arrow)" },
+    const p = s("path", { class: "cg-edge" + (e.b.kind === "ai" ? " ai" : e.label ? " flow" : ""), "stroke-width": w.toFixed(2), "marker-end": "url(#cg-arrow)" },
       s("title", null, `${e.a.label} → ${e.b.label}${e.label ? " (" + e.label + ")" : ""}: ${e.n}×`));
     edgeG.append(p);
     return p;
@@ -393,7 +397,7 @@ function chainView(c, prev = null) {
       h("div", { class: "ch-dhead" }, h("span", { class: "badge stufe", style: { "--c": `var(--sev${Math.min(4, n.sev)})` } }, c.phases[n.phase]),
         h("strong", null, n.label), n.sub ? h("span", { class: "mono muted" }, n.sub) : null, h("span", { class: "badge" }, fmtNum(n.n) + "×")),
       h("p", { class: "muted" }, `${KIND_NAME[n.kind] || n.kind} · ${fmtDateTime(n.first)}` + (n.last > n.first ? ` bis ${fmtDateTime(n.last)}` : "")),
-      n.mitre && n.mitre.length ? h("p", null, "MITRE ATT&CK: ", n.mitre.map((m) => [h("a", { class: "badge", href: "https://attack.mitre.org/techniques/" + m.replace(".", "/") + "/", target: "_blank", rel: "noopener noreferrer" }, m), " "])) : null,
+      n.mitre && n.mitre.length ? h("p", null, "MITRE ATT&CK: ", n.mitre.map((m) => [h("a", { class: "badge", href: mitreURL(m), target: "_blank", rel: "noopener noreferrer" }, m), " "])) : null,
       n.kind === "exploit" && /^CVE-/.test(n.label) ? h("p", null, h("a", { href: "https://nvd.nist.gov/vuln/detail/" + n.label, target: "_blank", rel: "noopener noreferrer" }, n.label + " in der NVD")) : null,
       h("div", { class: "grid two" },
         h("div", null, h("h3", null, "Folgte auf"), ins.length ? h("ul", { class: "plain" }, ins.map((e) => h("li", null, link(e.from, `${e.label ? e.label + ", " : ""}${e.n}×`)))) : h("p", { class: "muted" }, "Beginn")),
@@ -428,7 +432,7 @@ function chainView(c, prev = null) {
     stage,
     h("div", { class: "ch-legend muted" }, "Ziehen verschiebt die Ansicht, Mausrad zoomt; Bubbles lassen sich umsetzen (Doppelklick gibt sie frei). ",
       "Größe = Häufigkeit, Farbe = Schwere ", [0, 1, 2, 3, 4].map((i) => h("i", { class: "ch-dot", style: { background: `var(--sev${i})` } })),
-      ", orange gestrichelt = Herkunft einer Datei bzw. Adresse."),
+      ", orange gestrichelt = Herkunft einer Datei bzw. Adresse, violett gepunktet = Antwort der KI."),
     detail);
   root.chainState = () => ({ pos: new Map(nodes.map((n) => [n.id, { x: n.x, y: n.y, fixed: n.fixed }])), view: { ...view }, selected });
   return root;
@@ -511,7 +515,7 @@ export function reportCard({ ip, session }) {
       h("ul", { class: "plain" }, r.summary.map((l) => h("li", null, l))),
       r.tags.length ? [h("h3", null, "Erkannte Muster"), h("ul", { class: "taglist" }, r.tags.map((t) => h("li", null,
         h("strong", null, t.name), " ", h("span", { class: "badge" }, fmtNum(t.n) + "×"),
-        (t.mitre || []).map((m) => [" ", h("a", { class: "badge", href: "https://attack.mitre.org/techniques/" + m.replace(".", "/") + "/", target: "_blank", rel: "noopener noreferrer", title: "MITRE ATT&CK" }, m)]),
+        (t.mitre || []).map((m) => [" ", h("a", { class: "badge", href: mitreURL(m), target: "_blank", rel: "noopener noreferrer", title: "MITRE ATT&CK" }, m)]),
         h("div", { class: "desc" }, t.desc), h("code", null, t.example))))] : null,
       r.cves && r.cves.length ? [h("h3", null, "Bekannte Lücken (CVE)"), h("ul", { class: "plain" }, r.cves.map((c) => h("li", null,
         h("a", { class: "mono", href: "https://nvd.nist.gov/vuln/detail/" + c.key, target: "_blank", rel: "noopener noreferrer" }, c.key), " ", c.label, " ", h("span", { class: "badge" }, fmtNum(c.n) + "×"))))] : null,
@@ -529,6 +533,9 @@ export function reportCard({ ip, session }) {
           lookupBtn("MalwareBazaar", "lookup/malwarebazaar?hash=" + x, bazaarText), " ", sampleBtn(x)] : x)))] : null,
       r.clients.length ? [h("h3", null, "Clients"), monoList(r.clients)] : null,
       r.commands.length ? [h("h3", null, "Befehle in Reihenfolge"), h("div", { class: "term" }, r.commands.map((c) => h("div", null, h("span", { class: "cmd" }, c))))] : null,
+      r.ai_replies && r.ai_replies.length ? [h("h3", null, "Antworten der KI (" + fmtNum(r.ai_replies.length) + ")"),
+        h("p", { class: "muted", style: { margin: "0 0 6px" } }, "Für diese Eingaben kannte der Honeypot keine feste Antwort; das Sprachmodell hat einen passenden Text erzeugt, der Honeypot hat ihn ausgeliefert. Ausgeführt wurde nichts."),
+        aiReplies(r.ai_replies, { max: 5 })] : null,
       h("div", { class: "btnrow" },
         h("a", { class: "btn", href: "api/report?" + query + "&format=text", download: "" }, "Als Text speichern"),
         state.user.role === "viewer" ? null
@@ -839,7 +846,8 @@ function mimicStatusBox() {
   const box = h("div", { class: "muted" }, "Lade …");
   const load = () => api("mimic/status").then((d) => mount(box,
     h("p", { class: "muted" }, `Gespeichert: ${fmtNum(d.cached)} Antworten, zusammen ${fmtNum(d.cache_hits_total)}-mal wiederverwendet. `,
-      `Seit dem Start: ${fmtNum(d.asked)} Anfragen ans Modell, ${fmtNum(d.hits)} aus dem Speicher, ${fmtNum(d.limited)} wegen Grenze statisch, ${fmtNum(d.failed)} fehlgeschlagen.`,
+      `Seit dem Start: ${fmtNum(d.asked)} Anfragen ans Modell, ${fmtNum(d.hits)} aus dem Speicher, ${fmtNum(d.limited)} wegen Grenze statisch, ${fmtNum(d.failed)} fehlgeschlagen. `,
+      `Schutz: ${fmtNum(d.blocked || 0)} Manipulationsversuche nicht ans Modell gegeben, ${fmtNum(d.rejected || 0)} verräterische Antworten verworfen.`,
       d.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + d.last_error) : null),
     d.recent.length ? h("details", null, h("summary", null, "Zuletzt erzeugt"),
       h("ul", { class: "mono-list" }, d.recent.map((r) => h("li", null, `[${r.kind}] ${r.input}`, r.hits ? h("span", { class: "muted" }, ` · ${fmtNum(r.hits)}× wiederverwendet`) : null)))) : null,
