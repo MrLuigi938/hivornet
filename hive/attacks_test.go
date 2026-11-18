@@ -123,7 +123,8 @@ func TestAttacksGrouping(t *testing.T) {
 		return
 	}
 	if len(s.Series["connect"]) != 24 || sum(s.Series["connect"]) != 4 || sum(s.Series["success"]) != 1 || s.Totals["success"] != 1 ||
-		s.Totals["ips"] != 2 || s.Totals["login"] != 4 || s.Totals["request"] != 2 {
+		s.Totals["ips"] != 2 || s.Totals["login"] != 4 || s.Totals["request"] != 2 ||
+		s.Totals["fetch"] != 1 || sum(s.Series["fetch"]) != 1 {
 		t.Errorf("Verlauf: %+v %+v", s.Series, s.Totals)
 	}
 }

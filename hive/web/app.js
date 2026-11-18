@@ -469,13 +469,14 @@ async function viewDashboard(el, ctx) {
     ["login", "Login-Versuche", false, `#/feed?type=login`],
     ["request", "Web-Anfragen", false, `#/feed?type=request`],
     ["success", "Logins angenommen", true, `#/attacks?range=${r}&success=1`],
-    ["download", "Downloads", true, `#/attacks?range=${r}&stufe=4`],
+    ["fetch", "Nachladeversuche", true, `#/attacks?range=${r}&q=nachladen:ja`,
+      "Befehle mit Download-Adresse (wget, curl, tftp …) über alle Dienste. Heruntergeladen wird dabei nichts; echte Downloads gibt es nur über Cowrie mit Internetfreigabe (Stufe „Datei nachgeladen“)."],
   ];
-  const kpi = ([key, label, alarm, href]) => {
+  const kpi = ([key, label, alarm, href, help]) => {
     const v = Number(ser.totals[key] || 0), p = Number(ser.prev[key] || 0);
     const delta = p ? Math.round(((v - p) / p) * 100) : null;
     const value = h("span", null, fmtNum(v));
-    const t = h("a", { class: "card tile link" + (alarm && v ? " alarm" : ""), href, title: (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + "Klick zeigt die Liste dazu." },
+    const t = h("a", { class: "card tile link" + (alarm && v ? " alarm" : ""), href, title: (help ? help + " " : "") + (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + "Klick zeigt die Liste dazu." },
       h("div", { class: "label" }, label),
       h("div", { class: "value num" }, value, delta !== null && delta !== 0 ? h("small", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : null),
       sparkline(ser.series[key] || []));

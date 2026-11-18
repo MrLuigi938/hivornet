@@ -679,7 +679,7 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 		}
 		return series[k]
 	}
-	for _, k := range []string{"connect", "login", "request", "command", "download", "ips", "success"} {
+	for _, k := range []string{"connect", "login", "request", "command", "download", "fetch", "ips", "success"} {
 		get(k)
 	}
 	rs, err := h.rows(ctx, `SELECT hour, type, SUM(cnt) AS n FROM hourly WHERE hour >= ? GROUP BY hour, type`, from)
@@ -697,6 +697,14 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 		hr, _ := row["hour"].(int64)
 		n, _ := row["n"].(int64)
 		get("ips")[idx(hr)] += n // Summe je Stunde: eine IP über mehrere Stunden zählt mehrfach, als Verlauf genügt das
+	}
+	// Nachladeversuche: Befehle (aller Dienste) und Downloads mit Nachlade-Adresse. Echte
+	// Downloads gibt es nur über Cowrie mit Internetfreigabe; der Go-Honeypot lädt nie etwas.
+	rs, _ = h.rows(ctx, `SELECT hour, SUM(n) AS n FROM top_hourly WHERE field = 'url' AND hour >= ? GROUP BY hour`, from)
+	for _, row := range rs {
+		hr, _ := row["hour"].(int64)
+		n, _ := row["n"].(int64)
+		get("fetch")[idx(hr)] += n
 	}
 	succ := `type = 'login' AND (json_extract(data, '$.success') = 1 OR json_extract(data, '$.accepted') = 1)`
 	// Summen jetzt und im Zeitraum davor
@@ -728,6 +736,10 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 	h.st.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT key) FROM top_hourly WHERE field = 'ip' AND hour >= ?`, from).Scan(&ipsNow)
 	h.st.db.QueryRowContext(ctx, `SELECT COUNT(DISTINCT key) FROM top_hourly WHERE field = 'ip' AND hour >= ? AND hour < ?`, pfrom.UnixMilli()/3600000, from).Scan(&ipsPrev)
 	totals["ips"], prev["ips"], totals["success"], prev["success"] = ipsNow, ipsPrev, okNow, okPrev
+	var fetchNow, fetchPrev int64
+	h.st.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN hour >= ? THEN n ELSE 0 END), 0), COALESCE(SUM(CASE WHEN hour < ? THEN n ELSE 0 END), 0)
+		FROM top_hourly WHERE field = 'url' AND hour >= ?`, from, from, pfrom.UnixMilli()/3600000).Scan(&fetchNow, &fetchPrev)
+	totals["fetch"], prev["fetch"] = fetchNow, fetchPrev
 	writeJSON(w, map[string]any{"from": from * 3600000, "bucket_hours": bucket, "series": series, "totals": totals, "prev": prev,
 		"active_tarpits": h.sensors.ActiveTarpits()})
 }

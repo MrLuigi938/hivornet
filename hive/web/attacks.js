@@ -258,9 +258,9 @@ export async function viewAttacks(el, ctx, query = "") {
     h("details", { class: "aw-small" }, h("summary", null, "Suchsprache"),
       h("div", { class: "muted", style: { maxWidth: "640px" } },
         "Mehrere Teile müssen alle zutreffen, „-“ davor kehrt um, Anführungszeichen halten Wörter zusammen. Felder: ",
-        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve client fp wallet art scanner login ki"),
+        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve client fp wallet art scanner login ki nachladen"),
         ". Zahlen mit = < > <= >= (", h("code", null, "stufe>=3"), ", ", h("code", null, "port:5555"), "), Stufe auch als Wort (", h("code", null, "stufe:befehle"),
-        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), " / ", h("code", null, "ki:ja"), " (das Sprachmodell hat geantwortet).")));
+        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), " / ", h("code", null, "ki:ja"), " (das Sprachmodell hat geantwortet) / ", h("code", null, "nachladen:ja"), " (wollte eine Datei nachladen).")));
   api("searches").then(renderSaved).catch(() => {});
   const chips = h("div", { class: "filters" });
   const info = h("div", { class: "muted", style: { fontSize: "12.5px" } });
