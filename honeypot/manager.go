@@ -46,6 +46,7 @@ type Manager struct {
 	tarpit    atomic.Pointer[TarpitConfig]
 	hostname  atomic.Value // string
 	profile   atomic.Pointer[string]
+	lures     atomic.Pointer[map[string]bool] // eingeschaltete Köder (lures.go)
 	limits    *Limits
 	rate      *RateLimiter
 	udpRate   *RateLimiter // alle UDP-Pakete zusammen: Absender sind fälschbar, die Drossel je IP greift dort nicht
@@ -152,6 +153,8 @@ func (m *Manager) Apply(c Config) bool {
 	m.hostname.Store(c.Hostname)
 	prof := c.Profile
 	m.profile.Store(&prof)
+	lon, _ := lureSet(c.Lures, c.Profile)
+	m.lures.Store(&lon)
 	m.limits.Set(tc)
 
 	want := map[int]ListenerConfig{}

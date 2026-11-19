@@ -295,6 +295,11 @@ function profileCard(s, saved, saveCfg, ports) {
   const sel = h("select", { "aria-label": "Profil", onchange: () => { apply.checked = !!PROFILES[sel.value].services; show(); } },
     keys.map((k) => h("option", { value: k, selected: (saved.profile || "") === k }, PROFILES[k].name)));
   const hostIn = h("input", { value: saved.hostname, maxlength: 64, "aria-label": "Hostname" });
+  // Köder des Web-Honeypots (honeypot/lures.go); eine eigene Liste aus der YAML-Datei bleibt erhalten
+  const lureOpts = { "": "Passend zum Profil", all: "Alle", off: "Aus" };
+  if (saved.lures && !(saved.lures in lureOpts)) lureOpts[saved.lures] = "Eigene Auswahl: " + saved.lures;
+  const lureSel = h("select", { "aria-label": "Köder" },
+    Object.keys(lureOpts).map((k) => h("option", { value: k, selected: (saved.lures || "") === k }, lureOpts[k])));
   const apply = h("input", { type: "checkbox", onchange: () => show() });
   const applyRow = h("label", { class: "inline" }, apply, "Passende Dienste einschalten, die übrigen ausschalten, und den Hostnamen vorschlagen");
   const show = () => {
@@ -318,7 +323,7 @@ function profileCard(s, saved, saveCfg, ports) {
     saveLabel: "Profil speichern",
     save: async () => {
       const p = PROFILES[sel.value];
-      const part = { profile: sel.value, hostname: hostIn.value.trim() };
+      const part = { profile: sel.value, hostname: hostIn.value.trim(), lures: lureSel.value };
       if (apply.checked && p.services) {
         if (ports.isDirty()) throw new Error("Bitte zuerst „Ports und Modi“ speichern; das Profil schaltet dort Dienste um.");
         part.listeners = saved.listeners.map((l) => ({ ...l, enabled: p.services.includes(l.service) }));
@@ -332,6 +337,7 @@ function profileCard(s, saved, saveCfg, ports) {
   },
   row("Profil", sel), info,
   row("Hostname", hostIn, "Erscheint in Login-Seiten, Banner, Docker- und Redis-Antworten."),
+  row("Köder", lureSel, "Glaubwürdige Seiten für oft angegriffene Produkte (FortiGate, Ivanti, Cisco ASA, Hikvision, ONVIF, Tomcat, Jira und Keycloak). Passend zum Profil: Kamera zeigt Hikvision und ONVIF, Server zeigen Tomcat und Java-Anwendungen."),
   applyRow, preview);
   show();
   return sec;
