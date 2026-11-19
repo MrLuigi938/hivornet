@@ -166,7 +166,20 @@ var errNoSample = errors.New("Datei nicht (mehr) vorhanden")
 var sampleSem = make(chan struct{}, 1)
 
 func (h *Hive) loadSample(hash string) (SampleInfo, error) {
-	if h.cowrieLibDir == "" || !sha256Re.MatchString(hash) {
+	if !sha256Re.MatchString(hash) {
+		return SampleInfo{}, errNoSample
+	}
+	// Downloads von Cowrie oder vom Hive selbst geholte Dateien (Quarantäne, samplecollect.go)
+	var path string
+	if h.cowrieLibDir != "" {
+		path = filepath.Join(h.cowrieLibDir, "downloads", hash)
+	}
+	if q := h.quarantineDir(); q != "" {
+		if _, err := os.Lstat(filepath.Join(q, hash)); err == nil || path == "" {
+			path = filepath.Join(q, hash)
+		}
+	}
+	if path == "" {
 		return SampleInfo{}, errNoSample
 	}
 	// Ergebnis je Hash speichern: Die Datei ändert sich nie.
@@ -182,7 +195,6 @@ func (h *Hive) loadSample(hash string) (SampleInfo, error) {
 	case <-time.After(20 * time.Second):
 		return SampleInfo{}, errors.New("gerade wird schon eine Datei untersucht, bitte gleich noch einmal")
 	}
-	path := filepath.Join(h.cowrieLibDir, "downloads", hash)
 	// Nur reguläre Dateien, keine Verweise oder FIFOs: Wer Cowrie übernimmt,
 	// könnte sonst einen Symlink auf andere Dateien des Hive legen.
 	lst, err := os.Lstat(path)

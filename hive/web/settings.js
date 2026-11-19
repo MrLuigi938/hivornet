@@ -16,7 +16,7 @@ import { forgetHome } from "./extra.js";
 const TABS = [
   ["honeypot", "Honeypot", "Welche Dienste der Honeypot anbietet, wie er sich ausweist und wie er Angreifer festhält."],
   ["auswertung", "Auswertung und KI", "Sprachmodelle für Berichte und Antworten sowie Nachschlagen bei Dritten."],
-  ["weitergabe", "Weitergabe und Meldungen", "Benachrichtigungen, Meldungen an AbuseIPDB und die Blockliste für die eigene Firewall."],
+  ["weitergabe", "Weitergabe und Meldungen", "Benachrichtigungen, Meldungen an AbuseIPDB, URLhaus, MalwareBazaar und DShield sowie die Blockliste für die eigene Firewall."],
   ["zugang", "Zugang und Sicherheit", "Konten, weitere Sensoren, eigene Netze und der Zugriff über einen Reverse-Proxy."],
   ["daten", "Daten und Wartung", "Wie lange Rohdaten bleiben und die verschlüsselte Sicherung."],
 ];
@@ -417,6 +417,7 @@ const SECRET_AT = {
   ntfy_token: ["notify", "ntfy_token"], telegram_token: ["notify", "telegram_token"],
   ai_api_key: ["ai", "api_key"], mimic_api_key: ["mimic", "api_key"],
   abuseipdb_key: [null, "abuseipdb_key"], greynoise_key: [null, "greynoise_key"], abusech_key: [null, "abusech_key"],
+  dshield_key: ["dshield", "api_key"],
 };
 const SECRET_HINT = "gespeichert – leer lassen zum Behalten, „-“ zum Löschen";
 
@@ -579,7 +580,127 @@ async function tabWeitergabe() {
     ex.check(ar, "include_web_probe", "Auch die Suche nach .env, .git und Anmeldeseiten als Web-Angriff melden"))),
   h("details", null, h("summary", null, "Protokoll der Meldungen"), await abuseLogBox()));
 
-  return [notify.el, abuse.el, feedCard().el];
+  return [notify.el, abuse.el, ...(await shareCards(ex)), feedCard().el];
+}
+
+// ---------- Weitergabe an die Community (hive/share.go, samplecollect.go, dshield.go) ----------
+// Je Dienst ein Bereich mit eigenem Speichern; Protokolle aus /api/share/status.
+
+const SHARE_ST = { ok: ["gesendet", "ok"], dry: ["Probe", ""], error: ["Fehler", "err"], known: ["bekannt", "ok"], skipped: ["übersprungen", ""] };
+
+function shareLogTable(ch, subjectLabel, okText) {
+  if (!ch) return h("div", { class: "empty" }, "Noch nichts.");
+  return h("div", null,
+    h("p", { class: "muted" }, `Letzte 24 Stunden: ${fmtNum(ch.ok_24h)} ${okText}`,
+      ch.last_run ? ` · zuletzt geprüft ${new Date(ch.last_run).toLocaleTimeString("de-DE")}` : ""),
+    ch.pause_until ? h("div", { class: "msg warn" }, "Pausiert bis " + new Date(ch.pause_until).toLocaleString("de-DE") + ".") : null,
+    ch.last_error ? h("div", { class: "msg err" }, "Letzter Fehler: " + ch.last_error) : null,
+    ch.log.length ? h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["Zeit", subjectLabel, "Status", "Hinweis"].map((t) => h("th", null, t)))),
+      h("tbody", null, ch.log.slice(0, 50).map((e) => {
+        const [label, cls] = SHARE_ST[e.status] || [e.status, ""];
+        return h("tr", null,
+          h("td", { class: "num" }, new Date(e.time).toLocaleString("de-DE")),
+          h("td", { class: "mono", style: { wordBreak: "break-all" } }, e.subject),
+          h("td", null, h("span", { class: "badge " + cls }, label)),
+          h("td", null, e.error || e.detail || ""));
+      })))) : h("div", { class: "empty" }, "Noch keine Einträge."));
+}
+
+function quarantineTable(q) {
+  if (!q || !q.files.length) return h("div", { class: "empty" }, "Die Quarantäne ist leer.");
+  return h("div", null,
+    h("p", { class: "muted" }, `${q.files.length === 1 ? "1 Datei" : fmtNum(q.files.length) + " Dateien"}, ${fmtBytes(q.bytes)} von höchstens ${fmtBytes(q.max_bytes)}. `,
+      "Angezeigt werden nur Hash und Merkmale; die Dateien selbst gibt die Web-UI nie heraus."),
+    h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["Geholt", "SHA-256", "Typ", "Größe", "Server", "MalwareBazaar"].map((t) => h("th", null, t)))),
+      h("tbody", null, q.files.map((f) => h("tr", null,
+        h("td", { class: "num" }, new Date(f.time).toLocaleString("de-DE")),
+        h("td", { class: "mono", style: { wordBreak: "break-all" } }, f.sha256),
+        h("td", null, [f.type, f.arch].filter(Boolean).join(", ") || "–"),
+        h("td", { class: "num" }, fmtBytes(f.size)),
+        h("td", { class: "mono" }, f.host || "–"),
+        h("td", null, ({ ok: "hochgeladen", known: "bekannt", dry: "Probe", skipped: "nicht hochgeladen" })[f.bazaar] || "–")))))));
+}
+
+async function shareCards(ex) {
+  const x = ex.x;
+  let st = null;
+  try { st = await api("share/status"); } catch (e) { /* Protokolle fehlen dann nur */ }
+  const noKey = () => st && !st.abusech_key ? h("div", { class: "msg warn" }, "Kein abuse.ch-Schlüssel hinterlegt. Eintragen unter „Auswertung und KI“ → „Nachschlagen bei Dritten“; derselbe Schlüssel dient für URLhaus und MalwareBazaar.") : null;
+
+  const uh = x.urlhaus_report;
+  const urlhaus = section("URLhaus: Nachlade-Adressen melden", {
+    intro: "Meldet Adressen, von denen Angreifer Schadsoftware nachladen wollten, an URLhaus (abuse.ch). Von dort gelangen sie in Blocklisten von Providern, Browsern und Virenscannern.",
+    saveLabel: "URLhaus speichern",
+    save: () => ex.save(["urlhaus_report"]),
+  },
+  noKey(),
+  h("p", { class: "sub" }, "Gemeldet werden nur Adressen aus ausgeführten Befehlen (wget, curl, tftp …) und aus Downloads, jede nur einmal. ",
+    "Nie gemeldet werden private und eigene Adressen, Rückruf-Adressen von Scannern (interactsh, Burp …), Funde von Forschungsscannern und eigene Tests. ",
+    "URLhaus nimmt nur Adressen an, die gerade Schadsoftware ausliefern; wer wiederholt Falsches meldet, kann gesperrt werden."),
+  row("Aktiv", ex.check(uh, "enabled", "Nachlade-Adressen automatisch melden")),
+  row("Probemodus", ex.check(uh, "dry_run", "Nur protokollieren, was gemeldet würde (nichts senden)")),
+  row("Nur bestätigte", ex.check(uh, "verified_only", "Nur Adressen melden, deren Datei der Hive selbst holen konnte"),
+    "Empfohlen. Setzt „Dateien sammeln“ voraus; ftp- und tftp-Adressen werden dann nie gemeldet."),
+  row("Höchstens pro Tag", ex.num(uh, "daily_limit", 1, 150, 1)),
+  h("details", null, h("summary", null, "Protokoll der Meldungen"), shareLogTable(st && st.urlhaus, "Adresse", "gemeldet")));
+
+  const sc = x.samples;
+  const samples = section("Dateien sammeln (Quarantäne)", {
+    intro: "Holt die Datei einer Nachlade-Adresse selbst, legt sie in eine Quarantäne und wertet sie aus wie die Downloads von Cowrie. Nur so lassen sich Adressen bestätigen und Proben an MalwareBazaar geben.",
+    saveLabel: "Sammeln speichern",
+    save: () => ex.save(["samples"]),
+  },
+  h("div", { class: "msg warn" }, "Der Hive verbindet sich dafür selbst mit dem Server des Angreifers und verrät ihm dabei seine öffentliche IP-Adresse. ",
+    "Die kennt der Angreifer ohnehin, denn er greift sie ja an. Honeypot und Cowrie bleiben weiter ohne Internet."),
+  h("p", { class: "sub" }, "Schutz: nur http und https; vor jeder Verbindung (auch nach Weiterleitungen und neuer Namensauflösung) wird geprüft, dass das Ziel ",
+    "weder im Heimnetz noch sonst privat, lokal oder die eigene Adresse ist. Größe und Zeit sind begrenzt, HTML-Seiten werden verworfen. ",
+    "Dateien heißen nur nach ihrem SHA-256, sind nicht ausführbar und werden nie entpackt, ausgeführt oder über die Web-UI ausgeliefert."),
+  st && !st.own_ip_known ? h("div", { class: "msg" }, "Die eigene öffentliche Adresse ist noch unbekannt. Unter System → „Wie Shodan dich sieht“ einmal abfragen; dann holt und meldet der Hive sie nie.") : null,
+  row("Aktiv", ex.check(sc, "enabled", "Dateien von Nachlade-Adressen holen")),
+  row("Downloads pro Tag", ex.num(sc, "daily_limit", 1, 100, 1), "Jeder Versuch zählt, auch ein gescheiterter."),
+  row("Je Server und Tag", ex.num(sc, "per_host_daily", 1, 20, 1)),
+  row("Größe je Datei (MB)", ex.num(sc, "max_mb", 1, 32, 1)),
+  row("Aufbewahrung (Tage)", ex.num(sc, "keep_days", 1, 365, 1)),
+  row("Platz insgesamt (MB)", ex.num(sc, "max_total_mb", 10, 10000, 10), "Darüber werden die ältesten Dateien gelöscht."),
+  row("User-Agent", ex.text(sc, "user_agent", { maxlength: 120 }), "Wie ein gewöhnliches Werkzeug, z. B. Wget/1.21.4 oder curl/8.5.0. Keine Angaben, die auf dich hinweisen."),
+  h("details", null, h("summary", null, "Quarantäne"), quarantineTable(st && st.quarantine)),
+  h("details", null, h("summary", null, "Protokoll der Downloads"), shareLogTable(st && st.sample, "Adresse", "geholt")));
+
+  const bz = x.bazaar;
+  const bazaar = section("MalwareBazaar: Proben teilen", {
+    intro: "Schlägt den Hash gesammelter Dateien bei MalwareBazaar (abuse.ch) nach und lädt unbekannte Schadprogramme hoch, damit Virenscanner sie erkennen.",
+    saveLabel: "MalwareBazaar speichern",
+    save: () => ex.save(["bazaar"]),
+  },
+  noKey(),
+  h("p", { class: "sub" }, "Hochgeladen werden nur frisch geholte Programme (ELF, Windows) und Skripte mit eindeutig schädlichen Mustern, nie Text, HTML oder Archive. ",
+    "Tags: honeypot, Dateityp und Architektur. Die Probe stammt vom Angreifer und enthält nichts über dich."),
+  row("Nachschlagen", ex.check(bz, "lookup", "Hash gesammelter Dateien nachschlagen")),
+  row("Hochladen", ex.check(bz, "upload", "Unbekannte Schadprogramme hochladen")),
+  row("Probemodus", ex.check(bz, "dry_run", "Nur protokollieren, was hochgeladen würde")),
+  h("details", null, h("summary", null, "Protokoll"), shareLogTable(st && st.bazaar, "SHA-256", "erledigt")));
+
+  const ds = x.dshield;
+  const dshield = section("DShield (SANS Internet Storm Center)", {
+    intro: "Sendet stündlich Verbindungsversuche, Web-Anfragen und SSH-/Telnet-Anmeldungen an DShield. Daraus entstehen die weltweiten Angriffsstatistiken und Blocklisten des ISC.",
+    saveLabel: "DShield speichern",
+    save: () => ex.save(["dshield"], ["dshield_key"]),
+  },
+  h("p", { class: "sub" }, "Konto unter isc.sans.edu anlegen; Benutzernummer und API-Schlüssel stehen dort unter „My Account“. ",
+    "Die eigene Adresse wird nie gesendet (Ziel immer 0.0.0.0), ebenso keine Absender aus dem eigenen Netz. In Pfaden werden eigene IP und Hostnamen ersetzt."),
+  row("Aktiv", ex.check(ds, "enabled", "Daten an DShield senden")),
+  row("Probemodus", ex.check(ds, "dry_run", "Nur protokollieren, wie viel gesendet würde")),
+  row("Benutzernummer", ex.num(ds, "user_id", 0, 999999999, 1)),
+  row("API-Schlüssel", ex.secret("dshield_key")),
+  row("Was senden", h("div", { class: "checklist" },
+    ex.check(ds, "firewall", "Verbindungsversuche (wie ein Firewall-Protokoll)"),
+    ex.check(ds, "web", "Web-Anfragen (ohne Host-Kopfzeile)"),
+    ex.check(ds, "logins", "SSH- und Telnet-Anmeldeversuche mit Benutzername und Passwort"))),
+  h("details", null, h("summary", null, "Protokoll der Sendungen"), shareLogTable(st && st.dshield, "Umfang", "Sendungen")));
+
+  return [urlhaus.el, samples.el, bazaar.el, dshield.el];
 }
 
 const ABUSE_CAT = { 5: "FTP-Brute-Force", 11: "E-Mail-Spam", 14: "Port-Scan", 15: "Hacking", 16: "SQL-Injection", 18: "Brute-Force", 20: "Befallener Rechner", 21: "Web-App-Angriff", 22: "SSH", 23: "IoT" };

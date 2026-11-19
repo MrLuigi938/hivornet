@@ -31,6 +31,11 @@ type Extras struct {
 	Own          OwnNets           `json:"own"`           // eigene Netze (ownnet.go)
 	AbuseReport  AbuseReportConfig `json:"abuse_report"`  // automatische Meldung (abusereport.go)
 	Mimic        MimicConfig       `json:"mimic"`         // Antworten vom Sprachmodell für Unbekanntes (mimic.go)
+	// Weitergabe an die Community (share.go, samplecollect.go, dshield.go)
+	URLhausReport URLhausReportConfig `json:"urlhaus_report"`
+	Samples       SampleCollectConfig `json:"samples"`
+	Bazaar        BazaarConfig        `json:"bazaar"`
+	DShield       DShieldConfig       `json:"dshield"`
 }
 
 type NotifyConfig struct {
@@ -66,6 +71,7 @@ func defaultExtras() Extras {
 	x.Own.Private = true
 	x.AbuseReport = defaultAbuseReport()
 	x.Mimic = defaultMimic()
+	defaultShare(&x)
 	return x
 }
 
@@ -74,6 +80,7 @@ func (x *Extras) secretFields() map[string]*string {
 	return map[string]*string{
 		"ntfy_token": &x.Notify.NtfyToken, "telegram_token": &x.Notify.TelegramToken,
 		"ai_api_key": &x.AI.APIKey, "mimic_api_key": &x.Mimic.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey, "abusech_key": &x.AbuseChKey,
+		"dshield_key": &x.DShield.APIKey,
 	}
 }
 
@@ -119,6 +126,9 @@ func (x *Extras) Validate() error {
 		return fmt.Errorf("KI-Auswertung braucht Adresse und Modell")
 	}
 	if err := x.Mimic.validate(x.AI); err != nil {
+		return err
+	}
+	if err := x.validateShare(); err != nil {
 		return err
 	}
 	return nil

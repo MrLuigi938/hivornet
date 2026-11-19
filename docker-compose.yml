@@ -209,7 +209,7 @@ volumes:
   cowrie-lib:
 
 networks:
-  admin: {} # Web-UI, GeoIP-Download und (falls eingerichtet) Benachrichtigungen, KI, AbuseIPDB
+  admin: {} # Web-UI, GeoIP-Download und (falls eingerichtet) Benachrichtigungen, KI, AbuseIPDB, URLhaus, MalwareBazaar, DShield und das Holen von Dateien (Ziele im LAN prüft der Hive selbst)
   ingest: # Honeypot -> Hive, ohne Internetzugang
     internal: true
     driver_opts:
