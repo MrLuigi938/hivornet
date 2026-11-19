@@ -11,6 +11,10 @@ package main
 //  1. TLS am Klartext-Port: Ereignis "tls" mit plain=true (Honeypot ab 0.5.3) oder ein
 //     älteres "command"/"payload", dessen Text mit \x16\x03 beginnt. Kein Befehl, keine
 //     Verschleierung, sondern Merkmal tls_on_plain. Stufe: Abtasten.
+//     1b. Fremdes Protokoll an einem Zeilendienst (Redis, FTP, SMTP; Telnet vor dem Login):
+//     HTTP-Anfragezeile, HTTP-Kopfzeile ("Host: …") oder Binärdaten. Honeypots ab 0.7.6
+//     melden das als ein "payload" (foreign=http/binary); ältere meldeten jede Zeile als
+//     Befehl bzw. Login. Kein Befehl, keine Zugangsdaten. Stufe: Abtasten.
 //  2. Eingabe an der Login-Abfrage (nur Telnet, Honeypot und Cowrie): Ist der Benutzername
 //     ein Befehlswort (enable, system, shell, sh, /bin/busybox …) oder beginnt das Passwort
 //     mit busybox, hat ein Bot seine Befehle blind in die Anmeldung getippt. Das sind keine
@@ -43,7 +47,48 @@ const (
 	kindProbe           // Protokoll-Abfrage ohne Wirkung (Abtasten)
 	kindProto           // Protokoll-Befehl vor der Anmeldung (Versuche)
 	kindExec            // Befehl ausgeführt (Stufe 3)
+	kindForeign         // Zeile einer HTTP-Anfrage oder Binärdaten an einem Zeilendienst (Regel 1b)
 )
+
+// Regel 1b: HTTP-Zeilen und Binärdaten, wie printable im Honeypot sie darstellt.
+var (
+	httpLineRe   = regexp.MustCompile(`^(GET|POST|HEAD|PUT|DELETE|OPTIONS|CONNECT|PATCH|TRACE|PRI) \S+ HTTP/\d`)
+	httpHeaderRe = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]{0,40}:(\s|$)`)
+)
+
+// foreignLine: Zeile einer HTTP-Anfrage (Anfrage- oder Kopfzeile) oder Binärdaten. Kein
+// Befehl von Redis, FTP oder SMTP endet sein erstes Wort mit ":" ("MAIL FROM:" hat ein
+// Leerzeichen davor) oder beginnt mit einem nicht druckbaren Zeichen (printable: \xNN;
+// ein echter Backslash erscheint als \\).
+func foreignLine(s string) bool {
+	s = strings.TrimSpace(s)
+	return httpLineRe.MatchString(s) || httpHeaderRe.MatchString(s) || strings.HasPrefix(s, `\x`)
+}
+
+// foreignEvent: Regel 1b für Befehle (Redis, FTP, SMTP) und Telnet-Logins vor 0.7.6.
+func foreignEvent(e *Event) bool {
+	switch e.Type {
+	case "command":
+		switch e.Service {
+		case "redis", "ftp", "smtp":
+			return foreignLine(dataString(e.Data, "input"))
+		}
+	case "login":
+		if e.Service == "telnet" { // Benutzername = Anfragezeile, Passwort = erste Kopfzeile
+			u := strings.TrimSpace(e.Username)
+			return httpLineRe.MatchString(u) || httpHeaderRe.MatchString(u)
+		}
+	}
+	return false
+}
+
+// foreignText: Text einer fremden Eingabe für die Musterprüfung ("raw": http_on_raw …).
+func foreignText(e *Event) string {
+	if e.Type == "login" {
+		return strings.TrimSpace(e.Username + "\n" + e.Password)
+	}
+	return dataString(e.Data, "input")
+}
 
 // tlsPrefix: so beginnt ein TLS-Record vom Typ Handshake, wie printable ihn darstellt.
 const tlsPrefix = `\x16\x03`
@@ -61,7 +106,13 @@ func eventKind(e *Event, loggedIn bool) evKind {
 		if isTLSText(dataString(e.Data, "text")) {
 			return kindTLSPlain
 		}
+		if dataString(e.Data, "foreign") != "" { // Honeypot ab 0.7.6: ganze Anfrage in einem Ereignis
+			return kindForeign
+		}
 	case "login":
+		if foreignEvent(e) {
+			return kindForeign
+		}
 		if _, ok := promptLines(e); ok {
 			return kindPrompt
 		}
@@ -70,6 +121,8 @@ func eventKind(e *Event, loggedIn bool) evKind {
 		switch {
 		case isTLSText(input):
 			return kindTLSPlain
+		case foreignEvent(e):
+			return kindForeign
 		case commandExecuted(e.Service, input, loggedIn):
 			return kindExec
 		case probeCommand(input):

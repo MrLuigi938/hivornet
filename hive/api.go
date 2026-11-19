@@ -210,6 +210,7 @@ func (h *Hive) heartbeat(w http.ResponseWriter, r *http.Request) {
 		h.st.SetKV(configKey(""), string(b))
 	}
 	h.sensors.Put(hb)
+	h.trackListeners(hb, time.Now())
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
@@ -722,6 +723,20 @@ func (h *Hive) putSettings(w http.ResponseWriter, r *http.Request) {
 			httpErr(w, 400, err.Error())
 			return
 		}
+		// Hostname nur prüfen, wenn er sich ändert: ein älterer, ungültiger Name soll das
+		// Speichern der Ports nicht blockieren (die UI weist dort auf ihn hin).
+		var old struct {
+			Hostname string `json:"hostname"`
+		}
+		if raw, _ := h.SensorConfigFor(req.Sensor); raw != nil {
+			json.Unmarshal(raw, &old)
+		}
+		if req.SensorConfig.Hostname != old.Hostname {
+			if err := hostnameError(req.SensorConfig.Hostname); err != nil {
+				httpErr(w, 400, err.Error())
+				return
+			}
+		}
 		b, _ := json.Marshal(req.SensorConfig)
 		h.st.SetKV(configKey(req.Sensor), string(b))
 	}
@@ -788,6 +803,7 @@ func (h *Hive) warnings() []warning {
 		}
 		out = append(out, listenerWarnings(s)...)
 	}
+	out = append(out, h.silentWarnings(time.Now())...)
 	if n := h.writer.dropped.Load(); n > 0 {
 		add("critical", "Der Hive konnte %d Ereignisse nicht speichern: %s", n, h.writer.lastErr.Load())
 	}

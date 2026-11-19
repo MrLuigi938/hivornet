@@ -25,6 +25,7 @@ export function summary(a) {
   if (proto) p.push(`${fmtNum(proto)} Protokoll-Befehl${proto > 1 ? "e" : ""}`);
   if (c.prompt) p.push(`${fmtNum(c.prompt)}× Befehle an der Login-Abfrage`);
   if (c.tls_plain) p.push("TLS-Handshake am Klartext-Port");
+  if (c.foreign) p.push(`${fmtNum(c.foreign)}× HTTP oder Binärdaten an fremdem Port`);
   if (c.download) p.push(`${fmtNum(c.download)} Download${c.download > 1 ? "s" : ""}`);
   if (c.ai_reply) p.push(`${fmtNum(c.ai_reply)}× von der KI beantwortet`);
   if (!p.length) p.push(a.ports.length > 1 ? `${a.ports.length} Ports abgetastet` : `Verbindung zu Port ${a.ports[0] || "?"}`);

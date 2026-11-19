@@ -99,8 +99,10 @@ func handlePostgres(s *Session) {
 	var params map[string]string
 	for tries := 0; tries < 3 && params == nil; tries++ {
 		s.ReadDeadline(30 * time.Second)
-		if tries == 0 && s.sniffTLS(br) {
-			return
+		if tries == 0 {
+			if kind, _ := s.sniffForeign(br, false); kind != "" {
+				return
+			}
 		}
 		var hdr [8]byte
 		if _, err := io.ReadFull(br, hdr[:]); err != nil {

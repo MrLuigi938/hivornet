@@ -128,8 +128,11 @@ async function tabHoneypot() {
       Object.assign(saved, structuredClone(part));
       return sensor ? `Für ${sensor} gespeichert. Der Sensor übernimmt es innerhalb von 15 Sekunden.` : "Gespeichert. Der Sensor übernimmt es innerhalb von 15 Sekunden.";
     };
-    const ports = portsCard(s, saved, saveCfg);
-    out.push(ports.el, profileCard(s, saved, saveCfg, ports).el, tarpitCard(s, saved, saveCfg).el);
+    // Verbindungen je Port (hive/silentports.go): Hinweis auf stille Ports, Folgen eines Profilwechsels
+    const act = await api("ports/activity?sensor=" + encodeURIComponent(sensor)).catch(() => null);
+    const byPort = new Map(((act && act.ports) || []).map((p) => [p.port, p]));
+    const ports = portsCard(s, saved, saveCfg, byPort);
+    out.push(ports.el, profileCard(s, saved, saveCfg, ports, byPort).el, tarpitCard(s, saved, saveCfg).el);
   }
   if (isAdmin()) {
     out.push(cowrieAuthCard());
@@ -163,7 +166,7 @@ function sensorPicker(s, sensor) {
 
 // Ports und Modi. Wählt man in einer Zeile den Dienst, springt der Port auf dessen Standardport
 // (vom Server: default_ports), solange der Port in dieser Zeile nicht von Hand geändert wurde.
-function portsCard(s, saved, saveCfg) {
+function portsCard(s, saved, saveCfg, byPort = new Map()) {
   const defs = s.default_ports || {};
   const reserved = s.reserved_ports || {};
   let ls = [];
@@ -185,6 +188,9 @@ function portsCard(s, saved, saveCfg) {
     if (reserved[l.port]) return h("span", { class: "warn-text" }, `Port ${l.port} ist reserviert (${reserved[l.port]}).`);
     const other = ls.find((o) => o !== l && o.port === l.port);
     if (other) return h("span", { class: "warn-text" }, `Port ${l.port} ist schon belegt (${svcName(other.service) || other.service}).`);
+    const a = l.enabled && byPort.get(l.port);
+    if (a && a.silent) return h("div", null, h("span", { class: "warn-text" }, a.text), " ", pubInfo(l.port));
+    if (a && a.active_since) return h("div", null, pubInfo(l.port), h("div", { class: "muted" }, `7 Tage: ${fmtNum(a.conns_7d)} Verbindung${a.conns_7d === 1 ? "" : "en"}`));
     return pubInfo(l.port);
   };
   const refreshHints = () => { for (const l of ls) mount(meta.get(l).hint, hintFor(l)); };
@@ -258,6 +264,13 @@ function portsCard(s, saved, saveCfg) {
   h("div", { class: "tablewrap" }, h("table", { class: "ports" },
     h("thead", null, h("tr", null, ["Aktiv", "Dienst", "Port", "Modus", "Hinweis", ""].map((t) => h("th", null, t)))), listBody)),
   h("div", { class: "btnrow" }, h("button", { class: "btn", onclick: add }, "Port hinzufügen")),
+  silentBox(s, saved, byPort, (port) => {
+    const l = ls.find((x) => x.port === port);
+    if (!l) return;
+    l.enabled = false;
+    renderRows();
+    sec.markDirty();
+  }),
   h("p", { class: "muted" }, cowrieNote),
   h("details", null, h("summary", null, "Was die Modi bedeuten"),
     h("dl", { class: "modes" },
@@ -267,6 +280,24 @@ function portsCard(s, saved, saveCfg) {
   sec.reset = reset;
   reset();
   return sec;
+}
+
+// Stille Ports: Kasten über den Ports mit Erklärung, Prüfhinweisen und „Abschalten“.
+// Geprüft wird nichts aktiv; Shodan (System) und ein Portprüfer im Browser nur auf Knopfdruck.
+function silentBox(s, saved, byPort, switchOff) {
+  const silent = saved.listeners.filter((l) => l.enabled && byPort.get(l.port)?.silent);
+  if (!silent.length) return null;
+  const box = h("div", { class: "msg warn silent-ports" },
+    h("b", null, silent.length === 1 ? "Ein Port bekommt keine Verbindungen" : `${silent.length} Ports bekommen keine Verbindungen`),
+    h("ul", null, silent.map((l) => h("li", null, byPort.get(l.port).text, " ",
+      isAdmin() ? h("button", { type: "button", class: "btn small", onclick: (e) => { e.target.disabled = true; e.target.textContent = "Abgeschaltet (noch speichern)"; switchOff(l.port); } }, "Dienst abschalten") : null))),
+    h("details", null, h("summary", null, "Woran das liegen kann und wie du es prüfst"),
+      h("ul", null,
+        h("li", null, "Viele Internetanbieter (etwa Vodafone) sperren an Privatanschlüssen eingehend Port 25 (Mail) und 445 (Windows-Freigaben). Dann kommt dort nie etwas an; Abschalten spart nur Ressourcen."),
+        h("li", null, s.direct_ports ? "Im Router muss der Port auf dieses Gerät weitergeleitet sein (Portfreigabe)."
+          : "Im Docker-Betrieb muss der Port in der .env freigegeben und im Router auf denselben NAS-Port weitergeleitet sein (Spalte „Hinweis“)."),
+        h("li", null, "Ob der Port von außen offen ist, zeigt „Wie Shodan dich sieht“ unter System (Abfrage nur auf Knopfdruck) oder ein Online-Portprüfer, den du selbst im Browser aufrufst. Der Hive prüft nichts von außen."))));
+  return box;
 }
 
 // Geräteprofile wie in honeypot/profile.go: passende Dienste und ein Hostname.
@@ -287,28 +318,80 @@ const PROFILES = {
     services: ["http", "https", "ssh-tarpit", "dockerapi", "kubernetes", "ollama", "elasticsearch", "postgres", "redis", "mysql"] },
 };
 
-function profileCard(s, saved, saveCfg, ports) {
+// Hostname nach RFC 952/1123 (wie hive/hostname.go): Buchstaben, Ziffern, Bindestrich,
+// je Teil höchstens 63 Zeichen, kein Bindestrich am Rand. "" = gültig oder leer.
+export function hostnameProblem(v) {
+  if (!v) return "";
+  if (v.length > 64) return "höchstens 64 Zeichen";
+  for (const c of v) {
+    if (c === "_") return "Unterstriche sind in Hostnamen nicht erlaubt";
+    if (c === " ") return "Leerzeichen sind in Hostnamen nicht erlaubt";
+    if (c.charCodeAt(0) > 0x7f) return "Umlaute und andere Sonderzeichen sind nicht erlaubt";
+    if (!/[A-Za-z0-9.-]/.test(c)) return `Zeichen „${c}“ ist nicht erlaubt (nur Buchstaben, Ziffern und Bindestrich)`;
+  }
+  for (const l of v.split(".")) {
+    if (!l) return "leerer Namensteil (zwei Punkte hintereinander oder Punkt am Anfang/Ende)";
+    if (l.length > 63) return "ein Namensteil darf höchstens 63 Zeichen haben";
+    if (l.startsWith("-") || l.endsWith("-")) return "kein Bindestrich am Anfang oder Ende";
+  }
+  return "";
+}
+
+export function suggestHostname(v) {
+  v = v.trim().toLowerCase().replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss");
+  v = v.replace(/[^a-z0-9.]/g, "-");
+  let s = v.split(".").map((p) => p.replace(/-+/g, "-").replace(/^-|-$/g, "").slice(0, 63).replace(/-$/, "")).filter(Boolean).join(".");
+  if (s.length > 64) s = s.slice(0, 64).replace(/-+$/, "").replace(/\.+$/, "");
+  return s;
+}
+
+// Wie viele Verbindungen die Dienste brachten, die ein Profil ausschaltet ("" = unbekannt oder keine).
+function offImpact(off, byPort) {
+  const parts = off.map((l) => ({ name: svcName(l.service), n: byPort.get(l.port)?.conns_7d || 0 })).filter((x) => x.n > 0);
+  if (!parts.length) return "";
+  const total = parts.reduce((a, x) => a + x.n, 0);
+  const names = [...new Set(parts.map((x) => x.name))];
+  const list = names.length > 1 ? names.slice(0, -1).join(", ") + " und " + names.at(-1) : names[0];
+  return `${list} brachte${names.length > 1 ? "n" : ""} zuletzt ~${fmtNum(total)} Verbindung${total === 1 ? "" : "en"} pro Woche` +
+    (parts.length > 1 ? ` (${parts.map((x) => `${x.name} ${fmtNum(x.n)}`).join(", ")})` : "") + ".";
+}
+
+function profileCard(s, saved, saveCfg, ports, byPort = new Map()) {
   const known = s.profiles || Object.keys(PROFILES);
   const keys = Object.keys(PROFILES).filter((k) => known.includes(k));
   const info = h("p", { class: "help" });
   const preview = h("p", { class: "help" });
+  const impact = h("p", { class: "warn-text", role: "status" });
   const sel = h("select", { "aria-label": "Profil", onchange: () => { apply.checked = !!PROFILES[sel.value].services; show(); } },
     keys.map((k) => h("option", { value: k, selected: (saved.profile || "") === k }, PROFILES[k].name)));
-  const hostIn = h("input", { value: saved.hostname, maxlength: 64, "aria-label": "Hostname" });
+  const hostHint = h("div", { class: "host-hint", role: "status" });
+  const hostIn = h("input", { value: saved.hostname, maxlength: 64, "aria-label": "Hostname", spellcheck: "false", autocomplete: "off", oninput: () => checkHost() });
+  // Hinweis beim Tippen, mit Vorschlag zum Übernehmen
+  const checkHost = () => {
+    const v = hostIn.value.trim(), why = hostnameProblem(v);
+    hostIn.setAttribute("aria-invalid", why ? "true" : "false");
+    if (!why) { hostHint.replaceChildren(); return; }
+    const sug = suggestHostname(v);
+    hostHint.replaceChildren(h("div", { class: "msg warn" },
+      `So heißt kein echtes Gerät: ${why}. Erlaubt sind Buchstaben, Ziffern und Bindestrich (je Teil höchstens 63 Zeichen, kein Bindestrich am Anfang oder Ende).`,
+      sug && !hostnameProblem(sug) ? [" Vorschlag: ", h("b", { class: "num" }, sug), " ",
+        h("button", { type: "button", class: "btn small", onclick: () => { hostIn.value = sug; checkHost(); sec.markDirty(); } }, "Übernehmen")] : null));
+  };
   const apply = h("input", { type: "checkbox", onchange: () => show() });
   const applyRow = h("label", { class: "inline" }, apply, "Passende Dienste einschalten, die übrigen ausschalten, und den Hostnamen vorschlagen");
   const show = () => {
     const p = PROFILES[sel.value];
     info.textContent = p.desc;
     applyRow.hidden = !p.services;
-    if (apply.checked && p.host && hostIn.value === saved.hostname) hostIn.value = p.host;
-    if (!p.services || !apply.checked) { preview.textContent = ""; return; }
-    const on = [], off = [];
+    if (apply.checked && p.host && hostIn.value === saved.hostname) { hostIn.value = p.host; checkHost(); }
+    if (!p.services || !apply.checked) { preview.textContent = ""; impact.textContent = ""; return; }
+    const on = [], off = [], offL = [];
     for (const l of saved.listeners) {
       const want = p.services.includes(l.service);
       if (want && !l.enabled) on.push(`${svcName(l.service)} ${l.port}`);
-      if (!want && l.enabled) off.push(`${svcName(l.service)} ${l.port}`);
+      if (!want && l.enabled) { off.push(`${svcName(l.service)} ${l.port}`); offL.push(l); }
     }
+    impact.textContent = offImpact(offL, byPort);
     const missing = p.services.filter((v) => !saved.listeners.some((l) => l.service === v)).map(svcName);
     preview.textContent = [on.length ? "Schaltet ein: " + on.join(", ") : "", off.length ? "Schaltet aus: " + off.join(", ") : "",
       missing.length ? "Nicht eingerichtet (unter „Ports und Modi“ hinzufügen): " + missing.join(", ") : ""].filter(Boolean).join(" · ") || "Die Dienste passen schon zum Profil.";
@@ -319,8 +402,17 @@ function profileCard(s, saved, saveCfg, ports) {
     save: async () => {
       const p = PROFILES[sel.value];
       const part = { profile: sel.value, hostname: hostIn.value.trim() };
+      if (part.hostname !== saved.hostname && hostnameProblem(part.hostname)) {
+        const sug = suggestHostname(part.hostname);
+        if (!sug || hostnameProblem(sug) || !confirm(`„${part.hostname}“ ist kein gültiger Hostname (${hostnameProblem(part.hostname)}). Stattdessen „${sug}“ speichern?`))
+          throw new Error("Hostname ungültig: bitte korrigieren oder den Vorschlag übernehmen.");
+        part.hostname = hostIn.value = sug;
+        checkHost();
+      }
       if (apply.checked && p.services) {
         if (ports.isDirty()) throw new Error("Bitte zuerst „Ports und Modi“ speichern; das Profil schaltet dort Dienste um.");
+        const lost = offImpact(saved.listeners.filter((l) => l.enabled && !p.services.includes(l.service)), byPort);
+        if (lost && !confirm(`Das Profil schaltet Dienste aus: ${lost} Trotzdem speichern?`)) throw new Error("Nicht gespeichert.");
         part.listeners = saved.listeners.map((l) => ({ ...l, enabled: p.services.includes(l.service) }));
       }
       const r = await saveCfg(part);
@@ -331,9 +423,12 @@ function profileCard(s, saved, saveCfg, ports) {
     },
   },
   row("Profil", sel), info,
-  row("Hostname", hostIn, "Erscheint in Login-Seiten, Banner, Docker- und Redis-Antworten."),
-  applyRow, preview);
+  row("Hostname", h("div", null, hostIn, hostHint),
+    "Erscheint in Login-Seiten, Bannern, Zertifikaten sowie Docker- und Redis-Antworten und geht mit den Befehlen an den Anbieter des Sprachmodells, falls die KI-Antworten eingeschaltet sind. " +
+    "Ein unauffälliger Name wie „web01“ oder „nas-backup01“ wirkt echt; ungültige oder seltsame Namen verraten den Honeypot. Bitte keine echten Personennamen oder Hinweise auf dich verwenden."),
+  applyRow, preview, impact);
   show();
+  checkHost();
   return sec;
 }
 

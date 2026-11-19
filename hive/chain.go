@@ -201,6 +201,11 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 		switch {
 		case kind == kindTLSPlain:
 			n = b.node("tlsplain:"+e.Service, phRecon, "pattern", "TLS am Klartext-Port", 0, e, svc)
+		case kind == kindForeign && contains(ids, "http_on_raw"):
+			n = b.node("pat:http_on_raw", patternPhase["http_on_raw"], "pattern", patternByID["http_on_raw"].Name, patternByID["http_on_raw"].Sev, e, text)
+			setMitre(n, "http_on_raw")
+		case kind == kindForeign:
+			n = b.node("foreign:"+e.Service, phRecon, "pattern", "Fremdes Protokoll am Port", 0, e, svc)
 		case kind == kindPrompt:
 			lines, _ := promptLines(e)
 			n = b.node("prompt:"+e.Service, phAccess, "prompt", "Befehle an der Login-Abfrage", 1, e, strings.Join(lines, " ⏎ "))

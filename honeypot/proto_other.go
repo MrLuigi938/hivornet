@@ -60,7 +60,10 @@ func handleFTP(s *Session) {
 	user, cwd, in := "", "/", false
 	for i := 0; i < 40; i++ {
 		s.ReadDeadline(60 * time.Second)
-		if i == 0 && s.sniffTLS(br) {
+		if kind, _ := s.sniffForeign(br, true); kind != "" {
+			if kind != "tls" {
+				s.WriteString("530 Please login with USER and PASS.\r\n")
+			}
 			return
 		}
 		line, err := readLine(br, 1024)
@@ -299,7 +302,14 @@ func handleRedis(s *Session) {
 	br := bufio.NewReader(s.Conn)
 	for i := 0; i < 200; i++ {
 		s.ReadDeadline(120 * time.Second)
-		if i == 0 && s.sniffTLS(br) {
+		if kind, req := s.sniffForeign(br, true); kind != "" {
+			// wie Redis: GET mit zwei Argumenten ist ein Fehler; bei "Host:" bzw. sofort bei
+			// "POST" schließt Redis die Verbindung (Schutz gegen Cross-Protocol-Angriffe)
+			if m := httpMethod(req); kind == "http" && m == "GET" {
+				s.WriteString("-ERR wrong number of arguments for 'get' command\r\n")
+			} else if kind == "http" && m != "POST" {
+				s.WriteString("-ERR unknown command '" + m + "', with args beginning with: \r\n")
+			}
 			return
 		}
 		args, truncated, err := readRESP(br)
@@ -507,7 +517,7 @@ func handleMySQL(s *Session) {
 	}
 	s.ReadDeadline(30 * time.Second)
 	br := bufio.NewReader(s.Conn)
-	if s.sniffTLS(br) {
+	if kind, _ := s.sniffForeign(br, false); kind != "" {
 		return
 	}
 	hdr := make([]byte, 4)

@@ -146,7 +146,7 @@ func newAttack(e *Event) *Attack {
 
 // kindCount: Zähler in Attack.Counts für die Arten aus einstufung.go. Befehle zählen nur
 // als "command", wenn sie ausgeführt wurden; sonst unter "proto_command" bzw. "prompt".
-var kindCount = map[evKind]string{kindTLSPlain: "tls_plain", kindPrompt: "prompt", kindProbe: "probe_command", kindProto: "proto_command", kindExec: "command"}
+var kindCount = map[evKind]string{kindTLSPlain: "tls_plain", kindForeign: "foreign", kindPrompt: "prompt", kindProbe: "probe_command", kindProto: "proto_command", kindExec: "command"}
 
 func (a *Attack) addCommand(list *[]string, c string) {
 	c = clip(c, 500)
@@ -208,7 +208,7 @@ func (a *Attack) add(e *Event) {
 		for _, l := range lines {
 			a.addCommand(&a.ProtoCommands, "an der Login-Abfrage: "+l)
 		}
-	case kind == kindTLSPlain && e.Type == "command":
+	case (kind == kindTLSPlain || kind == kindForeign) && e.Type == "command":
 		// kein Befehl; das Merkmal tls_on_plain setzt die Musterprüfung unten
 	case e.Type == "command":
 		if kind == kindExec {
@@ -219,7 +219,7 @@ func (a *Attack) add(e *Event) {
 	}
 	switch e.Type {
 	case "login":
-		if kind == kindPrompt {
+		if kind == kindPrompt || kind == kindForeign {
 			break
 		}
 		a.loginSvc[e.Service]++
@@ -431,7 +431,7 @@ func (a *Attack) classify() string {
 			return "Web-Exploit"
 		}
 		return "Web-Scanner"
-	case c["payload"] > 0 || c["proto_command"] > 0 || c["prompt"] > 0 || c["probe_command"] > 0:
+	case c["payload"] > 0 || c["proto_command"] > 0 || c["prompt"] > 0 || c["probe_command"] > 0 || c["foreign"] > 0:
 		return "Protokoll-Probe"
 	case c["tls_plain"] > 0:
 		return "TLS-Scan"

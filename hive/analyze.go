@@ -119,6 +119,8 @@ func eventText(e *Event) (text, on string) {
 	case "command":
 		if in := dataString(e.Data, "input"); isTLSText(in) {
 			return in, "raw" // TLS am Klartext-Port (einstufung.go): Merkmal tls_on_plain, kein Befehl
+		} else if foreignEvent(e) {
+			return in, "raw" // HTTP-Zeile oder Binärdaten (einstufung.go, Regel 1b): http_on_raw …
 		} else {
 			return in, "cmd"
 		}
@@ -127,6 +129,9 @@ func eventText(e *Event) (text, on string) {
 			return tlsPrefix + " TLS-ClientHello", "raw"
 		}
 	case "login":
+		if foreignEvent(e) {
+			return foreignText(e), "raw"
+		}
 		if lines, ok := promptLines(e); ok { // Befehle an der Login-Abfrage
 			return strings.Join(lines, "\n"), "cmd"
 		}
@@ -298,6 +303,8 @@ func timelineLine(e *Event, kind evKind, text string, revealed []string, loc *ti
 	switch {
 	case kind == kindTLSPlain:
 		d = "TLS-Handshake auf Klartext-Port (kein Befehl)"
+	case kind == kindForeign:
+		d = "Fremdes Protokoll (HTTP-Zeile oder Binärdaten, kein Befehl): " + text
 	case kind == kindPrompt:
 		lines, _ := promptLines(e)
 		d = "Eingabe an der Login-Abfrage (keine Zugangsdaten): " + strings.Join(lines, " ⏎ ")
@@ -347,7 +354,9 @@ func timelineLine(e *Event, kind evKind, text string, revealed []string, loc *ti
 	case "client_version":
 		d = "Client: " + dataString(e.Data, "version")
 	case "payload":
-		d = "Daten: " + text
+		if d == "" {
+			d = "Daten: " + text
+		}
 	case "tty":
 		d = "Terminal-Mitschnitt vorhanden"
 	case "ai_reply":
@@ -481,6 +490,9 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		case "connect":
 			services.add(fmt.Sprintf("%s:%d", e.Service, e.DstPort))
 		case "login":
+			if kind == kindForeign {
+				break
+			}
 			if kind == kindPrompt {
 				lines, _ := promptLines(e)
 				for _, l := range lines {
@@ -501,7 +513,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 				creds.add(e.Username + " / " + e.Password)
 			}
 		case "command":
-			if kind == kindTLSPlain {
+			if kind == kindTLSPlain || kind == kindForeign {
 				break
 			}
 			if kind != kindExec {
