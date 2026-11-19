@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"path"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -23,10 +24,11 @@ const mimicWait = 13 * time.Second
 var mimicOffUntil atomic.Int64
 
 type mimicAnswer struct {
-	Out         string `json:"out"`
-	Status      int    `json:"status"`
-	ContentType string `json:"content_type"`
-	Cached      bool   `json:"cached"`
+	Out         string            `json:"out"`
+	Status      int               `json:"status"`
+	ContentType string            `json:"content_type"`
+	Headers     map[string]string `json:"headers"` // vom Hive gefiltert, hier noch einmal (mimicHeaders)
+	Cached      bool              `json:"cached"`
 }
 
 // emitAIReply meldet dem Hive, dass das Sprachmodell geantwortet hat (Ereignis "ai_reply"):
@@ -177,7 +179,11 @@ const mimicCSP = "default-src 'self' 'unsafe-inline'; img-src 'self' data:; form
 
 // mimicWeb fragt für einen unbekannten Pfad das Sprachmodell; false = 404 wie bisher.
 func (s *Session) mimicWeb(req *http.Request) (int, string, string, map[string]string, bool) {
-	if req.Method != "GET" && req.Method != "POST" || staticExt[strings.ToLower(path.Ext(req.URL.Path))] || req.URL.Path == "/" {
+	// Startseite: auch der leere Pfad (Anfrage in absoluter Form ohne Schrägstrich, RequestURI ist dann "/")
+	if req.Method != "GET" && req.Method != "POST" || staticExt[strings.ToLower(path.Ext(req.URL.Path))] || req.URL.Path == "/" || req.URL.Path == "" {
+		return 0, "", "", nil, false
+	}
+	if scannerPath(req.URL.Path) { // Zufallspfade von Scannern: nie ans Modell
 		return 0, "", "", nil, false
 	}
 	// Host: der eigene Hostname, nie die Angabe des Angreifers – dort steht meist die öffentliche
@@ -185,7 +191,8 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, map[string]s
 	// der Zwischenspeicher auch, wenn verschiedene Scanner denselben Pfad abfragen.
 	in := req.Method + " " + req.URL.RequestURI() + " HTTP/1.1\nHost: " + s.m.Hostname()
 	a, ok := s.askMimic("web", in)
-	if !ok || a.Out == "" {
+	// 404 (auch gespeichert): die eigene Seite im Stil des Profil-Webservers, nie die des Modells
+	if !ok || a.Out == "" || a.Status == 404 || a.Status == 410 {
 		return 0, "", "", nil, false
 	}
 	if a.Status == 0 {
@@ -201,5 +208,61 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, map[string]s
 		a.Status = 200
 	}
 	s.emitAIReply("web", req.Method+" "+req.URL.RequestURI(), a.Out, a.Status, a.Cached)
-	return a.Status, a.ContentType, a.Out, map[string]string{"Content-Security-Policy": mimicCSP}, true
+	hdr := mimicHeaders(a.Headers)
+	hdr["Content-Security-Policy"] = mimicCSP
+	return a.Status, a.ContentType, a.Out, hdr, true
+}
+
+// mimicHeaders: Kopfzeilen aus der Antwort des Modells, nur bekannte Namen und einfache Werte
+// (wie safeWebHeaders im Hive; Server, Location und CSP setzt nur der Honeypot).
+func mimicHeaders(in map[string]string) map[string]string {
+	out := map[string]string{}
+	for k, v := range in {
+		name, ok := mimicHeaderAllow[strings.ToLower(k)]
+		if !ok || v == "" || len(v) > 256 || len(out) >= 8 || strings.IndexFunc(v, func(r rune) bool { return r < 0x20 || r > 0x7e }) >= 0 {
+			continue
+		}
+		out[name] = v
+	}
+	return out
+}
+
+var mimicHeaderAllow = map[string]string{
+	"www-authenticate": "WWW-Authenticate", "set-cookie": "Set-Cookie", "x-powered-by": "X-Powered-By",
+	"x-frame-options": "X-Frame-Options", "cache-control": "Cache-Control", "x-content-type-options": "X-Content-Type-Options",
+	"x-jenkins": "X-Jenkins", "x-hudson": "X-Hudson", "x-aspnet-version": "X-AspNet-Version", "x-arequestid": "X-AREQUESTID",
+	"x-ausername": "X-AUSERNAME", "pragma": "Pragma", "expires": "Expires", "x-xss-protection": "X-XSS-Protection",
+}
+
+// scannerPathRe: Prüfpfade von Scannern und Zufallskennungen (wie mimicScannerPath im Hive).
+var scannerPathRe = regexp.MustCompile(`(?i)nmap(lower|upper)check|nice%20ports|trinity\.txt|[0-9]{8,}|[0-9a-f]{16,}`)
+
+// scannerPath: Pfad mit Zufallsmerkmalen (lange Zahlen- oder Hexfolgen, nmaplowercheck …) oder
+// einem Segment, das wie eine zufällige Kennung aussieht ("aB3xK9qLm2").
+func scannerPath(p string) bool {
+	if scannerPathRe.MatchString(p) {
+		return true
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if len(seg) < 10 {
+			continue
+		}
+		up, low, dig, other := 0, 0, 0, 0
+		for _, r := range seg {
+			switch {
+			case r >= 'A' && r <= 'Z':
+				up++
+			case r >= 'a' && r <= 'z':
+				low++
+			case r >= '0' && r <= '9':
+				dig++
+			default:
+				other++
+			}
+		}
+		if other == 0 && up > 0 && low > 0 && dig >= 2 {
+			return true
+		}
+	}
+	return false
 }
