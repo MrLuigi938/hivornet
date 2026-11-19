@@ -4,6 +4,7 @@
 import { h, mount, api, fmtNum, fmtTime, fmtDur, toMs, relTime, flag, store } from "./dom.js";
 import { svcName, svcColor, countryName } from "./charts.js";
 import { header, card, TYPE_NAME, rangePicker, rangeOK } from "./app.js";
+import { briefBox, loadBriefs, aiSearch } from "./ai.js";
 
 export const STUFE = ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"];
 export const STUFE_KURZ = ["Scan", "Versuche", "Login ok", "Befehle", "Download"];
@@ -97,7 +98,7 @@ export function aiReplies(list, { max = 3 } = {}) {
 }
 
 // Große Karte (Seite "Angriffe", Angreifer-Profil)
-export function attackCard(a, { fresh = false, open = null, showIP = true } = {}) {
+export function attackCard(a, { fresh = false, open = null, showIP = true, brief = null } = {}) {
   const now = Date.now(), active = now - a.last < 60e3, span = Math.max(1, a.last - a.first);
   const evBox = h("div", { class: "evs", hidden: true });
   const toggle = h("button", null, `${fmtNum(a.events)} Ereignisse anzeigen`);
@@ -147,6 +148,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     a.strip && a.strip.length > 1 ? h("div", { class: "strip", title: "Jeder Strich ist ein Ereignis; Farbe = Art" },
       a.strip.map((e) => h("i", { style: { left: `calc(${((e.t - a.first) / span) * 100}% - 1px)`, background: TYPCOL[e.type] || "var(--other)" } })),
       h("span", { class: "t", style: { left: 0 } }, fmtTime(a.first)), h("span", { class: "t", style: { right: 0 } }, fmtTime(a.last))) : null,
+    brief ? briefBox(brief) : null, // KI-Kurzanalyse (hive/aiplus.go)
     facts.length ? h("div", { class: "facts", style: a.strip && a.strip.length > 1 ? null : { marginTop: "12px" } }, facts.map(([k, items, more, cls]) => h("div", { class: "fact" },
       h("div", { class: "k" }, k),
       h("div", { class: "v" }, items.map((x) => h("span", { class: "pill mono" + (cls ? " " + cls : ""), title: x }, x)), more ? h("span", { class: "muted" }, more) : null)))) : null,
@@ -232,6 +234,7 @@ export async function viewAttacks(el, ctx, query = "") {
   let nOwn = 0;
   const open = new Set();
   let list = [], matched = 0, stufen = [0, 0, 0, 0, 0], truncated = false;
+  const briefs = {}; // KI-Kurzanalysen je Angriff (hive/aiplus.go)
 
   const rangeSeg = rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); load(); });
   const pauseBtn = h("button", { class: "btn", onclick: () => { f.paused = !f.paused; pauseBtn.textContent = f.paused ? "Fortsetzen" : "Pausieren"; if (!f.paused) load(); } }, "Pausieren");
@@ -302,7 +305,7 @@ export async function viewAttacks(el, ctx, query = "") {
     renderChips();
     setInfo();
     els.clear();
-    mount(feed, list.length ? list.map((a) => { const e = attackCard(a, { open }); els.set(a.id, e); return e; }) : h("div", { class: "card empty" }, "Keine Angriffe für diese Auswahl."));
+    mount(feed, list.length ? list.map((a) => { const e = attackCard(a, { open, brief: briefs[a.id] }); els.set(a.id, e); return e; }) : h("div", { class: "card empty" }, "Keine Angriffe für diese Auswahl."));
     renderSide();
   }
   // Hält den Inhalt an der Stelle, die man gerade liest: Ist man heruntergescrollt, wird
@@ -319,7 +322,7 @@ export async function viewAttacks(el, ctx, query = "") {
   }
   function upsert(a) {
     seenCount();
-    const old = els.get(a.id), el = attackCard(a, { fresh: true, open });
+    const old = els.get(a.id), el = attackCard(a, { fresh: true, open, brief: briefs[a.id] });
     keepAnchor(() => {
       els.set(a.id, el);
       if (old) old.remove();
@@ -345,11 +348,28 @@ export async function viewAttacks(el, ctx, query = "") {
     matched = d.matched; stufen = d.stufen; truncated = d.truncated; nOwn = d.own || 0;
     more.hidden = list.length >= matched;
     render();
+    fillBriefs(d.attacks);
+  }
+  // Kurzanalysen nachladen und nur die betroffenen Karten ersetzen
+  async function fillBriefs(items) {
+    const ids = items.filter((a) => (a.stufe >= 3 || (a.tags || []).length) && !briefs[a.id]).map((a) => a.id);
+    if (!ids.length) return;
+    const got = await loadBriefs(ids);
+    if (!ctx.current()) return;
+    for (const [id, b] of Object.entries(got)) {
+      briefs[id] = b;
+      const a = list.find((x) => x.id === id), old = els.get(id);
+      if (!a || !old) continue;
+      const el = attackCard(a, { open, brief: b });
+      old.replaceWith(el);
+      els.set(id, el);
+    }
   }
 
   mount(el, h("div", { class: "angriffe" },
     h("div", { class: "stack" },
       h("div", { class: "filters" }, search, info),
+      aiSearch((q, range) => { location.hash = "#/attacks?" + new URLSearchParams({ range, q }); }, RANGES), // Suche in Alltagssprache (hive/aiplus.go)
       saved, chips, feed, more),
     h("aside", { class: "side" },
       card("Gerade aktiv", nAct, h("div", { class: "note-box" }, "Angreifer mit Aktivität in den letzten 15 Minuten")),

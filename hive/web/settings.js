@@ -12,6 +12,7 @@ import { h, mount, api, fmtNum, fmtBytes, fmtDateTime, relTime, store } from "./
 import { svcName } from "./charts.js";
 import { state, header, card, route, MODE_NAME } from "./app.js";
 import { forgetHome } from "./extra.js";
+import { aiStatusReset } from "./ai.js";
 
 const TABS = [
   ["honeypot", "Honeypot", "Welche Dienste der Honeypot anbietet, wie er sich ausweist und wie er Angreifer festhält."],
@@ -478,6 +479,8 @@ async function tabAuswertung() {
     row("Modell", ex.text(x.ai, "model", { placeholder: "llama3.1:8b" }), "Name, wie ihn die Schnittstelle erwartet, z. B. llama3.1:8b; bei OpenRouter der dort angezeigte Modellname."),
     row("API-Schlüssel", ex.secret("ai_api_key"), "Für lokale Modelle meist leer.")).el,
 
+    aiPlusCard(ex),
+
     section("Antworten vom Sprachmodell", {
       intro: "Kennt die Telnet-Shell des Honeypots einen Befehl nicht oder der Web-Honeypot einen Pfad nicht, erzeugt ein Sprachmodell eine glaubwürdige Antwort. Das hilft gegen Bots, die mit Testbefehlen prüfen, ob die Shell echt ist. Jede Antwort wird gespeichert: Dieselbe Eingabe bekommt immer dieselbe Antwort und kostet nur einmal.",
       saveLabel: "Sprachmodell-Antworten speichern",
@@ -504,6 +507,42 @@ async function tabAuswertung() {
     row("GreyNoise", ex.secret("greynoise_key"), "Zeigt, ob eine IP als Massen-Scanner oder harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
     row("URLhaus und MalwareBazaar", ex.secret("abusech_key"), "Auth-Key von auth.abuse.ch: schlägt Nachlade-Adressen und Datei-Hashes nach. Es wird nichts hochgeladen; abuse.ch sieht nur die abgefragte Adresse bzw. den Hash.")).el,
   ];
+}
+
+// Weitere KI-Funktionen (hive/aiplus.go): je Funktion ein Schalter, ein gemeinsames Tagesbudget.
+function aiPlusCard(ex) {
+  const p = ex.x.ai_plus = ex.x.ai_plus || { max_per_day: 40, brief_per_day: 15 };
+  return section("Weitere KI-Funktionen", {
+    intro: "Zusätzliche Auswertungen mit Adresse, Modell und Schlüssel der KI-Auswertung oben. Jede Funktion ist einzeln schaltbar und zunächst aus; alle zusammen teilen sich ein Tagesbudget.",
+    saveLabel: "KI-Funktionen speichern",
+    save: async () => { await ex.save(["ai_plus"]); aiStatusReset(); },
+  },
+  h("div", { class: "msg warn" }, "Die Daten gehen an den Anbieter des Modells, bei einem Dienst im Internet also aus deinem Netz: Wochenzahlen, Befehle, Pfade, nachgeladene Skripte und Herkunftsländer der Angreifer. ",
+    "Die IP des Angreifers geht bei der Kurzanalyse nicht mit; private Adressen und die öffentliche Adresse des Anschlusses werden durch Platzhalter ersetzt, Anweisungen an eine KI in Angreiferdaten vorher entfernt. ",
+    "Die Antworten erscheinen nur als Text und lösen nichts aus."),
+  row("KI-Wochenbericht", ex.check(p, "weekly", "Woche zusammenfassen: neu, gefährlich, was zu tun ist"),
+    "Oben unter Erkenntnisse, dort auch auf Knopfdruck neu. Ist der Wochenbericht unter „Weitergabe und Meldungen“ an, kommt die Zusammenfassung montags mit."),
+  row("Kurzanalyse", [ex.check(p, "brief", "schwere Angriffe automatisch kurz analysieren"), " ", ex.check(p, "brief_notify", "auch als Benachrichtigung schicken")],
+    "Für Angriffe mit ausgeführten Befehlen, Downloads oder einem schweren Muster: Ziel, Werkzeuge und Gefahr in zwei bis vier Sätzen, in der Angriffskarte und im Bericht. Ähnliche Angriffe (gleiche Angriffsfamilie) übernehmen die Analyse ohne neuen Aufruf."),
+  row("Suche in Alltagssprache", ex.check(p, "search", "Fragen in die Suchsprache übersetzen (Seite Angriffe)"),
+    "Das Modell sieht nur die Feldliste und deine Frage, keine Angriffsdaten. Die übersetzte Suche wird angezeigt und erst nach deinem Klick angewendet."),
+  row("Skripte erklären", ex.check(p, "explain", "Knopf „Mit KI erklären“ für Befehle und nachgeladene Skripte"),
+    "Schritt für Schritt, gefährliche Schritte hervorgehoben; je Inhalt nur einmal gefragt, danach aus dem Speicher."),
+  row("Tagesbudget", ex.num(p, "max_per_day", 1, 5000, 1), "Höchstens so viele Aufrufe ans Modell je Tag für alle Funktionen dieses Bereichs zusammen."),
+  row("Davon Kurzanalysen", ex.num(p, "brief_per_day", 1, 5000, 1), "Damit die automatischen Analysen das Budget nicht allein aufbrauchen."),
+  h("h3", null, "Stand"),
+  aiPlusStatusBox()).el;
+}
+
+function aiPlusStatusBox() {
+  const box = h("div", { class: "muted", "data-nodirty": "" }, "Lade …");
+  api("ai/status").then((d) => mount(box,
+    d.ai_enabled ? null : h("div", { class: "msg warn" }, "Die KI-Auswertung oben ist nicht eingerichtet; ohne sie bleiben diese Funktionen aus."),
+    h("p", { class: "muted" }, `Heute: ${fmtNum(d.used_today)} von ${fmtNum(d.max_per_day)} Aufrufen, davon ${fmtNum(d.briefs_today)} Kurzanalysen. `,
+      `Seit dem Start: ${fmtNum(d.calls)} Aufrufe, ${fmtNum(d.failed)} fehlgeschlagen. `,
+      `Schutz: ${fmtNum(d.cleaned)} Zeilen mit Anweisungen an eine KI nicht weitergegeben, ${fmtNum(d.rejected)} verräterische Antworten verworfen.`,
+      d.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + d.last_error) : null))).catch((e) => mount(box, e.message));
+  return box;
 }
 
 // Stand der Sprachmodell-Antworten (hive/mimic.go)

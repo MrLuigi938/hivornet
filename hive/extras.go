@@ -31,6 +31,7 @@ type Extras struct {
 	Own          OwnNets           `json:"own"`           // eigene Netze (ownnet.go)
 	AbuseReport  AbuseReportConfig `json:"abuse_report"`  // automatische Meldung (abusereport.go)
 	Mimic        MimicConfig       `json:"mimic"`         // Antworten vom Sprachmodell für Unbekanntes (mimic.go)
+	AIPlus       AIPlusConfig      `json:"ai_plus"`       // weitere KI-Funktionen (aiplus.go)
 }
 
 type NotifyConfig struct {
@@ -66,6 +67,7 @@ func defaultExtras() Extras {
 	x.Own.Private = true
 	x.AbuseReport = defaultAbuseReport()
 	x.Mimic = defaultMimic()
+	x.AIPlus = defaultAIPlus()
 	return x
 }
 
@@ -119,6 +121,9 @@ func (x *Extras) Validate() error {
 		return fmt.Errorf("KI-Auswertung braucht Adresse und Modell")
 	}
 	if err := x.Mimic.validate(x.AI); err != nil {
+		return err
+	}
+	if err := x.AIPlus.validate(); err != nil {
 		return err
 	}
 	return nil

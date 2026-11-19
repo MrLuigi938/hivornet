@@ -6,6 +6,7 @@
 import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip } from "./dom.js";
 import { svcName, svcColor } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, MODE_NAME, route } from "./app.js";
+import { weeklyAICard } from "./ai.js";
 
 // ---------- Bausteine ----------
 
@@ -519,6 +520,7 @@ export async function viewInsights(el, ctx) {
   const handBody = h("div", { class: "muted" }, "…");
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Was sich zu wissen lohnt, neueste Meldung oben: neue Angriffsfamilien, Erstmaliges, Wiederkehrer, Arbeitsteilung zwischen Scanner und Angreifer und ungewöhnliche Spitzen."),
+    weeklyAICard(), // KI-Wochenbericht (hive/aiplus.go), nur wenn eingeschaltet
     h("div", { class: "grid kpi" }, tNew.el, tFam.el, tRec.el, tHand.el, tSpike.el),
     h("div", { class: "grid aw-21" },
       card("Was ist neu", newsBody),
