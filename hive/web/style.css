@@ -652,3 +652,29 @@ a.aw-pat:hover { background: var(--surface-3); text-decoration: none; }
 .aw-pair .node { background: var(--surface-2); border-radius: 8px; padding: 8px 10px; border-left: 3px solid var(--c); min-width: 0; }
 .aw-pair .arrow { text-align: center; color: var(--muted); font-size: 11.5px; }
 .aw-pair .arrow b { display: block; font-size: 18px; color: var(--text-2); line-height: 1; }
+
+/* Exploits nach Produkt, Lückendetails (auswertung.js, attacks.js) */
+.xp-table .xp-paths { max-width: 340px; }
+.xp-table .xp-paths .aw-code { max-width: 100%; }
+.xp-table td.num { text-align: right; white-space: nowrap; }
+.xp-table tr.xp-detail td { background: var(--surface-2); }
+.xp-badges { display: inline-flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
+.xp-search { min-width: 200px; flex: 1 1 200px; max-width: 360px; }
+.badge.cvss.crit { color: var(--critical); border-color: color-mix(in srgb, var(--critical) 55%, transparent); font-weight: 600; }
+.badge.cvss.high { color: color-mix(in srgb, var(--sev4) 70%, var(--text)); border-color: color-mix(in srgb, var(--sev4) 55%, transparent); }
+.badge.cvss.med { border-color: color-mix(in srgb, var(--warning) 70%, transparent); }
+.cve-details { font-size: 12.5px; max-width: 900px; }
+.cve-details p { margin: 4px 0; }
+.cve-details dl { display: grid; grid-template-columns: max-content minmax(0, 1fr); gap: 2px 14px; margin: 6px 0; }
+.cve-details dt { color: var(--muted); }
+.cve-details dd { margin: 0; overflow-wrap: anywhere; }
+.cve-links a { margin-right: 14px; }
+.xp-hits { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.xp-hits > li { min-width: 0; }
+.xp-hits .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.xp-hits code { font-size: 12px; overflow-wrap: anywhere; color: var(--text-2); }
+.xp-fact { margin-top: 12px; }
+.xp-open .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 4px; }
+.xp-expr { overflow-wrap: anywhere; }
+.xp-sugg p { margin: 4px 0; }
+.xp-sugg .row + .row { margin-top: 6px; }

@@ -35,6 +35,113 @@ const where = (a) => [a.country ? [a.city, a.country_name || countryName(a.count
 const svcBadges = (a) => a.services.map((sv) => h("span", { class: "badge svc", style: { background: svcColor(sv) } }, svcName(sv)));
 const counted = (list, max) => list.slice(0, max).map((x) => (x.n > 1 ? `${x.key} ×${fmtNum(x.n)}` : x.key));
 
+// ---------- Lückendetails (hive/cvedb.go): CVSS, EPSS, KEV ----------
+
+const CVE_RE = /^CVE-\d{4}-\d{4,7}$/;
+const cveCache = new Map(); // CVE -> {info, at}
+let cveWant = new Map(); // CVE -> [Rückrufe]
+let cveTimer = null;
+
+// cveInfo lädt Details gebündelt (eine Anfrage für alle Karten einer Seite) und merkt sie sich
+// fünf Minuten; ausstehende Abfragen (NVD gedrosselt) werden nach einer Weile erneut gefragt.
+export function cveInfo(id, cb) {
+  if (!CVE_RE.test(id)) return;
+  const c = cveCache.get(id);
+  if (c && Date.now() - c.at < 300e3 && !c.info.pending) { cb(c.info); return; }
+  if (!cveWant.has(id)) cveWant.set(id, []);
+  cveWant.get(id).push(cb);
+  if (!cveTimer) cveTimer = setTimeout(cveFlush, 30);
+}
+
+async function cveFlush() {
+  const want = cveWant;
+  cveWant = new Map();
+  cveTimer = null;
+  const ids = [...want.keys()];
+  for (let i = 0; i < ids.length; i += 100) {
+    const part = ids.slice(i, i + 100);
+    let d;
+    try { d = await api("cve/info?ids=" + part.join(",")); } catch { continue; }
+    const again = [];
+    for (const id of part) {
+      const info = (d.info || {})[id];
+      if (!info) continue;
+      cveCache.set(id, { info, at: Date.now() });
+      for (const cb of want.get(id)) cb(info);
+      if (info.pending && d.status && d.status.enabled) again.push(id);
+    }
+    // nachfragen, solange die Abfrage aussteht (höchstens etwa zwei Minuten je Seite)
+    for (const id of again) {
+      const cbs = want.get(id).filter((cb) => !cb.tries || cb.tries < 8);
+      for (const cb of cbs) cb.tries = (cb.tries || 0) + 1;
+      if (cbs.length) setTimeout(() => cbs.forEach((cb) => cveInfo(id, cb)), 15e3);
+    }
+  }
+}
+
+const SEV_CLASS = { CRITICAL: "crit", HIGH: "high", MEDIUM: "med", LOW: "low" };
+// Prozent mit sinnvoller Genauigkeit; knapp unter 100 % nicht auf 100 runden
+const pct = (x) => (x >= 0.9995 ? "> 99,9" : (x * 100).toFixed(x >= 0.1 && x < 0.99 ? 0 : x >= 0.01 ? 1 : 2).replace(".", ",")) + " %";
+const pctile = (x) => Math.min(99.9, x * 100).toFixed(1).replace(".", ",") + " %";
+
+// Kennzeichen einer CVE: CVSS, EPSS, KEV, Ransomware; Hinweis, solange etwas aussteht.
+export function cveBadges(info) {
+  if (!info) return [];
+  const out = [];
+  if (info.cvss) out.push(h("span", { class: "badge cvss " + (SEV_CLASS[info.severity] || ""), title: `CVSS ${info.cvss_version || ""} ${info.vector || ""}`.trim() }, `CVSS ${String(info.cvss).replace(".", ",")}`));
+  if (info.epss) out.push(h("span", { class: "badge", title: `EPSS: Wahrscheinlichkeit einer Ausnutzung in den nächsten 30 Tagen (FIRST), höher als bei ${pctile(info.epss_pct)} aller CVEs` }, "EPSS " + pct(info.epss)));
+  if (info.kev) out.push(h("span", { class: "badge err", title: `Im CISA-Katalog der ausgenutzten Lücken seit ${info.kev_added || "?"}` }, "KEV"));
+  if (info.ransomware) out.push(h("span", { class: "badge err", title: "Laut CISA von Ransomware-Gruppen genutzt" }, "Ransomware"));
+  if (info.unknown) out.push(h("span", { class: "badge", title: "Die NVD kennt diese Nummer nicht" }, "unbekannt"));
+  else if (info.pending && !info.cvss) out.push(h("span", { class: "muted small" }, "Details werden geladen …"));
+  return out;
+}
+
+// Ausführliche Angaben zu einer CVE (aufklappbar in Tabelle, Karte und Bericht).
+export function cveDetails(id, info) {
+  info = info || {};
+  const rows = [
+    info.kev_name ? ["CISA KEV", `${info.kev_name} (aufgenommen ${info.kev_added || "?"})`] : null,
+    info.vendor || info.product ? ["Hersteller / Produkt", [info.vendor, info.product].filter(Boolean).join(" / ")] : null,
+    info.published ? ["Veröffentlicht", info.published] : null,
+    info.cvss ? ["CVSS", `${String(info.cvss).replace(".", ",")} (${info.severity || "?"}, Version ${info.cvss_version || "?"})${info.vector ? " · " + info.vector : ""}`] : null,
+    info.epss ? ["EPSS", `${pct(info.epss)} · höher als bei ${pctile(info.epss_pct)} aller CVEs${info.epss_date ? " · Stand " + info.epss_date : ""}`] : null,
+    info.cwe && info.cwe.length ? ["Schwäche", info.cwe.join(", ")] : null,
+  ].filter(Boolean);
+  const links = [
+    ["NVD", "https://nvd.nist.gov/vuln/detail/" + id],
+    info.kev ? ["CISA KEV", "https://www.cisa.gov/known-exploited-vulnerabilities-catalog?search_api_fulltext=" + id] : null,
+    ["EPSS", "https://api.first.org/data/v1/epss?cve=" + id],
+    ...(info.refs || []).map((u) => { try { const x = new URL(u); return x.protocol === "https:" ? [x.hostname, u] : null; } catch { return null; } }),
+  ].filter(Boolean);
+  return h("div", { class: "cve-details" },
+    info.desc ? h("p", null, info.desc) : h("p", { class: "muted" }, info.pending ? "Beschreibung wird bei der NVD abgefragt …" : "Keine Beschreibung vorhanden (Lückendetails ausgeschaltet oder NVD ohne Eintrag)."),
+    rows.length ? h("dl", null, rows.map(([k, v]) => [h("dt", null, k), h("dd", null, v)])) : null,
+    h("p", { class: "cve-links" }, links.map(([t, u]) => h("a", { href: u, target: "_blank", rel: "noopener noreferrer" }, t))));
+}
+
+const KIND_LABEL = { exploit: "Ausnutzung", probe: "Probe" };
+export const kindChip = (kind) => h("span", { class: "chip" + (kind === "exploit" ? " warn" : ""), title: kind === "exploit" ? "Die Anfrage trägt die Nutzlast der Lücke oder nutzt eine Fehlkonfiguration" : "Prüft nur, ob das Produkt vorhanden ist" }, KIND_LABEL[kind] || kind);
+
+// Regeltreffer eines Angriffs oder Berichts: Art, Produkt, Lücke mit Kennzeichen, Pfad.
+export function exploitHits(list) {
+  return h("ul", { class: "xp-hits" }, list.map((x) => {
+    const badges = h("span", { class: "xp-badges" });
+    const more = h("div", { hidden: true });
+    let info = null;
+    if (x.cve) cveInfo(x.cve, (i) => { info = i; mount(badges, cveBadges(i)); if (!more.hidden) mount(more, cveDetails(x.cve, info)); });
+    const toggle = x.cve ? h("button", { class: "linklike", "aria-expanded": "false", onclick: () => {
+      more.hidden = !more.hidden;
+      toggle.setAttribute("aria-expanded", String(!more.hidden));
+      if (!more.hidden) mount(more, cveDetails(x.cve, info));
+    } }, x.cve) : h("span", { class: "muted" }, "ohne CVE");
+    return h("li", null,
+      h("div", { class: "row" }, kindChip(x.kind), h("b", null, x.product), h("span", null, x.name), x.custom ? h("span", { class: "chip", title: "Eigene Regel aus einem KI-Vorschlag" }, "eigene Regel") : null),
+      h("div", { class: "row" }, toggle, badges, x.n > 1 ? h("span", { class: "muted" }, fmtNum(x.n) + "×") : null, x.path ? h("code", { class: "mono", title: x.path }, x.path) : null),
+      more);
+  }));
+}
+
 // Ereignis als reiner Text (für zusammengefasste Zeilen)
 function evText(e) {
   let d = e.data || {};
@@ -121,7 +228,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     a.urls && a.urls.length ? ["Nachlade-Adressen (nicht aufrufen)", a.urls, null, "hot"] : null,
     a.decoded && a.decoded.length ? ["Entschlüsselt (Base64, Hex …)", a.decoded, null, "decoded"] : null,
     a.tags && a.tags.length ? ["Erkannte Muster", a.tags.map((t) => t.label || t.key), null, "tag"] : null,
-    a.cves && a.cves.length ? ["Bekannte Lücken", a.cves.map((c) => `${c.key} ${c.label || ""}`.trim()), null, "hot"] : null,
+    a.cves && a.cves.length && !(a.exploits && a.exploits.length) ? ["Bekannte Lücken", a.cves.map((c) => `${c.key} ${c.label || ""}`.trim()), null, "hot"] : null,
     a.clients && a.clients.length ? ["Client", a.clients, null] : null,
     a.fingerprints && a.fingerprints.length ? ["Fingerabdrücke", a.fingerprints, null] : null,
     a.mitre && a.mitre.length ? ["MITRE ATT&CK", a.mitre, null] : null,
@@ -150,6 +257,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true } = {}
     facts.length ? h("div", { class: "facts", style: a.strip && a.strip.length > 1 ? null : { marginTop: "12px" } }, facts.map(([k, items, more, cls]) => h("div", { class: "fact" },
       h("div", { class: "k" }, k),
       h("div", { class: "v" }, items.map((x) => h("span", { class: "pill mono" + (cls ? " " + cls : ""), title: x }, x)), more ? h("span", { class: "muted" }, more) : null)))) : null,
+    a.exploits && a.exploits.length ? h("div", { class: "fact xp-fact" }, h("div", { class: "k" }, "Produkte und Lücken (Pfad → Produkt → CVE)"), exploitHits(a.exploits)) : null,
     a.ai_replies && a.ai_replies.length ? h("div", { class: "fact ai-fact" }, h("div", { class: "k" }, "Antworten der KI (vom Honeypot ausgeliefert, nichts ausgeführt)"), aiReplies(a.ai_replies)) : null,
     h("div", { class: "foot" },
       toggle,
@@ -258,7 +366,7 @@ export async function viewAttacks(el, ctx, query = "") {
     h("details", { class: "aw-small" }, h("summary", null, "Suchsprache"),
       h("div", { class: "muted", style: { maxWidth: "640px" } },
         "Mehrere Teile müssen alle zutreffen, „-“ davor kehrt um, Anführungszeichen halten Wörter zusammen. Felder: ",
-        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve client fp wallet art scanner login ki nachladen"),
+        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve regel produkt client fp wallet art scanner login ki nachladen"),
         ". Zahlen mit = < > <= >= (", h("code", null, "stufe>=3"), ", ", h("code", null, "port:5555"), "), Stufe auch als Wort (", h("code", null, "stufe:befehle"),
         "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), " / ", h("code", null, "ki:ja"), " (das Sprachmodell hat geantwortet) / ", h("code", null, "nachladen:ja"), " (wollte eine Datei nachladen).")));
   api("searches").then(renderSaved).catch(() => {});

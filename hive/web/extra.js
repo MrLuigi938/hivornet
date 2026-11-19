@@ -6,7 +6,7 @@
 import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag } from "./dom.js";
 import { worldMap, toplist, svcName, countryName } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME } from "./app.js";
-import { aiReplies } from "./attacks.js";
+import { aiReplies, exploitHits } from "./attacks.js";
 
 // ---------- Standort des Honeypots (Ziel der Angriffslinien) ----------
 
@@ -519,6 +519,9 @@ export function reportCard({ ip, session }) {
         h("strong", null, t.name), " ", h("span", { class: "badge" }, fmtNum(t.n) + "×"),
         (t.mitre || []).map((m) => [" ", h("a", { class: "badge", href: mitreURL(m), target: "_blank", rel: "noopener noreferrer", title: "MITRE ATT&CK" }, m)]),
         h("div", { class: "desc" }, t.desc), h("code", null, t.example))))] : null,
+      r.rules && r.rules.length ? [h("h3", null, "Produkte und Lücken"),
+        h("p", { class: "muted", style: { margin: "0 0 6px" } }, "Welche Software die Anfragen suchen (Probe) oder angreifen (Ausnutzung), mit CVE, CVSS, EPSS und Eintrag im CISA-Katalog der ausgenutzten Lücken (KEV). Ein Treffer heißt: versucht, nicht: verwundbar."),
+        exploitHits(r.rules)] :
       r.cves && r.cves.length ? [h("h3", null, "Bekannte Lücken (CVE)"), h("ul", { class: "plain" }, r.cves.map((c) => h("li", null,
         h("a", { class: "mono", href: "https://nvd.nist.gov/vuln/detail/" + c.key, target: "_blank", rel: "noopener noreferrer" }, c.key), " ", c.label, " ", h("span", { class: "badge" }, fmtNum(c.n) + "×"))))] : null,
       h("div", { class: "grid three" },

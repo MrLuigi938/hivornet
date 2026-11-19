@@ -38,7 +38,7 @@ var patternPhase = map[string]int{
 	"docker_escape": phImpact, "redis_takeover": phAccess, "account": phPersist, "cover_tracks": phPersist, "kill_rivals": phPersist,
 	"obfuscation": phPersist, "recon": phExec, "honeypot_check": phExec, "prompt_injection": phExec, "data_theft": phImpact, "log4shell": phAccess, "java4shell": phAccess, "web_rce": phAccess,
 	"secret_hunt": phRecon, "iot_exploit": phAccess, "traversal": phAccess, "sqli": phAccess, "cms_login": phRecon,
-	"api_probe": phRecon, "bait_used": phAccess, "tls_on_plain": phRecon, "smb_probe": phRecon, "http_on_raw": phRecon,
+	"api_probe": phRecon, "known_exploit": phAccess, "product_probe": phRecon, "bait_used": phAccess, "tls_on_plain": phRecon, "smb_probe": phRecon, "http_on_raw": phRecon,
 }
 
 type ChainNode struct {
@@ -223,7 +223,12 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 		case e.Type == "request":
 			if len(cves) > 0 {
 				n = b.node("cve:"+cves[0].CVE, phAccess, "exploit", cves[0].CVE, 3, e, requestKey(e))
-				setSub(n, clip(cves[0].Name, 60))
+				setSub(n, clip(cves[0].Label(), 60))
+				break
+			}
+			if r, ok := firstExploit(eventRules(text, on)); ok { // Fehlkonfiguration ohne CVE (offene Docker-API …)
+				n = b.node("rule:"+r.ID, phAccess, "exploit", r.Product, 3, e, requestKey(e))
+				setSub(n, clip(r.Name, 60))
 				break
 			}
 			best := ""
@@ -298,7 +303,7 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 		}
 		for _, c := range cves[min(1, len(cves)):] {
 			cn := b.node("cve:"+c.CVE, phAccess, "exploit", c.CVE, 3, e, requestKey(e))
-			setSub(cn, clip(c.Name, 60))
+			setSub(cn, clip(c.Label(), 60))
 		}
 		step(e, n)
 		// Nachlade-Adressen: Befehl bzw. Anfrage → Host

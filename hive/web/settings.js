@@ -417,6 +417,7 @@ const SECRET_AT = {
   ntfy_token: ["notify", "ntfy_token"], telegram_token: ["notify", "telegram_token"],
   ai_api_key: ["ai", "api_key"], mimic_api_key: ["mimic", "api_key"],
   abuseipdb_key: [null, "abuseipdb_key"], greynoise_key: [null, "greynoise_key"], abusech_key: [null, "abusech_key"],
+  nvd_key: ["cvedb", "nvd_key"],
 };
 const SECRET_HINT = "gespeichert – leer lassen zum Behalten, „-“ zum Löschen";
 
@@ -503,7 +504,32 @@ async function tabAuswertung() {
     },
     row("GreyNoise", ex.secret("greynoise_key"), "Zeigt, ob eine IP als Massen-Scanner oder harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
     row("URLhaus und MalwareBazaar", ex.secret("abusech_key"), "Auth-Key von auth.abuse.ch: schlägt Nachlade-Adressen und Datei-Hashes nach. Es wird nichts hochgeladen; abuse.ch sieht nur die abgefragte Adresse bzw. den Hash.")).el,
+
+    section("Lückendetails (CVE)", {
+      intro: "Zeigt zu erkannten Lücken CVSS, Beschreibung, EPSS und ob die Lücke im CISA-Katalog der ausgenutzten Lücken (KEV) steht. Der Katalog wird einmal am Tag geladen; NVD und FIRST werden je Lücke gefragt und die Antworten zwischengespeichert. Hinaus gehen nur CVE-Nummern.",
+      saveLabel: "Lückendetails speichern",
+      save: () => ex.save(["cvedb"], ["nvd_key"]),
+    },
+    row("Aktiv", ex.check(x.cvedb, "enabled", "Lückendetails von CISA KEV, NVD und FIRST EPSS laden")),
+    row("NVD-Schlüssel", ex.secret("nvd_key"), "Optional. Ohne Schlüssel fragt Hivornet die NVD höchstens alle 7 Sekunden; ein kostenloser Schlüssel (nvd.nist.gov) erlaubt eine Abfrage je Sekunde."),
+    cveStatusBox()).el,
   ];
+}
+
+// Stand der Lückendetails (hive/cvedb.go)
+function cveStatusBox() {
+  const box = h("div", { class: "muted", "data-nodirty": "" }, "Lade …");
+  const load = () => api("cve/status").then((d) => mount(box,
+    h("p", { class: "muted" }, d.kev_count ? `CISA KEV: ${fmtNum(d.kev_count)} Einträge, Stand ${d.kev_version || fmtDateTime(d.kev_updated)}, zuletzt geprüft ${relTime(d.kev_checked)}. ` : "CISA KEV noch nicht geladen. ",
+      `Seit dem Start ${fmtNum(d.asked)} Lücken bei NVD und FIRST nachgeschlagen, ${fmtNum(d.pending)} ausstehend.`,
+      d.kev_error ? h("span", { class: "warn-text" }, " KEV: " + d.kev_error) : null,
+      d.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + d.last_error) : null),
+    d.enabled ? h("button", { class: "btn small", onclick: async (e) => {
+      e.target.disabled = true;
+      try { await api("cve/refresh", { method: "POST" }); setTimeout(load, 4000); } catch (err) { alert(err.message); e.target.disabled = false; }
+    } }, "KEV jetzt neu laden") : null)).catch((e) => mount(box, h("span", { class: "warn-text" }, e.message)));
+  load();
+  return box;
 }
 
 // Stand der Sprachmodell-Antworten (hive/mimic.go)

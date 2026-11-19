@@ -529,8 +529,9 @@ var recountFields = []string{"username", "password", "cred", "command", "path", 
 
 // 0.7.0: neues Muster honeypot_check, Wallets und Pools (indicators.go);
 // 0.7.0-beta.3: Adressen mit Backslashes vollständig (deobf.go), Muster prompt_injection;
-// 0.7.5: Muster und CVE-Regel java4shell
-const recountKey = "top_recounted_075"
+// 0.7.5: Muster und CVE-Regel java4shell;
+// 0.7.6: viele neue Regeln für Produkte und Lücken (cverules.go), Muster known_exploit und product_probe
+const recountKey = "top_recounted_076"
 
 // prepareRecount löscht die alten Zähler dieser Felder, einmalig und VOR dem Start des
 // Schreibers; danach zählt recountTop alle Ereignisse bis maxID im Hintergrund neu.
@@ -552,18 +553,34 @@ func prepareRecount(st *Store) bool {
 	return true
 }
 
+// recountMu: Es zählt immer nur ein Lauf neu (Start-Neuzählung, eigene Regeln in cvesuggest.go).
+var recountMu sync.Mutex
+
 func recountTop(st *Store, maxID int64) {
+	recountMu.Lock()
+	defer recountMu.Unlock()
 	want := map[string]bool{}
 	for _, f := range recountFields {
 		want[f] = true
 	}
+	total, ok := recountUpTo(st, maxID, want)
+	if !ok {
+		return
+	}
+	st.SetKV(recountKey, "1")
+	log.Printf("Top-Listen für %d Ereignisse nach neuen Regeln gezählt", total)
+}
+
+// recountUpTo zählt die Felder want für alle Ereignisse bis maxID neu (die alten Zähler sind
+// vorher gelöscht). false: abgebrochen, beim nächsten Mal wiederholen.
+func recountUpTo(st *Store, maxID int64, want map[string]bool) (int64, bool) {
 	var last, total int64
 	for last < maxID {
 		rows, err := st.db.Query(`SELECT id, ts, service, type, src_ip, username, password, data FROM events
 			WHERE id > ? AND id <= ? AND type NOT IN ('connect','disconnect') ORDER BY id LIMIT 500`, last, maxID)
 		if err != nil {
 			log.Printf("Top-Listen neu zählen: %v", err)
-			return
+			return total, false
 		}
 		var evs []*Event
 		for rows.Next() {
@@ -573,7 +590,7 @@ func recountTop(st *Store, maxID int64) {
 			if err := rows.Scan(&e.ID, &ms, &e.Service, &e.Type, &e.SrcIP, &e.Username, &e.Password, &data); err != nil {
 				rows.Close()
 				log.Printf("Top-Listen neu zählen: %v (wird beim nächsten Start wiederholt)", err)
-				return // nicht als fertig markieren
+				return total, false // nicht als fertig markieren
 			}
 			e.TS = time.UnixMilli(ms)
 			if data != nil {
@@ -584,7 +601,7 @@ func recountTop(st *Store, maxID int64) {
 		if err := rows.Err(); err != nil {
 			rows.Close()
 			log.Printf("Top-Listen neu zählen: %v (wird beim nächsten Start wiederholt)", err)
-			return
+			return total, false
 		}
 		rows.Close()
 		if len(evs) == 0 {
@@ -592,7 +609,7 @@ func recountTop(st *Store, maxID int64) {
 		}
 		tx, err := st.db.Begin()
 		if err != nil {
-			return
+			return total, false
 		}
 		for _, e := range evs {
 			last = e.ID
@@ -604,17 +621,16 @@ func recountTop(st *Store, maxID int64) {
 					if _, err := tx.Exec(topUpsert, e.TS.UnixMilli()/3600000, k[0], k[1], k[2]); err != nil {
 						tx.Rollback()
 						log.Printf("Top-Listen neu zählen: %v", err)
-						return
+						return total, false
 					}
 				}
 			}
 		}
 		if tx.Commit() != nil {
-			return
+			return total, false
 		}
 		total += int64(len(evs))
 		time.Sleep(50 * time.Millisecond)
 	}
-	st.SetKV(recountKey, "1")
-	log.Printf("Top-Listen für %d Ereignisse nach neuen Regeln gezählt", total)
+	return total, true
 }

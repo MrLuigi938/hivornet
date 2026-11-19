@@ -31,6 +31,7 @@ type Extras struct {
 	Own          OwnNets           `json:"own"`           // eigene Netze (ownnet.go)
 	AbuseReport  AbuseReportConfig `json:"abuse_report"`  // automatische Meldung (abusereport.go)
 	Mimic        MimicConfig       `json:"mimic"`         // Antworten vom Sprachmodell für Unbekanntes (mimic.go)
+	CVEDB        CVEDBConfig       `json:"cvedb"`         // Lückendetails aus KEV, NVD und EPSS (cvedb.go)
 }
 
 type NotifyConfig struct {
@@ -66,6 +67,7 @@ func defaultExtras() Extras {
 	x.Own.Private = true
 	x.AbuseReport = defaultAbuseReport()
 	x.Mimic = defaultMimic()
+	x.CVEDB.Enabled = true // es gehen nur CVE-Nummern hinaus
 	return x
 }
 
@@ -74,6 +76,7 @@ func (x *Extras) secretFields() map[string]*string {
 	return map[string]*string{
 		"ntfy_token": &x.Notify.NtfyToken, "telegram_token": &x.Notify.TelegramToken,
 		"ai_api_key": &x.AI.APIKey, "mimic_api_key": &x.Mimic.APIKey, "abuseipdb_key": &x.AbuseIPDBKey, "greynoise_key": &x.GreyNoiseKey, "abusech_key": &x.AbuseChKey,
+		"nvd_key": &x.CVEDB.NVDKey,
 	}
 }
 
