@@ -10,6 +10,8 @@ import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from 
 import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
 // Einstellungen mit Unterseiten (#/settings/<bereich>)
 import { viewSettings } from "./settings.js";
+// Hardware-Monitor im Reiter System
+import { hardwareCard } from "./hardware.js";
 
 const app = document.getElementById("app");
 const state = { user: null, range: store("range") || "24h", es: null, liveFns: new Set(), cleanup: null, leaveGuard: null };
@@ -874,7 +876,7 @@ function updateCard(u) {
 
 async function viewSystem(el, ctx) {
   header("System");
-  const d = await api("system");
+  const [d, hw] = await Promise.all([api("system"), api("hardware").catch(() => null)]);
   const hv = d.hive;
   const kv = (rows) => h("table", null, h("tbody", null, rows.filter(Boolean).map(([k, v]) => h("tr", null, h("th", null, k), h("td", null, v)))));
   const sensorOk = (s) => Date.now() - toMs(s.seen) < 60000;
@@ -884,6 +886,7 @@ async function viewSystem(el, ctx) {
   const vols = d.cowrie.volumes || {};
   mount(el, h("div", { class: "stack" },
     warningsBox(d.warnings, false) || h("div", { class: "msg ok" }, "Keine Warnungen."),
+    hw ? hardwareCard(hw) : null,
     updateCard(d.update || {}),
     h("div", { class: "grid three" },
       card("Hive", kv([

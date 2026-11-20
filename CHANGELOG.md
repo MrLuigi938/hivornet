@@ -6,6 +6,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 **Update:** Raspberry Pi per Knopf (System → Updates), Docker: `sh update.sh`.
 
+### Neu
+- **Hardware-Monitor** im Reiter System: Ringanzeigen für CPU, Arbeitsspeicher, Temperatur und Speicherplatz (Farbe nach Schwellen), Verlauf der letzten Stunde mit Werten beim Darüberfahren, Arbeitsspeicher je Dienst mit seiner Grenze (Pi: Hive, Honeypot, Cowrie; Docker: eigener Container), Last, Kerne, Laufzeit, Modell und auf dem Pi Unterspannung oder Drosselung. Gemessen wird alle 15 Sekunden, nur lesend aus /proc und /sys, ohne neue Rechte. In Docker zeigen CPU und Arbeitsspeicher die Werte des Hosts.
+
 ### Behoben
 - **Angreiferseite stürzte bei Gruppen ab** („Cannot read properties of null“), wenn eine IP nur über eine weitere IP zur Gruppe gehört: Die Begründungsliste ist jetzt nie leer-null, die Seite fängt den Fall zusätzlich ab.
 - **„Ohne Dauer-Brute-Force“ wirkt jetzt vollständig:** Bisher fielen nur die verdichteten Versuche weg; Versuche bis zur Erkennung und Läufe von vor dem Update blieben in den Top-Listen, sodass der Schalter oft nichts änderte. Jetzt fällt alles von markierten IPs heraus (Zugangsdaten, Befehle, Clients, Netzbetreiber), auch rückwirkend. Markiert sind IPs, die in den letzten sieben Tagen als Dauer-Brute-Force gelten, und IPs mit verdichteten Versuchen im Zeitraum. Rohdaten bleiben vollständig.

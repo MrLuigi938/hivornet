@@ -64,6 +64,7 @@ type Hive struct {
 	ports     portActivity  // seit wann welche Ports laufen (silentports.go)
 	share     shareState    // URLhaus, Dateien sammeln, MalwareBazaar, DShield (share.go)
 	snap      attackSnap    // Angriffe der letzten sieben Tage (attacksnap.go)
+	hw        hwMonitor     // Hardware-Monitor (hwmon.go)
 	bruteTop  bruteTopCache // Top-Listen ohne Dauer-Brute-Force (brutetop.go)
 }
 
@@ -251,6 +252,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
 	ui.HandleFunc("POST /api/password", a.Require(h.changePassword))
 	ui.HandleFunc("GET /api/system", a.Require(h.system))
+	ui.HandleFunc("GET /api/hardware", a.Require(h.hardwareAPI))
 	ui.HandleFunc("POST /api/backup/export", a.Require(h.backupExport))
 	ui.HandleFunc("POST /api/backup/import", a.Require(h.backupImport))
 	ui.HandleFunc("GET /api/logs", a.Require(h.logsList))
@@ -369,6 +371,7 @@ func main() {
 	go h.warmAnalysis(bgStop)
 	go h.warmSnap(bgStop)
 	go h.runOwnIP(bgStop) // eigene öffentliche Adresse (ownip.go)
+	go h.runHW(bgStop)    // Hardware-Monitor (hwmon.go)
 	go h.runCVEDB(bgStop) // KEV-Katalog, NVD und EPSS (cvedb.go)
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
