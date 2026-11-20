@@ -301,3 +301,31 @@ func TestApplySystemBruteBansTimer(t *testing.T) {
 		t.Fatalf("Zeitgeber nicht eingeschaltet:\n%s", j)
 	}
 }
+
+// Gruppe A–B–C: A und C teilen kein Merkmal direkt. Die Begründungsliste darf trotzdem nie
+// null sein, sonst bricht die Angreiferseite ab ("Cannot read properties of null").
+func TestRelatedReasonsNeverNil(t *testing.T) {
+	g := &IPGroup{ID: "x", NIPs: 3, IPs: []string{"192.0.2.1", "192.0.2.2", "192.0.2.3"}}
+	r := &relatedResult{
+		groups: map[string]*IPGroup{"192.0.2.1": g, "192.0.2.2": g, "192.0.2.3": g},
+		edges: map[string]map[string]string{
+			"192.0.2.1": {"k1": "Merkmal 1"},
+			"192.0.2.2": {"k1": "Merkmal 1", "k2": "Merkmal 2"},
+			"192.0.2.3": {"k2": "Merkmal 2"},
+		},
+		byKey: map[string][]string{"k1": {"192.0.2.1", "192.0.2.2"}, "k2": {"192.0.2.2", "192.0.2.3"}},
+	}
+	_, others := r.related("192.0.2.1")
+	if len(others) != 2 {
+		t.Fatalf("%+v", others)
+	}
+	for _, o := range others {
+		if o.Reasons == nil {
+			t.Errorf("%s: reasons ist nil", o.IP)
+		}
+	}
+	b, _ := json.Marshal(others)
+	if strings.Contains(string(b), "null") {
+		t.Errorf("JSON enthält null: %s", b)
+	}
+}

@@ -247,7 +247,8 @@ func (r *relatedResult) related(ip string) (*IPGroup, []RelatedIP) {
 	for _, other := range g.IPs {
 		if other != ip {
 			sort.Strings(direct[other])
-			out = append(out, RelatedIP{IP: other, Reasons: direct[other]})
+			// nie nil: die UI liest reasons.length (Gruppe nur über weitere IPs verbunden)
+			out = append(out, RelatedIP{IP: other, Reasons: append([]string{}, direct[other]...)})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool { return len(out[i].Reasons) > len(out[j].Reasons) })

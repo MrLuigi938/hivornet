@@ -802,7 +802,7 @@ function relatedCard(d) {
     h("p", { class: "sub" }, RELATED_RULES),
     h("div", { class: "list" }, d.related.slice(0, 30).map((r) => h("div", { class: "related-row" },
       h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(r.ip) }, r.ip),
-      h("span", { class: "muted" }, r.reasons.length ? r.reasons.join(" · ") : "über weitere IPs der Gruppe verbunden")))),
+      h("span", { class: "muted" }, (r.reasons || []).length ? r.reasons.join(" · ") : "über weitere IPs der Gruppe verbunden")))),
     d.group.n_ips > 31 ? h("p", { class: "muted" }, `… und ${fmtNum(d.group.n_ips - 31)} weitere.`) : null);
 }
 
