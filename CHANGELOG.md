@@ -2,9 +2,9 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.8.0-beta] – 2026-11-20
 
-**Update:** Beim ersten Start zählt der Hive die Top-Listen einmal neu (neue Exploit-Regeln, Fremdprotokolle). Alle neuen Weitergabe- und KI-Funktionen sind zunächst aus.
+**Update:** Raspberry Pi per Knopf (System → Updates, Kanal „Vorabversionen“), kein neues Image nötig. Ab dieser Version spielt der Pi nur noch signierte Veröffentlichungen ein; das Update auf 0.8.0-beta selbst übernimmt noch der bisherige Updater. Docker: `sh update.sh`, danach `sudo sh tools/firewall.sh`; wer die neue Drossel für Dauer-Brute-Forcer nutzen will, stattdessen den Aufruf aus Einstellungen → Honeypot → Dauer-Brute-Force. Beim ersten Start zählt der Hive die Top-Listen einmal neu (neue Exploit-Regeln, Fremdprotokolle). Die neuen Weitergabe- und KI-Funktionen sind zunächst aus; die eigene öffentliche Adresse wird ab dem Start automatisch ermittelt (abschaltbar).
 
 ### Neu
 - **Exploit-Erkennung mit Produkt und CVE:** rund 200 Regeln für Router, Kameras, VPN-Gateways, Atlassian, Exchange, Java/Spring, CMS, PHP, Docker-API, Tomcat und mehr. Jede Regel unterscheidet Abtasten (Probe) und Ausnutzung; eine Ausnutzung verdrängt die Probe desselben Produkts. Neue Tabelle **„Exploits nach Produkt“** in der Auswertung, Details an Angriffskarte und Bericht, Suchfelder `regel:` und `produkt:`.
