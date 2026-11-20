@@ -14,7 +14,7 @@ package main
 // Markiert sind IPs, deren Angriff in den letzten sieben Tagen als Dauer-Brute-Force gilt
 // (Angriffs-Schnappschuss, attacksnap.go), und IPs mit Sammelzeilen im Zeitraum. Für längere
 // Zeiträume zählen ältere Läufe also nur, wenn sie verdichtet wurden; die Rohdaten jenseits der
-// Aufbewahrung sind ohnehin nicht mehr da. Das Ergebnis wird eine Minute zwischengespeichert,
+// Aufbewahrung sind ohnehin nicht mehr da. Das Ergebnis wird zwischengespeichert und im Hintergrund erneuert (bruteTopCache),
 // weil das Dashboard mehrere Listen auf einmal holt.
 
 import (
@@ -28,17 +28,26 @@ import (
 )
 
 const (
-	bruteTopTTL       = time.Minute
-	bruteTopMaxIPs    = 500     // so viele markierte IPs werden höchstens abgezogen
-	bruteTopMaxEvents = 1000000 // Sicherheitsnetz für den Speicher
+	bruteTopTTL       = 2 * time.Minute // danach im Hintergrund neu rechnen
+	bruteTopMaxIPs    = 500             // so viele markierte IPs werden höchstens abgezogen
+	bruteTopMaxEvents = 1000000         // Sicherheitsnetz für den Speicher
 )
 
+// bruteTopCache: je Startstunde ein Ergebnis. Liegt eines vor, bekommt die Anfrage es sofort,
+// auch wenn es älter als bruteTopTTL ist; neu gerechnet wird dann im Hintergrund. Gewartet wird
+// nur beim allerersten Mal. Vorher (0.9.2) rechnete jede Aktualisierung des Dashboards nach einer
+// Minute synchron neu, belegte dabei einen der beiden Plätze für aufwendige Abfragen (heavySem)
+// und hielt so "Gerade aktiv" auf einem Pi mehrere Sekunden auf.
 type bruteTopCache struct {
-	mu   sync.Mutex
-	hour int64
+	mu    sync.Mutex
+	build sync.Mutex // ein Aufbau zur Zeit
+	m     map[int64]*bruteTopEntry
+}
+
+type bruteTopEntry struct {
 	at   time.Time
-	ips  int
 	sub  map[string]map[string]int64 // Feld -> Schlüssel -> Anzahl
+	busy bool                        // wird gerade im Hintergrund neu gerechnet
 }
 
 // bruteIPsSince: IPs, die im Zeitraum als Dauer-Brute-Force gelten.
@@ -87,10 +96,44 @@ func (h *Hive) bruteIPsSince(ctx context.Context, since time.Time) ([]string, er
 func (h *Hive) bruteTopSub(ctx context.Context, hour int64) (map[string]map[string]int64, error) {
 	c := &h.bruteTop
 	c.mu.Lock()
-	defer c.mu.Unlock() // ein Aufbau zur Zeit; parallele Listen warten auf das gemeinsame Ergebnis
-	if c.sub != nil && c.hour == hour && time.Since(c.at) < bruteTopTTL {
-		return c.sub, nil
+	if c.m == nil {
+		c.m = map[int64]*bruteTopEntry{}
 	}
+	e := c.m[hour]
+	if e == nil { // "24 Std" rückt jede Stunde vor: das Ergebnis der Vorstunde taugt bis zum Neurechnen
+		e = c.m[hour-1]
+	}
+	if e != nil {
+		if time.Since(e.at) > bruteTopTTL && !e.busy {
+			e.busy = true
+			go func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				defer cancel()
+				h.bruteTopRefresh(ctx, hour)
+				c.mu.Lock()
+				e.busy = false
+				c.mu.Unlock()
+			}()
+		}
+		sub := e.sub
+		c.mu.Unlock()
+		return sub, nil
+	}
+	c.mu.Unlock()
+	return h.bruteTopRefresh(ctx, hour)
+}
+
+// bruteTopRefresh rechnet das Ergebnis für hour neu und legt es ab.
+func (h *Hive) bruteTopRefresh(ctx context.Context, hour int64) (map[string]map[string]int64, error) {
+	c := &h.bruteTop
+	c.build.Lock()
+	defer c.build.Unlock()
+	c.mu.Lock()
+	if e := c.m[hour]; e != nil && time.Since(e.at) < bruteTopTTL { // inzwischen erledigt
+		c.mu.Unlock()
+		return e.sub, nil
+	}
+	c.mu.Unlock()
 	since := time.UnixMilli(hour * 3600000)
 	ips, err := h.bruteIPsSince(ctx, since)
 	if err != nil {
@@ -134,7 +177,14 @@ func (h *Hive) bruteTopSub(ctx context.Context, hour int64) (map[string]map[stri
 			return nil, err
 		}
 	}
-	c.hour, c.at, c.sub, c.ips = hour, time.Now(), sub, len(ips)
+	c.mu.Lock()
+	c.m[hour] = &bruteTopEntry{at: time.Now(), sub: sub}
+	for k, old := range c.m { // lange nicht Neugerechnetes vergessen (vorgerückte Startstunden)
+		if time.Since(old.at) > 30*time.Minute && !old.busy {
+			delete(c.m, k)
+		}
+	}
+	c.mu.Unlock()
 	return sub, nil
 }
 

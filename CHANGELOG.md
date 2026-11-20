@@ -2,6 +2,11 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben
+- **Dashboard: „Gerade aktiv“ zeigte nach zwei Minuten nur noch „Lade …“.** Die stille Aktualisierung baute die Liste leer neu auf, bis die Abfrage zurück war; die Abfrage wartete auf dem Pi zudem mehrere Sekunden hinter dem Neuberechnen der Top-Listen „ohne Dauer-Brute-Force“. Jetzt übernimmt die Liste ihren bisherigen Stand, und die Top-Listen liefern sofort den letzten Stand und rechnen im Hintergrund neu.
+
 ## [0.9.2-beta] – 2026-11-20
 
 **Update:** Raspberry Pi per Knopf (System → Updates), Docker: `sh update.sh`.

@@ -461,6 +461,9 @@ function warningsBox(list, link) {
 
 // ---------- Dashboard ----------
 
+// Letzter Stand von "Gerade aktiv" über Aktualisierungen hinweg (null: noch nie geladen)
+let dashActive = null;
+
 async function viewDashboard(el, ctx) {
   header("Dashboard", { range: true });
   const r = state.range;
@@ -505,8 +508,11 @@ async function viewDashboard(el, ctx) {
   const map = worldMap(mp, { home, countries });
 
   // ---- Gerade aktiv (Angriffe der letzten 15 Minuten) ----
-  const active = new Map();
-  let actLoaded = false;
+  // Beim stillen Aktualisieren (alle 2 Minuten) den bisherigen Stand übernehmen, statt die Liste
+  // leer mit "Lade …" neu zu beginnen, bis die Abfrage zurück ist.
+  const active = new Map(dashActive || []);
+  let actLoaded = dashActive !== null;
+  dashActive = active;
   const openRows = new Set();
   const actList = h("div", { class: "list alist" });
   const actCount = h("span", { class: "hint" });
