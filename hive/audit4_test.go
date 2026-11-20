@@ -4,6 +4,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -168,5 +169,36 @@ func TestPiUnitsHideHiveData(t *testing.T) {
 		if !strings.Contains(read(n), "InaccessiblePaths=-/var/lib/hivornet ") {
 			t.Errorf("%s: /var/lib/hivornet nicht gesperrt", n)
 		}
+	}
+}
+
+// Für Sperrliste und AbuseIPDB zählen nur Ereignisse vertrauter Sensoren: Ein nicht vertrauter
+// Sensor kann einem vom vertrauten Sensor gesehenen "connect" keine Anmeldungen hinzufügen.
+func TestUntrustedEventsSkipped(t *testing.T) {
+	h := testHive(t)
+	w, err := NewWriter(h.st, func(*Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	batch := []*Event{{TS: now.Add(-2 * time.Minute), Sensor: "pi", Type: "connect", Service: "ssh", SrcIP: "198.51.100.9", DstPort: 22}}
+	for i := 0; i < 20; i++ {
+		batch = append(batch, &Event{TS: now.Add(-time.Minute), Sensor: "vps-1", Type: "login", Service: "ssh", SrcIP: "198.51.100.9", DstPort: 22,
+			Username: "root", Password: fmt.Sprintf("pw%d", i)})
+	}
+	if err := w.writeBatch(batch); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	all, _, _ := h.loadAttacks(ctx, now.Add(-time.Hour), nil)
+	trusted, _, _ := h.loadAttacksSkip(ctx, now.Add(-time.Hour), nil, map[string]bool{"vps-1": true})
+	if len(all) != 1 || len(trusted) != 1 {
+		t.Fatalf("Angriffe: %d / %d", len(all), len(trusted))
+	}
+	if trusted[0].Counts["login"] != 0 || len(trusted[0].Sensors) != 1 || trusted[0].Sensors[0] != "pi" {
+		t.Fatalf("erfundene Ereignisse gezählt: %+v", trusted[0])
+	}
+	if all[0].Counts["login"] == 0 {
+		t.Fatal("Testaufbau: ohne Filter fehlen die Anmeldungen")
 	}
 }

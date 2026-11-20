@@ -465,6 +465,14 @@ func svcShort(s string) string {
 // bündelt sie zu Angriffen, neueste Aktivität zuerst. truncated: es gab mehr Ereignisse,
 // als gelesen wurden.
 func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) ([]*Attack, bool, error) {
+	return h.loadAttacksSkip(ctx, since, ips, nil)
+}
+
+// loadAttacksSkip wie loadAttacks, lässt aber Ereignisse der Sensoren in skip weg (Audit 4):
+// Für Sperrliste und AbuseIPDB zählen nur vertraute Sensoren. Vorher reichte ein vertrauter
+// Sensor mit einem "connect", und ein nicht vertrauter ergänzte erfundene Anmeldungen und
+// Befehle (zurückdatiert ins selbe Zeitfenster), die Stufe und Kategorien hochtrieben.
+func (h *Hive) loadAttacksSkip(ctx context.Context, since time.Time, ips []string, skip map[string]bool) ([]*Attack, bool, error) {
 	release, err := acquireHeavy(ctx) // höchstens zwei gleichzeitig (api.go)
 	if err != nil {
 		return nil, false, err
@@ -510,6 +518,9 @@ func (h *Hive) loadAttacks(ctx context.Context, since time.Time, ips []string) (
 			return nil, false, err
 		}
 		e.TS, e.Data = time.UnixMilli(ms), data
+		if skip[e.Sensor] {
+			continue
+		}
 		if cur == nil || cur.IP != e.SrcIP || ms-cur.Last > attackGap.Milliseconds() {
 			cur = newAttack(&e)
 			out = append(out, cur)

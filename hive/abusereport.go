@@ -339,12 +339,12 @@ func (h *Hive) abuseRound(ctx context.Context) {
 	if paused {
 		return
 	}
-	list, _, err := h.loadAttacks(ctx, time.Now().Add(-30*time.Minute), nil)
+	untrusted := h.untrustedSensors() // protect.go: gefälschte Ereignisse sollen niemanden melden
+	list, _, err := h.loadAttacksSkip(ctx, time.Now().Add(-30*time.Minute), nil, untrusted)
 	if err != nil {
 		return
 	}
 	names := h.honeypotNames()
-	untrusted := h.untrustedSensors() // protect.go: gefälschte Ereignisse sollen niemanden melden
 	interval := time.Duration(cfg.IntervalHours) * time.Hour
 	source := "abuse_report"
 	if cfg.DryRun {

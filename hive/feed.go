@@ -168,10 +168,10 @@ func (h *Hive) feedList(ctx context.Context, c FeedConfig) ([]string, error) {
 			fc.busy = make(chan struct{})
 			busy := fc.busy
 			fc.mu.Unlock()
-			list, _, err := h.loadAttacks(ctx, time.Now().Add(-rangeDur(c.Range, 7*24*time.Hour)), nil)
+			untrusted := h.untrustedSensors() // nur Ereignisse vertrauter Sensoren (Audit 4)
+			list, _, err := h.loadAttacksSkip(ctx, time.Now().Add(-rangeDur(c.Range, 7*24*time.Hour)), nil, untrusted)
 			var ips []string
 			if err == nil {
-				untrusted := h.untrustedSensors()
 				ips = feedIPs(list, c, func(a *Attack) bool { return !trustedAttack(a, untrusted) || h.neverBlock(a.IP) })
 			}
 			fc.mu.Lock()
