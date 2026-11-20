@@ -16,10 +16,14 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Stille Ports:** Der Hive merkt sich, seit wann ein Port läuft, und weist auf Ports ohne jede Verbindung hin (z. B. vom Provider gesperrt).
 - **Hostname-Prüfung** nach RFC 952/1123 mit Hinweis beim Tippen und Vorschlag; neue ungültige Namen werden abgelehnt.
 
+- **Dauer-Brute-Force erkennen und verdichten:** Meldet sich eine IP über lange Zeit sehr oft an (Standard: 200 Logins über 30 Minuten, höchstens 3 Clients bzw. HASSH), markiert der Hive sie als Dauer-Brute-Forcer – sichtbar auf der Angriffskarte und beim Angreifer, als Suchfeld `dauer:ja` und als Filter „Dauer-Brute-Force ausblenden“. Ab dann speichert er fehlgeschlagene Logins und die Verbindungen drumherum nur noch gesammelt (höchstens alle fünf Minuten eine Sammelzeile je IP und Dienst). Kennzahlen, Angreiferliste und die Zähler je Kombination bleiben vollständig; angenommene Logins und alles danach, Befehle, Downloads, Köder, eigene Netze und „Nie sperren“ bleiben immer einzeln. Einstellungen → Honeypot → Dauer-Brute-Force.
+- **Drossel in der Firewall (abschaltbar, Standard aus):** begrenzt neue Verbindungen zu Cowrie (SSH, Telnet) je Quell-IP (Standard 6 je Minute, Spitze 20, danach 15 Minuten gesperrt). Raspberry Pi: in der Web-UI einschalten, angewendet über nftables. Docker: `BRUTE_LIMIT=1 sudo -E sh tools/firewall.sh` (Werte über `BRUTE_RATE`, `BRUTE_BURST`, `BRUTE_BAN`, `BRUTE_ALLOW`; die UI zeigt den passenden Aufruf). Private Netze, eigene Netze und „Nie sperren“ werden nie gedrosselt; scheitert die Drossel, bleibt die Netzsperre unverändert aktiv.
+
 ### Geändert
 - **KI-Webantworten:** Produkt wird aus dem Pfad erkannt, feste Produkthinweise je Pfadfamilie, doppelt maskierte Antworten (wörtliches `\n`) werden entmaskiert. 404 und Zufalls- oder Scannerpfade gehen nicht mehr ans Modell.
 - **Fremdprotokolle als ein Ereignis:** HTTP-Anfragen, TLS-Handshakes und Binärdaten an Redis, FTP, SMTP, Telnet, MySQL und PostgreSQL zählen nicht mehr als Befehle oder Zugangsdaten je Zeile, sondern als ein Abtast-Ereignis. Behebt überhöhte Redis-Zähler.
 - **Geräteprofil** zeigt vor dem Speichern, wie viele Verbindungen die abgeschalteten Dienste zuletzt pro Woche brachten.
+- Beim Pi-Update werden geänderte Beobachter-Units (`.path`) neu gestartet, damit sie neue Pfade sofort beobachten.
 
 ### Sicherheit
 - KI-Webantworten: Vom Modell gesetzte Cookies werden nur noch als „Name=Wert; Path=/; HttpOnly“ übernommen, ohne Domain-Angabe, ohne `__Host-`/`__Secure-`-Präfix und nie unter dem Namen des Sitzungs-Cookies der Web-UI. Läuft die Hive-UI auf demselben Host, konnte ein solches Cookie sonst die Anmeldung dort überdecken.
@@ -27,6 +31,18 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - DShield: Referer, Origin, Weiterleitungs-Köpfe und Cookies werden nicht mehr mitgesendet. Web-Anfragen gehen nur noch hinaus, wenn die eigene öffentliche Adresse bekannt ist (System → „Wie Shodan dich sieht“).
 - Dateien sammeln: Die Platzgrenze der Quarantäne gilt vor jedem Download, nicht nur bei der stündlichen Aufräumrunde. Der abgesicherte Download sperrt zusätzlich IPv4-kompatible und SIIT-IPv6-Adressen sowie 192.88.99.0/24.
 - Lückendetails: Nur Admins lösen NVD-Abfragen aus. Werte von NVD und EPSS werden auf gültige Bereiche und Längen begrenzt.
+- Raspberry Pi: Die Datenbank des Hive (Passwort-Hash, API-Schlüssel) ist nur noch für den Hive lesbar (`StateDirectoryMode=0700`, `UMask=0077`). Honeypot und Cowrie sehen `/var/lib/hivornet` gar nicht mehr.
+- Raspberry Pi: Die Web-UI (Port 8088) ist am Honeypot-Anschluss nur noch aus privaten IPv4-Netzen erreichbar. Steht der Pi als „Exposed Host“ oder in einer DMZ, war die Anmeldeseite vorher aus dem Internet offen.
+- Die Ersteinrichtung geht nur noch aus dem Heimnetz (privat, Loopback, Link-local, CGNAT); `HIVE_SETUP_ANY_ADDR=1` hebt das auf. Vorher konnte ein Fremder einem offen erreichbaren Hive zuvorkommen und das Admin-Passwort setzen. Den Standort zeigt `GET /api/setup` nur noch dem Heimnetz.
+- Honeypot: Der Tomcat-Köder ließ sich über Zeilenumbrüche im Kontextpfad dazu bringen, eigene Kopfzeilen zu senden, auch Cookies. Steuerzeichen werden abgelehnt, und HTTP-Antworten verwerfen jede Kopfzeile mit Steuerzeichen.
+- Honeypot: Sitzungen außerhalb des Tarpits enden nach 20 Minuten. Grenzen für Verbindungen, Tarpit, Ereignisse und Sprachmodell zählen IPv6-Absender je /64. ADB nimmt höchstens 64 KB je Nachricht an.
+- Sperrliste und AbuseIPDB werten nur noch Ereignisse vertrauter Sensoren aus. Ein nicht vertrauter Sensor konnte vorher einem echten Angriff erfundene Anmeldungen und Befehle hinzufügen.
+- URLhaus meldet im Modus „nur bestätigte“ nur noch Adressen, deren Datei als Schadsoftware erkannt wurde (Programm oder eindeutiges Schadskript). Vorher genügte jede geholte Datei ohne HTML.
+- Der KI-Angriffsbericht ersetzt die eigene öffentliche IP, private Adressen und eigene Hostnamen, grenzt die Angreiferdaten ab und verwirft manipulierte Antworten, wie die übrigen KI-Funktionen. Diese ersetzen jetzt ebenfalls eigene Hostnamen.
+- API-Schlüssel (AbuseIPDB, abuse.ch, GreyNoise, NVD) werden bei einer Weiterleitung auf einen anderen Host nicht mehr mitgeschickt. Den Fehlertext der KI sehen nur Admins.
+- Hive: Werte von Sensoren werden strenger geprüft. Dauern sind begrenzt (ein Überlauf der Summen ließ Schreibvorgänge scheitern), `tty`-Ereignisse kommen nur vom Cowrie-Leser, und Lebenszeichen werden gekürzt, mit höchstens 256 Ports je Sensor.
+- Hive: Dateien aus den Cowrie-Ordnern werden ohne Verweis und ohne Blockade an FIFOs geöffnet.
+- Antworten des Sprachmodells für Webseiten werden verworfen, wenn ein Skript Cookies oder Browser-Speicher setzt oder Daten per Beacon verschickt.
 
 ## [0.7.5-beta] – 2026-11-19
 
