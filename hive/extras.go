@@ -223,6 +223,7 @@ func (h *Hive) putExtras(w http.ResponseWriter, r *http.Request) {
 	setOwnNets(x.Own)
 	setBrute(x.Brute)
 	setHiveZone(x.TimeZone)
+	h.snap.invalidate()                        // eigene Netze, Brute-Force-Markierung: Einstufung neu
 	if err := h.syncBruteLimit(); err != nil { // Drossel auf dem Raspberry Pi (bruteforce.go)
 		httpErr(w, 500, "Gespeichert, aber die Drossel ließ sich nicht anfordern: "+err.Error())
 		return

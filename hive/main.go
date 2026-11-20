@@ -63,6 +63,7 @@ type Hive struct {
 	abuse     abuseReporter // Meldungen an AbuseIPDB (abusereport.go)
 	ports     portActivity  // seit wann welche Ports laufen (silentports.go)
 	share     shareState    // URLhaus, Dateien sammeln, MalwareBazaar, DShield (share.go)
+	snap      attackSnap    // Angriffe der letzten sieben Tage (attacksnap.go)
 }
 
 func env(k, def string) string {
@@ -365,6 +366,7 @@ func main() {
 	go h.runSpikes(bgStop) // Spitzen-Warnung (insights.go)
 	h.loadCustomRules()    // eigene Regeln aus KI-Vorschlägen (cvesuggest.go), vor Neuzählung und Zwischenspeicher
 	go h.warmAnalysis(bgStop)
+	go h.warmSnap(bgStop)
 	go h.runOwnIP(bgStop) // eigene öffentliche Adresse (ownip.go)
 	go h.runCVEDB(bgStop) // KEV-Katalog, NVD und EPSS (cvedb.go)
 	upgradeSensorConfigs(st)

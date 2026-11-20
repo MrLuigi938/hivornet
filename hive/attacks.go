@@ -655,6 +655,8 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		// Nur IPs mit Aktivität in den letzten 15 Minuten aufbauen, nicht alle der letzten
 		// sechs Stunden (Dashboard "Gerade aktiv"; vorher mehrere Sekunden auf einem Pi).
 		list, truncated, err = h.loadActiveAttacks(ctx, since)
+	} else if len(ips) == 0 {
+		list, truncated, err = h.attacksSince(ctx, since) // Schnappschuss (attacksnap.go)
 	} else {
 		list, truncated, err = h.loadAttacks(ctx, since, ips)
 	}

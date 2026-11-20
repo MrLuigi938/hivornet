@@ -474,7 +474,7 @@ func (h *Hive) insights(w http.ResponseWriter, r *http.Request) {
 	}
 	// Für "neu" braucht es Vorgeschichte: mindestens 7 Tage laden.
 	d := max(rangeDur(rng, 7*24*time.Hour), 7*24*time.Hour)
-	list, truncated, err := h.loadAttacks(ctx, time.Now().Add(-d), nil)
+	list, truncated, err := h.attacksSince(ctx, time.Now().Add(-d))
 	if err != nil {
 		httpErr(w, 500, err.Error())
 		return
