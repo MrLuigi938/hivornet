@@ -129,10 +129,14 @@ var aiHTTP = &http.Client{Timeout: 5 * time.Minute}
 
 // askAI schickt den Berichtstext an das eingestellte Modell und liefert die Antwort.
 func askAI(ctx context.Context, c AIConfig, text string) (string, error) {
+	return askAIMsgs(ctx, c, []map[string]string{{"role": "system", "content": aiSystemPrompt}, {"role": "user", "content": text}})
+}
+
+// askAIMsgs: Aufruf mit fertigen Nachrichten.
+func askAIMsgs(ctx context.Context, c AIConfig, msgs []map[string]string) (string, error) {
 	// max_tokens lässt Platz für Denkmodelle; die eigentliche Antwort ist kurz.
 	body, _ := json.Marshal(map[string]any{
-		"model": c.Model, "temperature": 0.2, "max_tokens": 6000, "stream": false,
-		"messages": []map[string]string{{"role": "system", "content": aiSystemPrompt}, {"role": "user", "content": text}},
+		"model": c.Model, "temperature": 0.2, "max_tokens": 6000, "stream": false, "messages": msgs,
 	})
 	req, err := http.NewRequestWithContext(ctx, "POST", strings.TrimRight(c.BaseURL, "/")+"/chat/completions", bytes.NewReader(body))
 	if err != nil {
@@ -329,11 +333,21 @@ func (h *Hive) reportAI(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 400, err.Error())
 		return
 	}
-	txt, err := askAI(ctx, c, clip(rep.Text(), 48000))
+	// Audit 4: dieselben Schutzschritte wie aiRun. Vorher gingen eigene IP und Hostnamen aus
+	// Kopfzeilen und Befehlen ungefiltert an den Anbieter, und Anweisungen in Angreiferdaten
+	// erreichten das Modell ohne Abgrenzung; die Antwort wurde ungeprüft gespeichert.
+	data, _ := aiNeutralize(h.aiScrub(clip(rep.Text(), 48000)))
+	nonce := randToken(8)
+	txt, err := askAIMsgs(ctx, c, aiMessages(aiTask{System: aiSystemPrompt}, data, nonce))
 	if err != nil {
 		httpErr(w, 502, err.Error())
 		return
 	}
+	if why := aiOutputLeak(txt, nonce); why != "" {
+		httpErr(w, 502, "KI-Antwort verworfen: "+why)
+		return
+	}
+	txt = aiText(txt, 20000)
 	h.st.lookupPut(key, "ai", txt)
 	writeJSON(w, map[string]any{"text": txt, "at": time.Now(), "model": c.Model})
 }

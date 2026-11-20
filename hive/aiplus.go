@@ -251,6 +251,18 @@ func aiMessages(t aiTask, data, nonce string) []map[string]string {
 	}
 }
 
+// aiScrub ersetzt eigene und private Adressen (scrubIPs) und die eigenen Hostnamen (Honeypot-
+// Profile, Hive), ohne Rücksicht auf Groß- und Kleinschreibung (Audit 4).
+func (h *Hive) aiScrub(s string) string {
+	s, _ = scrubIPs(s, h.ownPublicIPs())
+	for _, m := range h.ownMarkers() {
+		if net.ParseIP(m) == nil {
+			s = regexp.MustCompile(`(?i)`+regexp.QuoteMeta(m)).ReplaceAllLiteralString(s, "host.example")
+		}
+	}
+	return s
+}
+
 // aiRun: Budget, Platzhalter, Abgrenzung, Aufruf, Prüfung der Antwort.
 func (h *Hive) aiRun(ctx context.Context, c AIConfig, p AIPlusConfig, t aiTask) (string, error) {
 	select {
@@ -262,7 +274,7 @@ func (h *Hive) aiRun(ctx context.Context, c AIConfig, p AIPlusConfig, t aiTask) 
 	if err := h.aiBudgetTake(p, t.Feature); err != nil {
 		return "", err
 	}
-	data, _ := scrubIPs(t.Data, h.ownPublicIPs()) // Platzhalter bleiben auch in der Antwort
+	data := h.aiScrub(t.Data) // Platzhalter bleiben auch in der Antwort
 	data, cleaned := aiNeutralize(data)
 	nonce := randToken(8)
 	out, err := aiPlusAsk(ctx, c, aiMessages(t, data, nonce), t.MaxTok)
