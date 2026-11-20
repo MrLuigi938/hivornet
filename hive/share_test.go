@@ -365,7 +365,9 @@ func TestURLhausSubmit(t *testing.T) {
 	}
 	// echter Lauf: nur bestätigte Adressen
 	x.URLhausReport = URLhausReportConfig{Enabled: true, DailyLimit: 10, VerifiedOnly: true}
-	h.st.lookupPut(urlSubject(finds[1].URL), "sample_fetch", `{"status":"ok","file_tag":"elf"}`)
+	// geholt, aber keine Schadsoftware (JSON, PDF ...): nie melden (Audit 4)
+	h.st.lookupPut(urlSubject(finds[0].URL), "sample_fetch", `{"status":"ok"}`)
+	h.st.lookupPut(urlSubject(finds[1].URL), "sample_fetch", `{"status":"ok","file_tag":"elf","malware":true}`)
 	h.st.lookupPut(urlSubject(finds[2].URL), "sample_fetch", `{"status":"error"}`)
 	h.urlhausSubmit(context.Background(), x, finds)
 	if len(bodies) != 1 || keys[0] != "test-key" {

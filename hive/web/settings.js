@@ -807,7 +807,7 @@ async function shareCards(ex) {
     "URLhaus nimmt nur Adressen an, die gerade Schadsoftware ausliefern; wer wiederholt Falsches meldet, kann gesperrt werden."),
   row("Aktiv", ex.check(uh, "enabled", "Nachlade-Adressen automatisch melden")),
   row("Probemodus", ex.check(uh, "dry_run", "Nur protokollieren, was gemeldet würde (nichts senden)")),
-  row("Nur bestätigte", ex.check(uh, "verified_only", "Nur Adressen melden, deren Datei der Hive selbst holen konnte"),
+  row("Nur bestätigte", ex.check(uh, "verified_only", "Nur Adressen melden, deren Datei der Hive selbst geholt und als Schadsoftware erkannt hat (Programm oder eindeutiges Schadskript)"),
     "Empfohlen. Setzt „Dateien sammeln“ voraus; ftp- und tftp-Adressen werden dann nie gemeldet."),
   row("Höchstens pro Tag", ex.num(uh, "daily_limit", 1, 150, 1)),
   h("details", null, h("summary", null, "Protokoll der Meldungen"), shareLogTable(st && st.urlhaus, "Adresse", "gemeldet")));

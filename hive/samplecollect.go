@@ -42,6 +42,9 @@ type sampleFetchResult struct {
 	SHA256  string `json:"sha256,omitempty"`
 	Error   string `json:"error,omitempty"`
 	FileTag string `json:"file_tag,omitempty"` // elf, exe, sh (für URLhaus)
+	// Malware: Die Datei erfüllt die Regeln für MalwareBazaar (bazaarEligible). Nur dann gilt
+	// die Adresse für URLhaus als bestätigt (Audit 4).
+	Malware bool `json:"malware,omitempty"`
 }
 
 type quarantineMeta struct {
@@ -139,6 +142,7 @@ func (h *Hive) collectSample(ctx context.Context, x Extras, f urlFinding) bool {
 		si, aerr := h.loadSample(res.SHA256)
 		if aerr == nil {
 			r.FileTag = fileTag(si)
+			r.Malware = bazaarEligible(si)
 			e.Detail = strings.TrimSpace(si.Type + " " + si.Arch + " " + e.Detail)
 		}
 		defer func() {

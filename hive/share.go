@@ -393,7 +393,10 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 		if v, _, ok := h.st.lookupGet(subj, "sample_fetch", 24*time.Hour); ok {
 			var r sampleFetchResult
 			json.Unmarshal([]byte(v), &r)
-			if r.Status != "ok" && cfg.VerifiedOnly {
+			// Audit 4: Geholt allein heißt nicht Schadsoftware. Vorher genügte jede Antwort ohne
+			// HTML (JSON, PDF, die eigene Docker-API über den Router), und die Adresse eines Dritten
+			// stand bei URLhaus als malware_download.
+			if (r.Status != "ok" || !r.Malware) && cfg.VerifiedOnly {
 				continue
 			}
 			if r.FileTag != "" {
