@@ -334,3 +334,19 @@ func TestUnsafeWebScriptCookies(t *testing.T) {
 		}
 	}
 }
+
+func TestSetupStatusHomeOnlyLocal(t *testing.T) {
+	h := testHive(t)
+	h.auth = NewAuth(h.st, "", false)
+	h.extras.x.Home.Label = "Musterstadt"
+	get := func(ip string) string {
+		req := httptest.NewRequest("GET", "/api/setup", nil)
+		req.RemoteAddr = ip + ":1"
+		rec := httptest.NewRecorder()
+		h.setupStatus(rec, req)
+		return rec.Body.String()
+	}
+	if strings.Contains(get("198.51.100.3"), "Musterstadt") || !strings.Contains(get("192.168.1.2"), "Musterstadt") {
+		t.Fatal("Standort an Fremde oder nicht ans Heimnetz")
+	}
+}

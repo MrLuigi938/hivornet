@@ -36,7 +36,7 @@ func (a *Auth) NeedsSetup() bool {
 
 func (h *Hive) setupStatus(w http.ResponseWriter, r *http.Request) {
 	out := map[string]any{"needed": h.auth.NeedsSetup()}
-	if out["needed"] == true { // nach der Einrichtung verrät der Endpunkt nichts mehr
+	if out["needed"] == true && setupAllowed(clientIP(r)) { // nach der Einrichtung (und Fremden) verrät der Endpunkt nichts
 		out["home"] = h.Extras().Home
 	}
 	writeJSON(w, out)
