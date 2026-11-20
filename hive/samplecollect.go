@@ -88,30 +88,38 @@ func (h *Hive) collectSample(ctx context.Context, x Extras, f urlFinding) bool {
 	cfg := x.Samples
 	dir := h.quarantineDir()
 	if dir == "" {
+		h.share.skip(f.URL, "kein Ordner für die Quarantäne")
 		return false
 	}
 	own := h.ownPublicIP()
 	u, err := url.Parse(f.URL)
-	if err != nil || fetchURLProblem(u, own) != "" {
-		return true // ftp, tftp, Zugangsdaten: nicht holen
+	if err != nil {
+		h.share.skip(f.URL, "Adresse unlesbar")
+		return true
+	}
+	if why := fetchURLProblem(u, own); why != "" {
+		h.share.skip(f.URL, "wird nicht geholt: "+why) // ftp, tftp, Zugangsdaten
+		return true
 	}
 	subj := urlSubject(f.URL)
 	if v, _, ok := h.st.lookupGet(subj, "sample_fetch", 0); ok {
 		var r sampleFetchResult
 		json.Unmarshal([]byte(v), &r)
 		if r.Status == "ok" {
-			return true
+			return true // schon geholt (steht im Protokoll)
 		}
 		if _, _, recent := h.st.lookupGet(subj, "sample_fetch", 24*time.Hour); recent {
-			return true
+			return true // in den letzten 24 Stunden vergeblich versucht (steht im Protokoll)
 		}
 	}
 	day := time.Now().Add(-24 * time.Hour)
 	if h.share.count("sample", day, func(shareLogEntry) bool { return true }) >= cfg.DailyLimit {
+		h.share.skipLater(f.URL, "Tageslimit erreicht; wird später versucht")
 		return false
 	}
 	host := strings.ToLower(u.Hostname())
 	if h.share.count("sample", day, func(e shareLogEntry) bool { return e.Host == host }) >= cfg.PerHostDaily {
+		h.share.skipLater(f.URL, "Limit je Server und Tag erreicht; wird später versucht")
 		return true
 	}
 	// Platz insgesamt vor jedem Download prüfen, nicht nur bei der stündlichen Aufräumrunde:
@@ -121,6 +129,7 @@ func (h *Hive) collectSample(ctx context.Context, x Extras, f urlFinding) bool {
 		h.cleanupQuarantineRes(cfg, true, maxBytes)
 		if _, total = quarantineScan(dir); total+maxBytes > int64(cfg.MaxTotalMB)<<20 {
 			h.share.setErr("sample", "Quarantäne voll", 0)
+			h.share.skipLater(f.URL, "Quarantäne voll; wird später versucht")
 			return false
 		}
 	}

@@ -32,6 +32,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -135,6 +136,39 @@ type shareState struct {
 	ch      map[string]*shareChannel
 	dir     string // Quarantäne; leer = neben der Datenbank
 	cleaned time.Time
+	skips   []sampleSkip // zuletzt nicht geholte Adressen mit Grund (nur im Speicher)
+	later   bool         // in dieser Runde aufgeschoben: Suchfenster nicht vorrücken
+}
+
+// sampleSkip: eine Nachlade-Adresse, die der Hive nicht geholt hat, und warum.
+type sampleSkip struct {
+	Time   time.Time `json:"time"`
+	URL    string    `json:"url"`
+	Reason string    `json:"reason"`
+}
+
+const sampleSkipMax = 30
+
+// skipLater: wie skip, die Adresse kommt aber in einer späteren Runde wieder dran.
+func (s *shareState) skipLater(u, reason string) {
+	s.mu.Lock()
+	s.later = true
+	s.mu.Unlock()
+	s.skip(u, reason)
+}
+
+// skip merkt sich den Grund (je Adresse nur der jüngste Eintrag).
+func (s *shareState) skip(u, reason string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u = clip(u, 300)
+	out := []sampleSkip{{Time: time.Now(), URL: u, Reason: reason}}
+	for _, k := range s.skips {
+		if k.URL != u && len(out) < sampleSkipMax {
+			out = append(out, k)
+		}
+	}
+	s.skips = out
 }
 
 func (s *shareState) load(st *Store) {
@@ -268,8 +302,12 @@ type urlFinding struct {
 	Service string
 }
 
-// urlFindings: zulässige Nachlade-Adressen seit since, je Adresse einmal.
-func (h *Hive) urlFindings(ctx context.Context, since time.Time) ([]urlFinding, error) {
+// urlFindings: zulässige Nachlade-Adressen seit since, je Adresse einmal. skip (darf nil sein)
+// erfährt verworfene Adressen mit Grund.
+func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, why string)) ([]urlFinding, error) {
+	if skip == nil {
+		skip = func(string, string) {}
+	}
 	rs, err := h.st.db.QueryContext(ctx, `SELECT sensor, service, type, src_ip, data, as_org FROM events
 		WHERE ts >= ? AND type IN ('command','download') ORDER BY id LIMIT 20000`, since.UnixMilli())
 	if err != nil {
@@ -289,21 +327,37 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time) ([]urlFinding, 
 			continue
 		}
 		e.Data = data
-		// Eigene Tests, nicht vertrauenswürdige Sensoren und Forschungsscanner liefern keine Funde
-		if isOwnIP(e.SrcIP) || e.SrcIP == own || untrusted[e.Sensor] || researchScanner(asOrg) != "" {
-			continue
-		}
 		var urls []string
 		if e.Type == "download" {
 			urls = []string{dataString(e.Data, "url")}
 		} else if text, on := eventText(&e); on == "cmd" {
 			urls = analyzeText(text, on).urls
 		}
+		// Eigene Tests, nicht vertrauenswürdige Sensoren und Forschungsscanner liefern keine Funde
+		var from string
+		switch {
+		case isOwnIP(e.SrcIP) || e.SrcIP == own:
+			from = "von einer eigenen Adresse (Test)"
+		case untrusted[e.Sensor]:
+			from = "von einem nicht vertrauenswürdigen Sensor"
+		case researchScanner(asOrg) != "":
+			from = "von einem Forschungsscanner"
+		}
 		for _, raw := range urls {
 			u, why := shareURLProblem(strings.ReplaceAll(raw, `\`, ""), own)
 			// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
 			// nie öffentlich melden und nicht holen.
-			if why != "" || seen[u] || containsMarker(u, marks) {
+			switch {
+			case seen[u] && u != "":
+				continue
+			case from != "":
+				skip(raw, "stammt "+from)
+				continue
+			case why != "":
+				skip(raw, "Adresse nicht zulässig: "+why)
+				continue
+			case containsMarker(u, marks):
+				skip("(ausgeblendet)", "enthält die eigene Adresse oder den Namen des Honeypots")
 				continue
 			}
 			seen[u] = true
@@ -314,6 +368,23 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time) ([]urlFinding, 
 }
 
 // ---- Ablauf ----
+
+// shareSince: ab wann eine Runde nach Nachlade-Adressen sucht. Bis 0.8.0 waren es feste
+// 30 Minuten: Adressen von vor dem Einschalten, aus einem Neustart oder Update oder einer
+// abgebrochenen Runde wurden nie geholt (Live-Check). Jetzt: ab der letzten vollständigen
+// Runde (5 Minuten Überlappung), beim ersten Mal die letzten 24 Stunden, höchstens 48 Stunden.
+func (h *Hive) shareSince(now time.Time) time.Time {
+	since := now.Add(-24 * time.Hour)
+	if v, ok := h.st.GetKV("share_since"); ok {
+		if ms, err := strconv.ParseInt(v, 10, 64); err == nil && ms > 0 && ms <= now.UnixMilli() {
+			since = time.UnixMilli(ms).Add(-5 * time.Minute)
+		}
+	}
+	if oldest := now.Add(-48 * time.Hour); since.Before(oldest) {
+		since = oldest
+	}
+	return since
+}
 
 func (h *Hive) runSharing(stop <-chan struct{}) {
 	t := time.NewTicker(5 * time.Minute)
@@ -335,14 +406,33 @@ func (h *Hive) shareRound(ctx context.Context) {
 	x := h.Extras()
 	uh := x.URLhausReport.Enabled && x.AbuseChKey != ""
 	if x.Samples.Enabled || uh {
-		finds, err := h.urlFindings(ctx, time.Now().Add(-30*time.Minute))
+		start := time.Now()
+		since := h.shareSince(start)
+		var skip func(u, why string)
+		if x.Samples.Enabled {
+			skip = h.share.skip
+		}
+		finds, err := h.urlFindings(ctx, since, skip)
 		if err == nil {
+			done := true
+			h.share.mu.Lock()
+			h.share.later = false
+			h.share.mu.Unlock()
 			if x.Samples.Enabled && h.share.begin("sample") {
 				for _, f := range finds {
 					if ctx.Err() != nil || !h.collectSample(ctx, x, f) {
+						done = false
 						break
 					}
 				}
+			}
+			// Erst wenn alles abgearbeitet ist, rückt das Fenster vor; sonst kommen die übrigen
+			// Adressen in der nächsten Runde dran (geholte und versuchte merkt sich lookups).
+			h.share.mu.Lock()
+			done = done && !h.share.later
+			h.share.mu.Unlock()
+			if done && ctx.Err() == nil {
+				h.st.SetKV("share_since", strconv.FormatInt(start.UnixMilli(), 10))
 			}
 			if uh && h.share.begin("urlhaus") {
 				h.urlhausSubmit(ctx, x, finds)
@@ -475,6 +565,10 @@ func (h *Hive) shareStatus(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 		m := map[string]any{"log": lg, "last_error": c.LastErr, "ok_24h": day}
+		if k == "sample" {
+			sk := append([]sampleSkip{}, h.share.skips...)
+			m["skipped"] = sk
+		}
 		if time.Now().Before(c.PauseUntil) {
 			m["pause_until"] = c.PauseUntil
 		}
