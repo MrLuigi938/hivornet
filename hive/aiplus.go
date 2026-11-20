@@ -778,7 +778,7 @@ func (h *Hive) sampleText(hash string) (string, error) {
 	if err != nil || !lst.Mode().IsRegular() {
 		return "", errNoSample
 	}
-	f, err := os.Open(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return "", errNoSample
 	}

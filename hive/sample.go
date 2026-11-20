@@ -207,7 +207,7 @@ func (h *Hive) loadSample(hash string) (SampleInfo, error) {
 	if !lst.Mode().IsRegular() {
 		return SampleInfo{}, errors.New("keine reguläre Datei")
 	}
-	f, err := os.Open(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		if os.IsPermission(err) {
 			return SampleInfo{}, errors.New("Datei nicht lesbar (Rechte)")

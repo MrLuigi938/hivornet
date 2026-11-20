@@ -83,7 +83,7 @@ func openRegular(path string) (*os.File, error) {
 	if !lst.Mode().IsRegular() {
 		return nil, errors.New("keine reguläre Datei: " + filepath.Base(path))
 	}
-	f, err := os.Open(path)
+	f, err := openNoFollow(path)
 	if err != nil {
 		return nil, err
 	}
