@@ -4,7 +4,8 @@
 #
 #   docker run --rm --privileged -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_firewall_nft.sh
 #
-# Erwartet: Port 8088 aus dem Heimnetz erreichbar, Honeypot-Port 2222 nicht, und der Pi
+# Erwartet: Port 8088 aus dem Heimnetz erreichbar, aus einer öffentlichen Adresse an eth0 nicht,
+# Honeypot-Port 2222 nur an eth0, und der Pi
 # baut über eth1 keine eigene Verbindung ins Heimnetz auf.
 set -eu
 fail() { echo "FEHLER: $*" >&2; exit 1; }
@@ -24,6 +25,15 @@ ip link set eth1 up
 ip -n home addr add 10.9.0.2/24 dev home0
 ip -n home link set home0 up
 ip -n home link set lo up
+# "Internet" an eth0 (Honeypot-Anschluss, Pi als Exposed Host): öffentliche Quelle
+ip netns add wan
+ip link add eth0 type veth peer name wan0
+ip link set wan0 netns wan
+ip addr add 198.51.100.1/24 dev eth0
+ip link set eth0 up
+ip -n wan addr add 198.51.100.2/24 dev wan0
+ip -n wan link set wan0 up
+ip -n wan link set lo up
 
 HIVORNET_STATUS_DIR=/tmp/status sh "$fw" apply
 nft list table inet hivornet >/dev/null || fail "Tabelle fehlt"
@@ -37,6 +47,8 @@ ip netns exec home nc -lk -p 9000 >/dev/null 2>&1 &
 sleep 1
 
 ip netns exec home nc -z -w 3 10.9.0.1 8088 || fail "Web-UI aus dem Heimnetz nicht erreichbar"
+if ip netns exec wan nc -z -w 3 198.51.100.1 8088; then fail "Web-UI aus öffentlicher Adresse an eth0 erreichbar"; fi
+ip netns exec wan nc -z -w 3 198.51.100.1 2222 || fail "Honeypot-Port an eth0 nicht erreichbar"
 if ip netns exec home nc -z -w 3 10.9.0.1 2222; then fail "Honeypot-Port 2222 aus dem Heimnetz erreichbar"; fi
 if nc -z -w 3 10.9.0.2 9000; then fail "Pi kann über eth1 ins Heimnetz verbinden"; fi
 

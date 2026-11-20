@@ -53,6 +53,8 @@ for cow in 1 0; do
   has 'oifname "enx*" jump mgmt_out'
   has 'iifname "eth9" drop'
   has "tcp dport 8088 accept"
+  # Audit 4: Web-UI an eth0/WLAN nur aus privaten IPv4-Netzen
+  has "tcp dport 8088 ip saddr != { 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 100.64.0.0/10, 127.0.0.0/8, 169.254.0.0/16 } reject"
   hasnt '"eth0"'
   [ "$(head -n 1 "$t/status/firewall")" = ok ] || fail "Statusdatei nicht ok (nft)"
   # N12 (Audit 3): Ersetzen in einem einzigen nft -f, kein Löschen vorab
