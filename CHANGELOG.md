@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [0.9.1-beta] – 2026-11-20
+## [0.9.2-beta] – 2026-11-20
 
 **Update:** Raspberry Pi per Knopf (System → Updates), Docker: `sh update.sh`.
 
