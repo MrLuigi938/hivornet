@@ -52,15 +52,7 @@ ip netns exec wan nc -z -w 3 198.51.100.1 2222 || fail "Honeypot-Port an eth0 ni
 if ip netns exec home nc -z -w 3 10.9.0.1 2222; then fail "Honeypot-Port 2222 aus dem Heimnetz erreichbar"; fi
 if nc -z -w 3 10.9.0.2 9000; then fail "Pi kann über eth1 ins Heimnetz verbinden"; fi
 
-# Drossel für Dauer-Brute-Force: "Internet" (öffentliche Testadresse) über einen eigenen Anschluss
-ip netns add wan
-ip link add wan0 type veth peer name wan1
-ip link set wan1 netns wan
-ip addr add 198.51.100.1/24 dev wan0
-ip link set wan0 up
-ip -n wan addr add 198.51.100.2/24 dev wan1
-ip -n wan link set wan1 up
-ip -n wan link set lo up
+# Drossel für Dauer-Brute-Force: aus dem "Internet" an eth0 (öffentliche Testadresse)
 nc -lk -p 22 >/dev/null 2>&1 &
 sleep 1
 printf 'brute 2 5 1\n' >/tmp/brute.conf
