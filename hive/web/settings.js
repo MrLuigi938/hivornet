@@ -138,7 +138,7 @@ async function tabHoneypot() {
   if (isAdmin()) {
     out.push(cowrieAuthCard());
     const ex = await extrasCtx().catch(() => null);
-    if (ex) out.push(homeCard(ex).el);
+    if (ex) out.push(bruteCard(ex).el, homeCard(ex).el);
   }
   return out;
 }
@@ -507,6 +507,51 @@ function cowrieAuthCard() {
   };
   load();
   return box;
+}
+
+// Dauer-Brute-Force (hive/bruteforce.go): Erkennen, Verdichten und Drossel in der Firewall.
+// Raspberry Pi: Die Drossel übernimmt hivornet-cowrie-config (root) beim Speichern; Docker: Aufruf
+// von tools/firewall.sh auf dem Host, den die Karte mit den gespeicherten Werten anzeigt.
+function bruteCard(ex) {
+  const b = ex.x.brute = ex.x.brute || { condense: true, min_logins: 200, min_minutes: 30, max_clients: 3, limit: false, rate: 6, burst: 20, ban_minutes: 15 };
+  const state = h("div", null, h("p", { class: "muted" }, "Lade …"));
+  const show = async () => {
+    let d;
+    try { d = await api("brute"); } catch (e) { mount(state, h("div", { class: "msg err" }, e.message)); return; }
+    const st = d.status;
+    mount(state,
+      d.condensed || d.summaries ? h("p", { class: "muted" }, `Seit dem Start verdichtet: ${fmtNum(d.condensed)} Ereignisse in ${fmtNum(d.summaries)} Sammelzeilen.`) : null,
+      d.platform === "pi" ? h("p", null, "Drossel in der Firewall: ",
+        h("b", null, st ? (st.state === "ok" ? st.text : "fehlgeschlagen: " + st.text) : "noch nie angefordert"),
+        st ? h("span", { class: "muted" }, ` · ${relTime(st.since)}`) : null,
+        d.pending ? h("span", { class: "muted" }, " · Änderung wird gerade übernommen …") : null) : null,
+      d.platform === "docker" ? h("div", { class: "msg" },
+        "Im Docker-Betrieb setzt die Firewall auf dem Host die Drossel. Nach dem Speichern auf der NAS im Ordner von Hivornet ausführen (auch im Aufgabenplaner bzw. in ",
+        h("code", null, "tools/hivornet-firewall.service"), " eintragen, sonst gilt nach einem Neustart wieder der alte Stand):",
+        h("pre", { class: "term" }, d.command)) : null,
+      d.platform === "none" ? h("p", { class: "muted" }, "Cowrie ist hier nicht eingerichtet; die Drossel betrifft nur die Cowrie-Ports.") : null);
+  };
+  show();
+  return section("Dauer-Brute-Force", {
+    intro: "Manche Bots melden sich stundenlang alle paar Sekunden mit neuen Zugangsdaten an, jede Kombination in einer eigenen Verbindung. " +
+      "Der Hive erkennt sie und speichert ab dann fehlgeschlagene Logins und Verbindungen nur noch gesammelt. Zähler je Kombination, angenommene Logins, " +
+      "Befehle und Downloads bleiben vollständig. Eigene Netze und „Nie sperren“ (Weitergabe → Blockliste) sind immer ausgenommen.",
+    saveLabel: "Dauer-Brute-Force speichern",
+    save: async () => { await ex.save(["brute"]); await show(); },
+  },
+  row("Erkennen ab", h("div", null, ex.num(b, "min_logins", 20, 100000, 10), " Logins über mindestens ", ex.num(b, "min_minutes", 5, 1440, 5), " Minuten"),
+    "Pausen unter 15 Minuten zählen mit (wie bei den Angriffen). Kurze, heftige Angriffe bleiben damit einzeln sichtbar."),
+  row("Höchstens", h("div", null, ex.num(b, "max_clients", 1, 20, 1), " verschiedene Clients bzw. HASSH"),
+    "Ein Dauer-Brute-Forcer benutzt meist immer dasselbe Werkzeug."),
+  row("Verdichten", ex.check(b, "condense", "Fehlgeschlagene Logins erkannter Dauer-Brute-Forcer gesammelt speichern (empfohlen)"),
+    "Aus: Der Hive markiert sie nur. Bereits gespeicherte Ereignisse bleiben, wie sie sind."),
+  row("Drossel", ex.check(b, "limit", "Neue Verbindungen auf die Cowrie-Ports (SSH, Telnet) je Quell-IP begrenzen"),
+    "Die Firewall verwirft überzählige Verbindungsversuche ohne Antwort; der Bot wartet dann bis zu seiner Zeitüberschreitung. Nur die Cowrie-Ports, nie private Adressen, eigene Netze und „Nie sperren“."),
+  row("Rate", h("div", null, ex.num(b, "rate", 2, 120, 1), " neue Verbindungen je Minute, Spitze ", ex.num(b, "burst", 5, 1000, 1)),
+    "Gewöhnliche Angreifer bleiben darunter. Der Bot aus dem Anlass kam auf etwa 9 je Minute."),
+  row("Sperre", h("div", null, ex.num(b, "ban_minutes", 0, 1440, 5), " Minuten nach Überschreiten"),
+    "0 = nur drosseln. Mit Sperre bekommt die IP so lange gar keine neue Verbindung zu Cowrie; danach beginnt sie von vorn."),
+  state);
 }
 
 // ---------- Zusatzfunktionen (/api/extras) ----------

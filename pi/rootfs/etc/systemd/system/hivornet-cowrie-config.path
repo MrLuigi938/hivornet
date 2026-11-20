@@ -1,9 +1,11 @@
-# Übernimmt die Cowrie-Anmelderegel, sobald sie in der Web-UI geändert wird.
+# Übernimmt die Cowrie-Anmelderegel und die Drossel für Dauer-Brute-Force, sobald sie in der
+# Web-UI geändert werden.
 [Unit]
 Description=Hivornet Cowrie-Anmelderegel beobachten
 
 [Path]
 PathExists=/var/lib/hivornet/cowrie-request
+PathExists=/var/lib/hivornet/brute-request
 Unit=hivornet-cowrie-config.service
 
 [Install]

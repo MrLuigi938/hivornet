@@ -82,7 +82,7 @@ active() {
   [ "$(tail -n 1 "$t/chains/HIVORNET-HOST")" = "-j DROP" ] || fail "HIVORNET-HOST endet nicht mit DROP"
   has HIVORNET-OUT "-d 192.168.0.0/16 -j DROP"
   if [ -e "$t/chains/HIVORNET-OUT-NEU" ] || [ -e "$t/chains/HIVORNET-HOST-NEU" ]; then fail "Ketten -NEU übrig"; fi
-  [ "$(grep -c . "$t/chains/DOCKER-USER")" = 2 ] || fail "DOCKER-USER: nicht genau zwei Sprünge"
+  [ "$(grep -c -- '-j HIVORNET-OUT$' "$t/chains/DOCKER-USER")" = 2 ] || fail "DOCKER-USER: nicht genau zwei Sprünge der Sperre"
   [ "$(grep -c . "$t/chains/INPUT")" = 4 ] || fail "INPUT: nicht genau vier Sprünge"
 }
 nogap() { if [ -e "$t/gaps" ]; then cat "$t/gaps"; fail "$1"; fi; }
@@ -120,9 +120,64 @@ grep -q "nach Quell-Netz" "$t/out" || { cat "$t/out"; fail "kein Hinweis auf feh
 printf '#!/bin/sh\nexit 0\n' >"$t/bin/ip"
 nogap "Sperre war bei fehlender Bridge zeitweise offen"
 
-# 5. Entfernen
+# 5. Drossel für Dauer-Brute-Force (Standard aus)
+HOOK="-d 172.30.252.10 -p tcp -m multiport --dports 2222,2223 -m conntrack --ctstate NEW -j HIVORNET-BRUTE"
+brute_on() {
+  has DOCKER-USER "$HOOK"
+  [ "$(grep -c -- '-j HIVORNET-BRUTE' "$t/chains/DOCKER-USER")" = 1 ] || fail "DOCKER-USER: nicht genau ein Sprung der Drossel"
+  [ ! -e "$t/chains/HIVORNET-BRUTE-NEU" ] || fail "Kette HIVORNET-BRUTE-NEU übrig"
+  # private Netze vor jeder Begrenzung
+  for n in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8; do has HIVORNET-BRUTE "-s $n -j RETURN"; done
+  [ "$(head -n 1 "$t/chains/HIVORNET-BRUTE")" = "-s 10.0.0.0/8 -j RETURN" ] || fail "Ausnahmen nicht am Anfang"
+  [ "$(tail -n 1 "$t/chains/HIVORNET-BRUTE" | cut -c1-2)" = "-m" ] || [ "$(tail -n 1 "$t/chains/HIVORNET-BRUTE")" = "-j DROP" ] || fail "Drossel endet nicht mit Verwerfen"
+}
+[ ! -e "$t/chains/HIVORNET-BRUTE" ] || fail "Drossel ohne BRUTE_LIMIT=1"
+grep -q "Dauer-Brute-Force: aus" "$t/out" || { cat "$t/out"; fail "kein Hinweis 'Drossel aus'"; }
+BRUTE_LIMIT=1 BRUTE_ALLOW="203.0.113.0/24 198.51.100.7 2001:db8::/32" must apply
+active
+brute_on
+has HIVORNET-BRUTE "-s 203.0.113.0/24 -j RETURN"
+has HIVORNET-BRUTE "-s 198.51.100.7 -j RETURN"
+has HIVORNET-BRUTE "-m recent --name hvbrute --rcheck --seconds 900 -j DROP"
+has HIVORNET-BRUTE "-m hashlimit --hashlimit-upto 6/min --hashlimit-burst 20 --hashlimit-mode srcip --hashlimit-name hvb6-20 --hashlimit-htable-expire 600000 -j RETURN"
+has HIVORNET-BRUTE "-m recent --name hvbrute --set -j DROP"
+grep -q "IPv6" "$t/out" || fail "kein Hinweis auf übersprungenes IPv6-Netz"
+if grep -q "2001:db8" "$t/chains/HIVORNET-BRUTE"; then fail "IPv6-Netz in iptables"; fi
+# andere Werte, ohne Sperre: getauscht, nicht doppelt
+BRUTE_LIMIT=1 BRUTE_RATE=10 BRUTE_BURST=30 BRUTE_BAN=0 must apply
+active
+brute_on
+has HIVORNET-BRUTE "-m hashlimit --hashlimit-upto 10/min --hashlimit-burst 30 --hashlimit-mode srcip --hashlimit-name hvb10-30 --hashlimit-htable-expire 600000 -j RETURN"
+[ "$(tail -n 1 "$t/chains/HIVORNET-BRUTE")" = "-j DROP" ] || fail "ohne Sperre: letzte Regel nicht DROP"
+if grep -q "recent" "$t/chains/HIVORNET-BRUTE"; then fail "Sperre trotz BRUTE_BAN=0"; fi
+nogap "Sperre war beim Setzen der Drossel zeitweise offen"
+# Fehler in der Drossel (z. B. Modul hashlimit fehlt) oder falsche Werte: Sperre bleibt, alte Drossel auch
+cp "$t/chains/HIVORNET-BRUTE" "$t/brute.vorher"
+for f in "--hashlimit-upto" "-N HIVORNET-BRUTE-NEU" "-I DOCKER-USER 1 -d" "-E HIVORNET-BRUTE-NEU"; do
+  if BRUTE_LIMIT=1 BRUTE_RATE=12 FW_FAIL="$f" run apply; then fail "Fehler bei '$f' in der Drossel nicht bemerkt"; fi
+  grep -q "Netzsperre ist aktiv" "$t/out" || { cat "$t/out"; fail "keine Meldung nach Fehler bei '$f'"; }
+  active
+  nogap "Fehler bei '$f' in der Drossel öffnet die Sperre"
+  BRUTE_LIMIT=1 BRUTE_RATE=10 BRUTE_BURST=30 BRUTE_BAN=0 must apply # räumt auf
+  brute_on
+  cmp -s "$t/chains/HIVORNET-BRUTE" "$t/brute.vorher" || fail "Drossel nach Fehler bei '$f' verändert"
+done
+for bad in "BRUTE_RATE=1" "BRUTE_RATE=abc" "BRUTE_BURST=0" "BRUTE_BAN=99999" "BRUTE_RATE=6;reboot" "BRUTE_ALLOW=10.0.0.0/8;x"; do
+  if env BRUTE_LIMIT=1 "$bad" FW_STATE="$t" PATH="$t/bin:/usr/bin:/bin" sh "$fw" apply >"$t/out" 2>&1; then fail "ungültiger Wert $bad angenommen"; fi
+  active
+  cmp -s "$t/chains/HIVORNET-BRUTE" "$t/brute.vorher" || fail "Drossel nach ungültigem $bad verändert"
+done
+# ausschalten
+must apply
+active
+[ ! -e "$t/chains/HIVORNET-BRUTE" ] || fail "Drossel nach BRUTE_LIMIT=0 noch da"
+if grep -q "HIVORNET-BRUTE" "$t/chains/DOCKER-USER"; then fail "Sprung der Drossel nach BRUTE_LIMIT=0 noch da"; fi
+BRUTE_LIMIT=1 must apply
+brute_on
+
+# 6. Entfernen
 rm "$t/watch"
 must remove
-if [ -e "$t/chains/HIVORNET-OUT" ] || [ -e "$t/chains/HIVORNET-HOST" ]; then fail "Ketten nach remove noch da"; fi
+if [ -e "$t/chains/HIVORNET-OUT" ] || [ -e "$t/chains/HIVORNET-HOST" ] || [ -e "$t/chains/HIVORNET-BRUTE" ]; then fail "Ketten nach remove noch da"; fi
 if [ -s "$t/chains/DOCKER-USER" ] || [ -s "$t/chains/INPUT" ]; then fail "Sprünge nach remove noch da"; fi
 echo "firewall.sh: alle Prüfungen bestanden"

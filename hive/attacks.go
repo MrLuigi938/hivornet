@@ -70,9 +70,11 @@ type Attack struct {
 	Success       bool           `json:"success,omitempty"`
 	SuccessCred   string         `json:"success_cred,omitempty"`
 	Stufe         int            `json:"stufe"`
-	Own           bool           `json:"own,omitempty"`     // eigener Test (ownnet.go)
-	Scanner       string         `json:"scanner,omitempty"` // Forschungsscanner (scanner.go) oder geprüfter Suchmaschinen-Bot
-	Bot           string         `json:"bot,omitempty"`     // angeblicher Suchmaschinen-Bot und Prüfergebnis (botverify.go)
+	Own           bool           `json:"own,omitempty"`       // eigener Test (ownnet.go)
+	Scanner       string         `json:"scanner,omitempty"`   // Forschungsscanner (scanner.go) oder geprüfter Suchmaschinen-Bot
+	Bot           string         `json:"bot,omitempty"`       // angeblicher Suchmaschinen-Bot und Prüfergebnis (botverify.go)
+	Brute         bool           `json:"brute,omitempty"`     // Dauer-Brute-Force (bruteforce.go)
+	Condensed     int            `json:"condensed,omitempty"` // davon in Sammelzeilen verdichtete Ereignisse
 	userAgents    []string
 	Profile       string       `json:"profile"`
 	TarpitMs      int64        `json:"tarpit_ms,omitempty"`
@@ -371,6 +373,7 @@ func (a *Attack) finish() {
 		a.Scanner = ""
 	}
 	a.Profile = a.classify()
+	a.Brute = bruteAttack(a)
 }
 
 // stufe: höchste erreichte Stufe. Was als ausgeführter Befehl zählt, regelt einstufung.go;
@@ -523,7 +526,14 @@ func (h *Hive) loadAttacksSkip(ctx context.Context, since time.Time, ips []strin
 		}
 		if cur == nil || cur.IP != e.SrcIP || ms-cur.Last > attackGap.Milliseconds() {
 			cur = newAttack(&e)
+			if d, ok := readCondensed(&e); ok && d.From > 0 && d.From < ms { // Sammelzeile: Beginn ihres Zeitraums
+				cur.First = d.From
+			}
 			out = append(out, cur)
+		}
+		if e.Type == "condensed" {
+			cur.addCondensed(&e)
+			continue
 		}
 		cur.add(&e)
 	}
@@ -576,6 +586,9 @@ func (a *Attack) matches(q string) bool {
 		return true
 	}
 	parts := []string{a.IP, a.Country, a.CountryName, a.City, a.ASOrg, "AS" + strconv.Itoa(a.ASN), a.Profile, a.SuccessCred, a.Scanner, a.Bot}
+	if a.Brute {
+		parts = append(parts, "Dauer-Brute-Force")
+	}
 	for k := range a.creds { // alle, nicht nur die angezeigten
 		parts = append(parts, k)
 	}
@@ -666,6 +679,7 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 	}
 	// Eigene Tests ausblenden, außer own=1 (Filter, Angreifer-Profil)
 	showOwn, nOwn := q.Get("own") == "1", 0
+	hideBrute, nBrute := q.Get("brute") == "0", 0 // Dauer-Brute-Forcer ausblenden (bruteforce.go)
 	{
 		n := 0
 		for _, a := range list {
@@ -705,6 +719,12 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matchQuery(terms) {
 			continue
 		}
+		if a.Brute {
+			nBrute++
+			if hideBrute {
+				continue
+			}
+		}
 		matched++
 		if before > 0 && a.Last >= before || len(out) >= limit {
 			continue
@@ -712,7 +732,7 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		out = append(out, a)
 	}
 	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
-		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays()})
+		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays(), "brute": nBrute})
 }
 
 // series: Verläufe für die Kennzahlen des Dashboards und Vergleich zum Zeitraum davor.

@@ -188,6 +188,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/stats/live", a.Require(h.liveStatus))
 	ui.HandleFunc("GET /api/cowrie/auth", a.Require(h.cowrieAuthGet))
 	ui.HandleFunc("PUT /api/cowrie/auth", a.Require(h.cowrieAuthPut))
+	ui.HandleFunc("GET /api/brute", a.Require(h.bruteStatus))
 	ui.HandleFunc("GET /api/events", a.Require(h.events))
 	ui.HandleFunc("GET /api/export/events", a.Require(h.exportEvents))
 	ui.HandleFunc("GET /api/export/blocklist", a.Require(h.blocklist))
@@ -359,7 +360,13 @@ func main() {
 	if ms, err := strconv.Atoi(os.Getenv("HIVE_FLUSH_MS")); err == nil && ms >= 100 && ms <= 60000 {
 		h.writer.Interval = time.Duration(ms) * time.Millisecond
 	}
+	h.writer.brute = newBruteTracker() // Dauer-Brute-Force verdichten (bruteforce.go)
+	h.writer.brute.exempt = func(ip string) bool { return isOwnIP(ip) || h.neverBlock(ip) }
+	h.writer.brute.seed = st.bruteSeed
 	go h.writer.Run()
+	if err := h.syncBruteLimit(); err != nil {
+		log.Printf("Drossel für Dauer-Brute-Force nicht angefordert: %v", err)
+	}
 	if env("HIVE_GEOIP", "on") != "off" {
 		go h.geo.AutoUpdate()
 	}

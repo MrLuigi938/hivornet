@@ -69,6 +69,7 @@ type Chain struct {
 	Sessions  int          `json:"sessions"`
 	Events    int          `json:"events"`
 	Truncated bool         `json:"truncated"`
+	Condensed int          `json:"condensed,omitempty"` // in Sammelzeilen verdichtete Ereignisse (bruteforce.go)
 }
 
 const (
@@ -147,6 +148,7 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 	last := map[string]*ChainNode{} // letzter bedeutsamer Knoten je Sitzung
 	okSess := map[string]bool{}
 	sessions := map[string]bool{}
+	condSess := 0 // Verbindungen in Sammelzeilen (bruteforce.go)
 	step := func(e *Event, n *ChainNode) {
 		if n == nil {
 			return
@@ -183,6 +185,34 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 			}
 			continue
 		case "disconnect", "fingerprint", "tty":
+			continue
+		case "condensed": // Dauer-Brute-Force: ein Schritt statt tausender (bruteforce.go)
+			d, ok := readCondensed(e)
+			if !ok {
+				continue
+			}
+			b.c.Condensed += d.N
+			b.c.Events += d.N - 1          // die Sammelzeile selbst ist schon gezählt
+			condSess += d.Types["connect"] // jede verdichtete Verbindung war eine Sitzung
+			if c := d.Types["connect"]; c > 0 {
+				sn := b.node(fmt.Sprintf("svc:%s:%d", e.Service, e.DstPort), phRecon, "service", fmt.Sprintf("Port %d", e.DstPort), 0, e, "")
+				if sn.Kind == "service" {
+					sn.Sub = strings.ToUpper(svc)
+				}
+				sn.N += c - 1
+				for _, v := range d.Clients {
+					if v = clip("Client "+v, 200); len(sn.Examples) < chainMaxExamples && !contains(sn.Examples, v) {
+						sn.Examples = append(sn.Examples, v)
+					}
+				}
+				step(e, sn)
+			}
+			if l := d.Types["login"]; l > 0 {
+				n := b.node("login:"+e.Service, phAccess, "login", "Anmeldeversuche "+strings.ToUpper(svc), 1, e,
+					fmt.Sprintf("Dauer-Brute-Force: %d Versuche verdichtet", l))
+				n.N += l - 1
+				step(e, n)
+			}
 			continue
 		case "ai_reply":
 			// Antwort des Sprachmodells: hängt am Schritt davor, ohne die Reihenfolge der
@@ -325,7 +355,7 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 			}
 		}
 	}
-	b.c.Sessions = len(sessions)
+	b.c.Sessions = len(sessions) + condSess
 	sort.SliceStable(b.c.Nodes, func(i, j int) bool {
 		if b.c.Nodes[i].Phase != b.c.Nodes[j].Phase {
 			return b.c.Nodes[i].Phase < b.c.Nodes[j].Phase

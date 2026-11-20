@@ -468,8 +468,9 @@ func (h *Hive) attacker(w http.ResponseWriter, r *http.Request) {
 	}
 	ports, _ := h.rows(ctx, `SELECT dst_port, service, COUNT(*) AS n FROM events WHERE src_ip = ? AND type='connect' GROUP BY dst_port, service ORDER BY n DESC`, ip)
 	creds, _ := h.rows(ctx, `SELECT username, password, COUNT(*) AS n FROM events WHERE src_ip = ? AND type='login' GROUP BY username, password ORDER BY n DESC LIMIT 50`, ip)
+	ports, creds, condensed := h.mergeCondensed(ctx, ip, ports, creds) // Dauer-Brute-Force (bruteforce.go)
 	evs, _ := h.rows(ctx, `SELECT `+evCols+` FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 300`, ip)
-	writeJSON(w, map[string]any{"info": info[0], "ports": ports, "creds": creds, "events": evs})
+	writeJSON(w, map[string]any{"info": info[0], "ports": ports, "creds": creds, "events": evs, "condensed": condensed})
 }
 
 func (h *Hive) sessionsList(w http.ResponseWriter, r *http.Request) {

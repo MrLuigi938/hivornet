@@ -4,7 +4,7 @@ import {
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
-import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks } from "./attacks.js";
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, BRUTE_TITLE } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
 import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
@@ -23,7 +23,7 @@ const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
 const TYPE_NAME = {
   connect: "Verbindung", disconnect: "Ende", login: "Login", request: "Anfrage", command: "Befehl",
   download: "Download", client_version: "Client", payload: "Daten", tls: "TLS", fingerprint: "Fingerabdruck",
-  tty: "Mitschnitt", ai_reply: "KI-Antwort",
+  tty: "Mitschnitt", ai_reply: "KI-Antwort", condensed: "Verdichtet",
 };
 // Muss alle Dienste des Honeypots enthalten (Test TestServiceListsInSync im Honeypot).
 const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mysql", "dockerapi", "rdp", "vnc", "sip", "snmp", "dns", "ssh-tarpit", "raw",
@@ -750,11 +750,14 @@ async function viewAttacker(el, ctx, ip) {
         h("div", { class: "grow" }),
         attacks.length ? h("span", { class: "badge stufe", style: { "--c": `var(--sev${top})` } }, "Höchste Stufe: ", ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"][top]) : null,
         attacks.some((a) => (a.ai_replies || []).length) ? h("span", { class: "badge ai", title: "Das Sprachmodell hat dieser IP geantwortet; Einzelheiten in den Angriffen und im Bericht" }, "beantwortet durch KI") : null,
+        attacks.some((a) => a.brute) || d.condensed ? h("span", { class: "badge", title: BRUTE_TITLE }, "Dauer-Brute-Force") : null,
         Date.now() - toMs(i.last_seen) < 15 * 60e3 ? h("span", { class: "badge active" }, "● gerade aktiv") : null),
       h("div", { class: "facts-row" },
         fact("Erstmals gesehen", fmtDateTime(i.first_seen)), fact("Zuletzt gesehen", relTime(i.last_seen)),
         fact("Angriffe (7 Tage)", fmtNum(attacks.length)), fact("Ereignisse", fmtNum(i.events)),
-        fact("Login-Versuche", fmtNum(i.logins)), fact("Befehle", fmtNum(i.commands)), fact("Tarpit-Zeit", fmtDur(i.tarpit_ms)))),
+        fact("Login-Versuche", fmtNum(i.logins)), fact("Befehle", fmtNum(i.commands)), fact("Tarpit-Zeit", fmtDur(i.tarpit_ms)),
+        d.condensed ? fact("Davon verdichtet", fmtNum(d.condensed)) : null),
+      d.condensed ? h("p", { class: "muted", style: { margin: "8px 0 0" } }, BRUTE_TITLE) : null),
     card("Angriffe dieser IP", list),
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),

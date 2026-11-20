@@ -10,7 +10,10 @@ export const STUFE = ["Abtasten", "Versuche", "Login angenommen", "Befehle ausge
 export const STUFE_KURZ = ["Scan", "Versuche", "Login ok", "Befehle", "Download"];
 export const sevColor = (n) => `var(--sev${n})`;
 const TYPCOL = { connect: "var(--other)", client_version: "var(--other)", tls: "var(--other)", fingerprint: "var(--other)",
-  login: "var(--sev1)", request: "var(--s2)", payload: "var(--s7)", command: "var(--sev3)", download: "var(--sev4)", tty: "var(--sev3)", ai_reply: "var(--s7)" };
+  login: "var(--sev1)", request: "var(--s2)", payload: "var(--s7)", command: "var(--sev3)", download: "var(--sev4)", tty: "var(--sev3)", ai_reply: "var(--s7)",
+  condensed: "var(--sev1)" };
+// Dauer-Brute-Force (hive/bruteforce.go): Erklärung für Merkmal und Filter
+export const BRUTE_TITLE = "Dauer-Brute-Force: sehr viele Logins über lange Zeit, meist mit demselben Client. Ab der Erkennung speichert der Hive fehlgeschlagene Logins und Verbindungen nur noch gesammelt; Zähler je Kombination, angenommene Logins und alles danach bleiben vollständig (Einstellungen → Honeypot → Dauer-Brute-Force).";
 const RANGES = [["1h", "1 Std"], ["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"], ["90d", "90 Tage"], ["all", "Alles"]];
 
 // Kurzfassung in einer Zeile
@@ -159,6 +162,10 @@ function evText(e) {
     case "tls": return d.sni ? `SNI ${d.sni}` : "TLS";
     case "fingerprint": return d.hassh ? `HASSH ${d.hassh}` : "";
     case "tty": return "Terminal-Mitschnitt";
+    case "condensed": {
+      const t = d.types || {}, parts = [["login", "Logins"], ["connect", "Verbindungen"]].filter(([k]) => t[k]).map(([k, l]) => `${fmtNum(t[k])} ${l}`);
+      return `${fmtNum(d.n || 0)} Ereignisse verdichtet (${parts.join(", ")}) seit ${fmtTime(d.from)}`;
+    }
     case "ai_reply": return `${d.input || ""} → ${String(d.output || "").split("\n").find((l) => l.trim()) || "(leer)"}`;
   }
   return "";
@@ -240,6 +247,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
       showIP ? [flag(a.country), h("a", { class: "ip mono", href: "#/attacker/" + encodeURIComponent(a.ip) }, a.ip), h("span", { class: "where" }, where(a))] : null,
       h("div", { class: "right" },
         a.own ? h("span", { class: "badge", title: "Adresse aus einem eigenen Netz (Einstellungen → Eigene Netze)" }, "eigener Test") : null,
+        a.brute ? h("span", { class: "badge", title: BRUTE_TITLE }, "Dauer-Brute-Force" + (a.condensed ? ` · ${fmtNum(a.condensed)} verdichtet` : "")) : null,
         a.scanner ? h("span", { class: "badge", title: "Bekannter Forschungs- oder Vermessungsdienst bzw. per DNS geprüfter Suchmaschinen-Bot" }, "Scanner: " + a.scanner) : null,
         a.bot && !a.scanner ? h("span", { class: "badge" + (a.bot.includes("gefälscht") ? " err" : ""), title: "Prüfung per Rückwärts- und Vorwärtsauflösung" }, a.bot) : null,
         a.ai_replies && a.ai_replies.length ? h("span", { class: "badge ai", title: "Das Sprachmodell hat diesem Angreifer geantwortet (Einstellungen → Antworten mit Sprachmodell)" }, "beantwortet durch KI") : null,
@@ -339,7 +347,10 @@ export async function viewAttacks(el, ctx, query = "") {
     service: params.get("service") || "", q: params.get("q") || "", success: params.get("success") === "1", paused: false,
     ai: params.get("ki") === "1",
     own: params.get("own") === "1",
+    // Dauer-Brute-Forcer ausblenden (hive/bruteforce.go); gemerkt im Browser
+    hideBrute: params.has("brute") ? params.get("brute") === "0" : store("attHideBrute") === "1",
   };
+  let nBrute = 0;
   let nOwn = 0;
   const open = new Set();
   let list = [], matched = 0, stufen = [0, 0, 0, 0, 0], truncated = false;
@@ -370,9 +381,9 @@ export async function viewAttacks(el, ctx, query = "") {
     h("details", { class: "aw-small" }, h("summary", null, "Suchsprache"),
       h("div", { class: "muted", style: { maxWidth: "640px" } },
         "Mehrere Teile müssen alle zutreffen, „-“ davor kehrt um, Anführungszeichen halten Wörter zusammen. Felder: ",
-        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve regel produkt client fp wallet art scanner login ki nachladen"),
+        h("code", null, "ip country asn org service port stufe events user pass cred cmd path url tag cve regel produkt client fp wallet art scanner login ki nachladen dauer"),
         ". Zahlen mit = < > <= >= (", h("code", null, "stufe>=3"), ", ", h("code", null, "port:5555"), "), Stufe auch als Wort (", h("code", null, "stufe:befehle"),
-        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), " / ", h("code", null, "ki:ja"), " (das Sprachmodell hat geantwortet) / ", h("code", null, "nachladen:ja"), " (wollte eine Datei nachladen).")));
+        "), * als Platzhalter (", h("code", null, "cmd:*xmrig*"), "), ", h("code", null, "scanner:ja"), " / ", h("code", null, "login:ja"), " / ", h("code", null, "ki:ja"), " (das Sprachmodell hat geantwortet) / ", h("code", null, "nachladen:ja"), " (wollte eine Datei nachladen) / ", h("code", null, "dauer:ja"), " (Dauer-Brute-Force).")));
   api("searches").then(renderSaved).catch(() => {});
   const chips = h("div", { class: "filters" });
   const info = h("div", { class: "muted", style: { fontSize: "12.5px" } });
@@ -391,6 +402,8 @@ export async function viewAttacks(el, ctx, query = "") {
       ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"].map((sv) => chip(f.service === sv, svcName(sv), null, svcColor(sv), () => { f.service = f.service === sv ? "" : sv; load(); })),
       h("span", { class: "fsep" }),
       chip(f.ai, "Beantwortet durch KI", null, "var(--s7)", () => { f.ai = !f.ai; load(); }),
+      nBrute || f.hideBrute ? [h("span", { class: "fsep" }), h("span", { title: BRUTE_TITLE },
+        chip(f.hideBrute, "Dauer-Brute-Force ausblenden", nBrute, null, () => { f.hideBrute = !f.hideBrute; store("attHideBrute", f.hideBrute ? "1" : "0"); load(); }))] : null,
       nOwn || f.own ? [h("span", { class: "fsep" }), chip(f.own, "Eigene Tests zeigen", nOwn, null, () => { f.own = !f.own; load(); })] : null);
   }
   function renderSide() {
@@ -445,6 +458,7 @@ export async function viewAttacks(el, ctx, query = "") {
     if (f.service) p.set("service", f.service);
     if (f.success) p.set("success", "1");
     if (f.own) p.set("own", "1");
+    if (f.hideBrute) p.set("brute", "0");
     const q = [f.q, f.ai ? "ki:ja" : ""].filter(Boolean).join(" ");
     if (q) p.set("q", q);
     if (before) p.set("before", String(before));
@@ -454,7 +468,7 @@ export async function viewAttacks(el, ctx, query = "") {
     const d = await api("attacks?" + qs(older && list.length ? list[list.length - 1].last : 0));
     if (!ctx.current()) return;
     list = older ? [...list, ...d.attacks] : d.attacks;
-    matched = d.matched; stufen = d.stufen; truncated = d.truncated; nOwn = d.own || 0;
+    matched = d.matched; stufen = d.stufen; truncated = d.truncated; nOwn = d.own || 0; nBrute = d.brute || 0;
     more.hidden = list.length >= matched;
     render();
     fillBriefs(d.attacks);
@@ -490,7 +504,7 @@ export async function viewAttacks(el, ctx, query = "") {
         ". Die Art (z. B. „SSH-Brute-Force“) ist aus dem Verhalten geschätzt.")))));
   await load();
 
-  const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && (!f.success || a.success) && (!f.ai || (a.ai_replies || []).length > 0) && !f.q;
+  const matchesFilter = (a) => (!f.stufe.size || f.stufe.has(a.stufe)) && (!f.service || a.services.includes(f.service)) && (!f.success || a.success) && (!f.ai || (a.ai_replies || []).length > 0) && (!f.hideBrute || !a.brute) && !f.q;
   liveAttacks(ctx, (updated) => {
     if (f.paused) return;
     if (!f.own) updated = updated.filter((a) => !a.own);

@@ -45,7 +45,7 @@ func TestInstallSystemAllowlist(t *testing.T) {
 	var calls []string
 	applySystem(changed, func(n string, a ...string) error { calls = append(calls, n+" "+strings.Join(a, " ")); return nil }, os.Stderr)
 	joined := strings.Join(calls, "\n")
-	for _, w := range []string{"systemd-sysusers", "systemctl daemon-reload", "systemctl enable --now hivornet-cowrie-config.path"} {
+	for _, w := range []string{"systemd-sysusers", "systemctl daemon-reload", "systemctl enable --now hivornet-cowrie-config.path", "systemctl restart hivornet-cowrie-config.path"} {
 		if !strings.Contains(joined, w) {
 			t.Errorf("fehlt: %s in\n%s", w, joined)
 		}

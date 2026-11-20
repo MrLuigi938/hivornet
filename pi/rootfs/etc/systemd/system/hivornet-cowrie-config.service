@@ -1,4 +1,5 @@
-# Trägt die in der Web-UI gewählte Anmelderegel in cowrie.cfg ein und startet Cowrie neu.
+# Trägt die in der Web-UI gewählte Anmelderegel in cowrie.cfg ein und startet Cowrie neu;
+# übernimmt die Drossel für Dauer-Brute-Force nach /etc/hivornet/brute.conf (hivornet-firewall).
 [Unit]
 Description=Hivornet Cowrie-Anmelderegel anwenden
 

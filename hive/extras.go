@@ -38,6 +38,7 @@ type Extras struct {
 	Bazaar        BazaarConfig        `json:"bazaar"`
 	DShield       DShieldConfig       `json:"dshield"`
 	AIPlus        AIPlusConfig        `json:"ai_plus"` // weitere KI-Funktionen (aiplus.go)
+	Brute         BruteConfig         `json:"brute"`   // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
 }
 
 type NotifyConfig struct {
@@ -76,6 +77,7 @@ func defaultExtras() Extras {
 	x.CVEDB.Enabled = true // es gehen nur CVE-Nummern hinaus
 	defaultShare(&x)
 	x.AIPlus = defaultAIPlus()
+	x.Brute = defaultBrute()
 	return x
 }
 
@@ -136,6 +138,9 @@ func (x *Extras) Validate() error {
 	if err := x.validateShare(); err != nil {
 		return err
 	}
+	if err := x.Brute.validate(); err != nil {
+		return err
+	}
 	if err := x.AIPlus.validate(); err != nil {
 		return err
 	}
@@ -157,6 +162,7 @@ func (h *Hive) loadExtras() {
 	h.extras.x = x
 	h.extras.mu.Unlock()
 	setOwnNets(x.Own)
+	setBrute(x.Brute)
 }
 
 func (h *Hive) Extras() Extras {
@@ -204,6 +210,11 @@ func (h *Hive) putExtras(w http.ResponseWriter, r *http.Request) {
 	h.extras.x = x
 	h.extras.mu.Unlock()
 	setOwnNets(x.Own)
+	setBrute(x.Brute)
+	if err := h.syncBruteLimit(); err != nil { // Drossel auf dem Raspberry Pi (bruteforce.go)
+		httpErr(w, 500, "Gespeichert, aber die Drossel ließ sich nicht anfordern: "+err.Error())
+		return
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
