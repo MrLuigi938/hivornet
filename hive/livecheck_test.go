@@ -210,7 +210,7 @@ func TestTopWithoutBrute(t *testing.T) {
 		field, key string
 		n          int
 	}{{"cred", "root / 123456", 1300}, {"bf:cred", "root / 123456", 1250}, {"cred", "admin / admin", 80},
-		{"asn", "198364", 1400}, {"bf:asn", "198364", 1400}, {"asn", "64500", 30}} {
+		{"asn", "64496", 1400}, {"bf:asn", "64496", 1400}, {"asn", "64500", 30}} {
 		h.st.db.Exec(`INSERT INTO top_hourly(hour, field, key, label, n) VALUES(?,?,?,?,?)`, hr, r.field, r.key, "", r.n)
 	}
 	get := func(q string) []map[string]any {
@@ -246,7 +246,7 @@ func TestRelatedIPs(t *testing.T) {
 	}
 	common := "HASSH 0a1b2c3d4e5f60718293a4b5c6d7e8f9" // Go-Standard, viele Fremde
 	list := []*Attack{
-		mk("198.51.100.161", 64500, creds(1286, "x"), common), // wie 109.160.32.161 / .140
+		mk("198.51.100.161", 64500, creds(1286, "x"), common), // Nachbaradressen mit gleicher Liste (Live-Check)
 		mk("198.51.100.140", 64500, creds(1286, "x"), common),
 		mk("203.0.113.5", 64500, map[string]int{"root / root": 1, "admin / admin": 1, "root / 123456": 1}, common), // Mirai-Standard
 		mk("203.0.113.6", 64500, map[string]int{"root / root": 1, "admin / admin": 1, "root / 123456": 1}, common),
