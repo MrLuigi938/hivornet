@@ -202,6 +202,11 @@ func (h *Hive) heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	hb.Sensor = clip(hb.Sensor, 64)
+	// Audit 4: Der Hive hält das letzte Lebenszeichen jedes Sensors im Speicher und zeigt es an.
+	hb.Version, hb.Egress, hb.LastError = clip(hb.Version, 64), clip(hb.Egress, 256), clip(hb.LastError, 512)
+	if len(hb.HeldTarpits) > 300 { // so viele schickt der Honeypot höchstens (main.go)
+		hb.HeldTarpits = hb.HeldTarpits[:300]
+	}
 	bound := boundSensor(r)
 	if bound != "" {
 		hb.Sensor = bound

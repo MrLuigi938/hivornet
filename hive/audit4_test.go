@@ -104,3 +104,17 @@ func TestHeartbeatListenersBounded(t *testing.T) {
 		t.Fatalf("unbekannter 101. Sensor trägt Ports ein: %d -> %d", before, n)
 	}
 }
+
+func TestHeartbeatFieldsClipped(t *testing.T) {
+	h := testHive(t)
+	held := make([]HeldTarpit, 2000)
+	for i := range held {
+		held[i] = HeldTarpit{IP: "192.0.2.1", Port: 22}
+	}
+	body, _ := json.Marshal(Heartbeat{Sensor: "s", LastError: strings.Repeat("x", 100000), HeldTarpits: held})
+	h.heartbeat(httptest.NewRecorder(), httptest.NewRequest("POST", "/", bytes.NewReader(body)))
+	hb := h.sensors.All()[0]
+	if len(hb.LastError) > 512 || len(hb.HeldTarpits) > 300 {
+		t.Fatalf("nicht gekürzt: %d %d", len(hb.LastError), len(hb.HeldTarpits))
+	}
+}
