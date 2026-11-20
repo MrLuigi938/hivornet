@@ -235,6 +235,29 @@ func (h *Hive) ownPublicIP() string {
 	return e.IP
 }
 
+// ownMarkers: Zeichenfolgen, die nie nach außen gehen: die eigene öffentliche Adresse und die
+// Hostnamen der Honeypots und des Hive (klein geschrieben, mindestens 4 Zeichen).
+func (h *Hive) ownMarkers() []string {
+	var out []string
+	for _, s := range append(h.honeypotNames(), h.ownPublicIP()) {
+		if s = strings.ToLower(strings.TrimSpace(s)); len(s) >= 4 && !contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// containsMarker: Kommt eine der Marken (ownMarkers) in s vor (ohne Groß/Klein)?
+func containsMarker(s string, marks []string) bool {
+	ls := strings.ToLower(s)
+	for _, m := range marks {
+		if strings.Contains(ls, m) {
+			return true
+		}
+	}
+	return false
+}
+
 func urlSubject(u string) string {
 	sum := sha256.Sum256([]byte(u))
 	return "url:" + hex.EncodeToString(sum[:])
@@ -257,6 +280,7 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time) ([]urlFinding, 
 	defer rs.Close()
 	untrusted := h.untrustedSensors()
 	own := h.ownPublicIP()
+	marks := h.ownMarkers()
 	seen := map[string]bool{}
 	var out []urlFinding
 	for rs.Next() {
@@ -279,7 +303,9 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time) ([]urlFinding, 
 		}
 		for _, raw := range urls {
 			u, why := shareURLProblem(strings.ReplaceAll(raw, `\`, ""), own)
-			if why != "" || seen[u] {
+			// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
+			// nie öffentlich melden und nicht holen.
+			if why != "" || seen[u] || containsMarker(u, marks) {
 				continue
 			}
 			seen[u] = true

@@ -222,9 +222,35 @@ func mimicHeaders(in map[string]string) map[string]string {
 		if !ok || v == "" || len(v) > 256 || len(out) >= 8 || strings.IndexFunc(v, func(r rune) bool { return r < 0x20 || r > 0x7e }) >= 0 {
 			continue
 		}
+		if name == "Set-Cookie" {
+			if v = safeSetCookie(v); v == "" {
+				continue
+			}
+		}
 		out[name] = v
 	}
 	return out
+}
+
+// safeSetCookie: nur "Name=Wert", neu zusammengesetzt mit Path=/ und HttpOnly, ohne Domain-Angabe,
+// nie der Name des Sitzungs-Cookies der Hive-UI (hv_session) und kein __Host-/__Secure-Präfix
+// (wie im Hive, mimicweb.go). Cookies trennen nicht nach Port: Läuft die Hive-UI auf demselben
+// Host, könnte ein Cookie aus einer Modell-Antwort sonst die Anmeldung dort überdecken.
+var (
+	cookieNameRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	cookieValueRe = regexp.MustCompile(`^[A-Za-z0-9!#$%&'()*+./:<=>?@\[\]^_{|}~-]{0,180}$`)
+)
+
+func safeSetCookie(v string) string {
+	pair, _, _ := strings.Cut(v, ";")
+	name, val, ok := strings.Cut(strings.TrimSpace(pair), "=")
+	name, val = strings.TrimSpace(name), strings.TrimSpace(val)
+	low := strings.ToLower(name)
+	if !ok || !cookieNameRe.MatchString(name) || !cookieValueRe.MatchString(val) || low == "hv_session" ||
+		strings.HasPrefix(low, "__host-") || strings.HasPrefix(low, "__secure-") {
+		return ""
+	}
+	return name + "=" + val + "; Path=/; HttpOnly"
 }
 
 var mimicHeaderAllow = map[string]string{

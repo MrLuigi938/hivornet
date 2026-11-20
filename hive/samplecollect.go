@@ -111,7 +111,17 @@ func (h *Hive) collectSample(ctx context.Context, x Extras, f urlFinding) bool {
 	if h.share.count("sample", day, func(e shareLogEntry) bool { return e.Host == host }) >= cfg.PerHostDaily {
 		return true
 	}
-	fetcher := newSafeFetcher(own, cfg.UserAgent, int64(cfg.MaxMB)<<20)
+	// Platz insgesamt vor jedem Download prüfen, nicht nur bei der stündlichen Aufräumrunde:
+	// sonst wüchse die Quarantäne um bis zu Tageslimit × Größe je Datei über die Grenze.
+	maxBytes := int64(cfg.MaxMB) << 20
+	if _, total := quarantineScan(dir); total+maxBytes > int64(cfg.MaxTotalMB)<<20 {
+		h.cleanupQuarantineRes(cfg, true, maxBytes)
+		if _, total = quarantineScan(dir); total+maxBytes > int64(cfg.MaxTotalMB)<<20 {
+			h.share.setErr("sample", "Quarantäne voll", 0)
+			return false
+		}
+	}
+	fetcher := newSafeFetcher(own, cfg.UserAgent, maxBytes)
 	res, err := fetcher.fetchTo(ctx, f.URL, dir)
 	e := shareLogEntry{Time: time.Now(), Subject: f.URL, Host: host}
 	var r sampleFetchResult
@@ -209,6 +219,11 @@ func (h *Hive) quarantineList() ([]quarantineFile, int64) {
 // cleanupQuarantine löscht alte Dateien und, wenn der Platz nicht reicht, die ältesten.
 // Ohne force höchstens einmal je Stunde.
 func (h *Hive) cleanupQuarantine(cfg SampleCollectConfig, force bool) {
+	h.cleanupQuarantineRes(cfg, force, 0)
+}
+
+// cleanupQuarantineRes wie cleanupQuarantine; reserve: so viel Platz bleibt danach frei.
+func (h *Hive) cleanupQuarantineRes(cfg SampleCollectConfig, force bool, reserve int64) {
 	dir := h.quarantineDir()
 	if dir == "" {
 		return
@@ -233,7 +248,7 @@ func (h *Hive) cleanupQuarantine(cfg SampleCollectConfig, force bool) {
 	cut := time.Now().AddDate(0, 0, -cfg.KeepDays)
 	for i := len(fis) - 1; i >= 0; i-- { // älteste zuerst
 		fi := fis[i]
-		if fi.ModTime().Before(cut) || total > limit {
+		if fi.ModTime().Before(cut) || total+reserve > limit {
 			if os.Remove(filepath.Join(dir, fi.Name())) == nil {
 				total -= fi.Size()
 			}
@@ -342,6 +357,11 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 	if err != nil {
 		e.Error = err.Error()
 		finish("error", "")
+		return
+	}
+	// Skripte tragen manchmal die Adresse oder den Namen des Ziels: nie öffentlich hochladen.
+	if containsMarker(string(content), h.ownMarkers()) {
+		finish("skipped", "unbekannt; enthält die eigene Adresse oder den Namen des Honeypots, nicht hochgeladen")
 		return
 	}
 	meta, _ := json.Marshal(map[string]any{"anonymous": 0, "tags": bazaarTags(si), "delivery_method": "web_download",

@@ -168,6 +168,11 @@ func safeWebHeaders(in map[string]string) map[string]string {
 		if !ok || v == "" || len(v) > 256 || strings.IndexFunc(v, func(r rune) bool { return r < 0x20 || r > 0x7e }) >= 0 {
 			continue
 		}
+		if name == "Set-Cookie" {
+			if v = safeSetCookie(v); v == "" {
+				continue
+			}
+		}
 		if out == nil {
 			out = map[string]string{}
 		}
@@ -177,4 +182,25 @@ func safeWebHeaders(in map[string]string) map[string]string {
 		out[name] = v
 	}
 	return out
+}
+
+// Cookie des Modells: nur "Name=Wert", neu zusammengesetzt mit Path=/ und HttpOnly. Ohne Domain-
+// Angabe und nie mit dem Namen des Sitzungs-Cookies der Web-UI (hv_session) oder einem
+// __Host-/__Secure-Präfix: Cookies trennen nicht nach Port, ein Modell-Cookie auf demselben
+// Host könnte sonst die Anmeldung an der Hive-UI überdecken oder abmelden.
+var (
+	cookieNameRe  = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,64}$`)
+	cookieValueRe = regexp.MustCompile(`^[A-Za-z0-9!#$%&'()*+./:<=>?@\[\]^_{|}~-]{0,180}$`)
+)
+
+func safeSetCookie(v string) string {
+	pair, _, _ := strings.Cut(v, ";")
+	name, val, ok := strings.Cut(strings.TrimSpace(pair), "=")
+	name, val = strings.TrimSpace(name), strings.TrimSpace(val)
+	low := strings.ToLower(name)
+	if !ok || !cookieNameRe.MatchString(name) || !cookieValueRe.MatchString(val) || low == cookieName ||
+		strings.HasPrefix(low, "__host-") || strings.HasPrefix(low, "__secure-") {
+		return ""
+	}
+	return name + "=" + val + "; Path=/; HttpOnly"
 }

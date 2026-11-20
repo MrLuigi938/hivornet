@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -168,6 +169,11 @@ func normCVEs(raw []string, n int) []string {
 // cveInfos liefert, was zu den Nummern bekannt ist, und stellt Fehlendes in die Warteschlange
 // (nur wenn eingeschaltet).
 func (h *Hive) cveInfos(ctx context.Context, ids []string) map[string]*CVEInfo {
+	return h.cveInfosQ(ctx, ids, true)
+}
+
+// cveInfosQ wie cveInfos; enqueue=false fragt nichts nach (beliebige Nummern von Lesern).
+func (h *Hive) cveInfosQ(ctx context.Context, ids []string, enqueue bool) map[string]*CVEInfo {
 	out := map[string]*CVEInfo{}
 	if len(ids) == 0 {
 		return out
@@ -222,7 +228,7 @@ func (h *Hive) cveInfos(ctx context.Context, ids []string) map[string]*CVEInfo {
 		} else {
 			fresh = false
 		}
-		if !fresh && enabled {
+		if !fresh && enabled && enqueue {
 			missing = append(missing, id)
 		}
 	}
@@ -511,8 +517,7 @@ func (h *Hive) fetchEPSS(ctx context.Context, ids []string) error {
 		if !cveIDRe.MatchString(id) {
 			continue
 		}
-		e, _ := strconv.ParseFloat(d.EPSS, 64)
-		p, _ := strconv.ParseFloat(d.Percentile, 64)
+		e, p := epssValue(d.EPSS), epssValue(d.Percentile)
 		b, _ := json.Marshal(epssData{EPSS: e, Pct: p, Date: clip(d.Date, 20)})
 		h.st.lookupPut("cve:"+id, "epss", string(b))
 		got[id] = true
@@ -523,6 +528,16 @@ func (h *Hive) fetchEPSS(ctx context.Context, ids []string) error {
 		}
 	}
 	return nil
+}
+
+// epssValue: Wahrscheinlichkeit bzw. Perzentil zwischen 0 und 1; alles andere (NaN, Inf,
+// negativ, zu groß) gilt als 0. Die Antwort von FIRST ist nicht vertrauenswürdig.
+func epssValue(s string) float64 {
+	v, err := strconv.ParseFloat(strings.TrimSpace(s), 64)
+	if err != nil || math.IsNaN(v) || v < 0 || v > 1 {
+		return 0
+	}
+	return v
 }
 
 // fetchNVD fragt eine CVE bei der NVD.
@@ -615,13 +630,16 @@ func parseNVD(raw []byte) (nvdData, error) {
 		}
 		sort.SliceStable(ms, func(i, j int) bool { return ms[i].Type == "Primary" && ms[j].Type != "Primary" })
 		m := ms[0]
-		d.CVSS, d.Version, d.Vector = m.Data.Score, m.Data.Version, clip(m.Data.Vector, 200)
-		d.Severity = strings.ToUpper(nonEmptyFirst(m.Data.Severity, m.Severity))
+		d.CVSS, d.Version, d.Vector = m.Data.Score, clip(m.Data.Version, 10), clip(m.Data.Vector, 200)
+		if math.IsNaN(d.CVSS) || d.CVSS < 0 || d.CVSS > 10 {
+			d.CVSS = 0
+		}
+		d.Severity = clip(strings.ToUpper(nonEmptyFirst(m.Data.Severity, m.Severity)), 20)
 		break
 	}
 	for _, w := range c.Weak {
 		for _, x := range w.Desc {
-			if strings.HasPrefix(x.Value, "CWE-") && !contains(d.CWE, x.Value) && len(d.CWE) < 4 {
+			if strings.HasPrefix(x.Value, "CWE-") && len(x.Value) <= 20 && !contains(d.CWE, x.Value) && len(d.CWE) < 4 {
 				d.CWE = append(d.CWE, x.Value)
 			}
 		}
@@ -676,7 +694,14 @@ func (h *Hive) cveInfoAPI(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := qctx(r)
 	defer cancel()
 	ids := normCVEs(strings.Split(r.URL.Query().Get("ids"), ","), 100)
-	writeJSON(w, map[string]any{"info": h.cveInfos(ctx, ids), "status": h.cveStatus()})
+	// Nachfragen bei der NVD (mit dem Schlüssel des Admins) nur für Admins: Leser könnten sonst
+	// mit beliebigen Nummern die Warteschlange füllen (wie /api/lookup/ für Leser gesperrt).
+	admin := false
+	if h.auth != nil {
+		_, role := h.auth.Who(r)
+		admin = role == "admin"
+	}
+	writeJSON(w, map[string]any{"info": h.cveInfosQ(ctx, ids, admin), "status": h.cveStatus()})
 }
 
 // cveStatusAPI: GET /api/cve/status

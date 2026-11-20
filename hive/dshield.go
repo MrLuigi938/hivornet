@@ -64,6 +64,7 @@ type dshieldBatch struct {
 	firewall, web, logins []map[string]any
 	lastID                int64
 	truncated             bool
+	webSkipped            bool // eigene öffentliche Adresse unbekannt
 }
 
 // dshieldCollect liest die Ereignisse nach lastID und baut die Einträge.
@@ -94,6 +95,12 @@ func (h *Hive) dshieldCollect(ctx context.Context, cfg DShieldConfig, lastID int
 	if own != "" {
 		scrub = append(scrub, own)
 	}
+	// Ohne bekannte eigene Adresse lässt sie sich aus Pfaden und Kopfzeilen nicht entfernen:
+	// dann keine Web-Anfragen (Verbindungen und Anmeldungen tragen sie nicht, dip ist 0.0.0.0).
+	webOK := own != ""
+	if !webOK && cfg.Web {
+		b.webSkipped = true
+	}
 	clean := func(s string, n int) string {
 		for _, x := range scrub {
 			if len(x) >= 3 {
@@ -122,14 +129,16 @@ func (h *Hive) dshieldCollect(ctx context.Context, cfg DShieldConfig, lastID int
 				"sport": strconv.Itoa(e.SrcPort), "dport": strconv.Itoa(publicPort(e.DstPort)), "proto": proto, "flags": flags, "version": ver})
 		case "request":
 			method := dataString(e.Data, "method")
-			if method == "" || udpServices[e.Service] || e.Service == "rdp" || strings.Contains(method, " ") {
+			if !webOK || method == "" || udpServices[e.Service] || e.Service == "rdp" || strings.Contains(method, " ") {
 				continue
 			}
 			ua := clean(dataString(e.Data, "user_agent"), 300)
 			hdr := map[string]string{}
 			for _, line := range strings.Split(dataString(e.Data, "headers"), "\n") {
 				k, v, ok := strings.Cut(line, ": ")
-				if !ok || strings.EqualFold(k, "Host") || len(hdr) >= 30 {
+				// Host, Referer, Origin, Weiterleitungs-Köpfe und Cookies tragen eigene Namen,
+				// Adressen oder vom Honeypot vergebene Sitzungen (dropHeaders, cvesuggest.go).
+				if !ok || dropHeaders[strings.ToLower(strings.TrimSpace(k))] || len(hdr) >= 30 {
 					continue
 				}
 				hdr[clip(k, 60)] = clean(v, 300)
@@ -175,6 +184,8 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 	e := shareLogEntry{Time: time.Now(), Subject: summary}
 	if b.truncated {
 		e.Detail = "mehr folgt"
+	} else if b.webSkipped {
+		e.Detail = "Web-Anfragen ausgelassen: eigene öffentliche Adresse unbekannt (System → „Wie Shodan dich sieht“)"
 	}
 	if len(b.firewall)+len(b.web)+len(b.logins) == 0 {
 		h.st.SetKV("dshield_last_id", strconv.FormatInt(b.lastID, 10))
