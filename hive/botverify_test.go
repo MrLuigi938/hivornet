@@ -49,10 +49,14 @@ func TestBotVerify(t *testing.T) {
 	}
 	stop := make(chan struct{})
 	go v.run(stop)
-	deadline := time.Now().Add(3 * time.Second)
+	// Warten, bis das Ergebnis im Zwischenspeicher UND in der Datenbank steht: run speichert es
+	// erst nach dem Zwischenspeicher (unter dem Race-Detector merklich später).
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if s, _ := v.status("66.249.66.1", b); s == "ok" {
-			break
+			if _, _, ok := st.lookupGet("ip:66.249.66.1", "rdns", time.Hour); ok {
+				break
+			}
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
