@@ -19,8 +19,12 @@ import (
 	"hash/maphash"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+// analysisGen zählt Regeländerungen (resetAnalysisCache).
+var analysisGen atomic.Int64
 
 type textAnalysis struct {
 	revealed       []string
@@ -145,6 +149,7 @@ func (h *Hive) warmAnalysis(stop <-chan struct{}) {
 
 // resetAnalysisCache: nach Änderungen an Regeln (eigene Regeln, cvesuggest.go; Tests).
 func resetAnalysisCache() {
+	analysisGen.Add(1) // Angriffs-Schnappschuss (attacksnap.go) voll neu aufbauen
 	c := &analysisCache
 	c.mu.Lock()
 	c.cur, c.prev = map[uint64]*textAnalysis{}, nil

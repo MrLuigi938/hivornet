@@ -6,7 +6,7 @@
 import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip } from "./dom.js";
 import { svcName, svcColor } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, MODE_NAME, route } from "./app.js";
-import { cveInfo, cveBadges, cveDetails, kindChip } from "./attacks.js";
+import { cveInfo, cveBadges, cveDetails, kindChip, bruteStatsParam, bruteStatsNote } from "./attacks.js";
 import { weeklyAICard } from "./ai.js";
 
 // ---------- Bausteine ----------
@@ -371,7 +371,8 @@ const HP_CHECK = /check_[0-9a-f]{16,}_|v=outer;|dGVzdA==|'a b;\$\(\)'/;
 
 export async function viewCreds(el) {
   header("Zugangsdaten und Muster", { range: true });
-  const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
+  const nb = bruteStatsParam(); // ohne Dauer-Brute-Force (attacks.js)
+  const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}` + nb);
   const [sum, users, pws, pws100, combos, cmds, paths, uas, clients, snmp, sip, dns] = await Promise.all([
     api("creds/summary?range=" + state.range), q("username", 100), q("password", 100), q("password", 100), q("cred", 100), q("command", 100), q("path", 100),
     q("useragent", 100), q("client", 60), q("snmp", 60), q("sip", 60), q("dns", 60)]);
@@ -398,6 +399,7 @@ export async function viewCreds(el) {
 
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Womit Angreifer sich anmelden wollen und was sie danach eingeben. Ein Klick auf einen Eintrag zeigt die Angriffe, in denen er vorkam."),
+    bruteStatsNote(() => route({ quiet: true })),
     h("div", { class: "grid kpi" },
       tile("Login-Versuche", fmtNum(sum.cred_total || sum.username_total), "im Zeitraum"),
       tile("Verschiedene Benutzernamen", fmtNum(sum.username_distinct)),

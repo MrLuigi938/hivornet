@@ -37,9 +37,10 @@ type Extras struct {
 	Samples       SampleCollectConfig `json:"samples"`
 	Bazaar        BazaarConfig        `json:"bazaar"`
 	DShield       DShieldConfig       `json:"dshield"`
-	OwnIP         OwnIPConfig         `json:"own_ip"`  // eigene öffentliche Adresse und Namen (ownip.go)
-	AIPlus        AIPlusConfig        `json:"ai_plus"` // weitere KI-Funktionen (aiplus.go)
-	Brute         BruteConfig         `json:"brute"`   // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
+	OwnIP         OwnIPConfig         `json:"own_ip"`    // eigene öffentliche Adresse und Namen (ownip.go)
+	AIPlus        AIPlusConfig        `json:"ai_plus"`   // weitere KI-Funktionen (aiplus.go)
+	Brute         BruteConfig         `json:"brute"`     // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
+	TimeZone      string              `json:"time_zone"` // IANA-Name für Uhrzeiten in Texten des Hives; leer: TZ, sonst UTC (timezone.go)
 }
 
 type NotifyConfig struct {
@@ -146,6 +147,10 @@ func (x *Extras) Validate() error {
 	if err := x.Brute.validate(); err != nil {
 		return err
 	}
+	x.TimeZone = strings.TrimSpace(x.TimeZone)
+	if _, err := loadZone(x.TimeZone); err != nil {
+		return err
+	}
 	if err := x.AIPlus.validate(); err != nil {
 		return err
 	}
@@ -168,6 +173,7 @@ func (h *Hive) loadExtras() {
 	h.extras.mu.Unlock()
 	setOwnNets(x.Own)
 	setBrute(x.Brute)
+	setHiveZone(x.TimeZone)
 }
 
 func (h *Hive) Extras() Extras {
@@ -183,7 +189,7 @@ func (h *Hive) getExtras(w http.ResponseWriter, r *http.Request) {
 		set[name] = *p != ""
 		*p = ""
 	}
-	writeJSON(w, map[string]any{"extras": x, "secrets": set, "notify_status": h.notifier.Status()})
+	writeJSON(w, map[string]any{"extras": x, "secrets": set, "notify_status": h.notifier.Status(), "time_zone_effective": zoneLabel()})
 }
 
 func (h *Hive) putExtras(w http.ResponseWriter, r *http.Request) {
@@ -216,6 +222,8 @@ func (h *Hive) putExtras(w http.ResponseWriter, r *http.Request) {
 	h.extras.mu.Unlock()
 	setOwnNets(x.Own)
 	setBrute(x.Brute)
+	setHiveZone(x.TimeZone)
+	h.snap.invalidate()                        // eigene Netze, Brute-Force-Markierung: Einstufung neu
 	if err := h.syncBruteLimit(); err != nil { // Drossel auf dem Raspberry Pi (bruteforce.go)
 		httpErr(w, 500, "Gespeichert, aber die Drossel ließ sich nicht anfordern: "+err.Error())
 		return

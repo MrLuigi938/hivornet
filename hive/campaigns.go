@@ -257,7 +257,7 @@ func (h *Hive) campaigns(w http.ResponseWriter, r *http.Request) {
 	if _, ok := parseRange(r.URL.Query().Get("range")); ok {
 		since, _ = rangeSince(r)
 	}
-	list, truncated, err := h.loadAttacks(ctx, since, nil)
+	list, truncated, err := h.attacksSince(ctx, since)
 	if err != nil {
 		httpErr(w, 500, err.Error())
 		return

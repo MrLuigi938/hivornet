@@ -1,0 +1,22 @@
+# Schreibt jede Minute die gerade von der Drossel gesperrten IPs nach
+# /var/lib/hivornet-status/brute-bans (hivornet-firewall bans). Die Web-UI zeigt damit bei
+# Dauer-Brute-Forcern "gesperrt bis …". Der Hive liest nur die Datei, nftables bleibt ihm verschlossen.
+[Unit]
+Description=Hivornet: Sperrliste der Drossel für die Web-UI
+After=hivornet-firewall.service
+ConditionPathExists=/etc/hivornet
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hivornet-firewall bans
+# Nur lesen (nft list) und eine Statusdatei schreiben
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-/var/lib/hivornet-status
+InaccessiblePaths=-/var/lib/hivornet -/etc/hivornet/env
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+RestrictAddressFamilies=AF_NETLINK AF_UNIX
+SystemCallArchitectures=native

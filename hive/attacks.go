@@ -88,6 +88,7 @@ type Attack struct {
 	port                         map[int]bool
 	seenCmd, seenSess, seenCli   map[string]bool
 	okSess                       map[string]bool // Sitzungen mit angenommenem Login
+	credOrder                    []string        // die ersten credOrderMax Kombinationen in Reihenfolge
 	stripStride, stripSeen       int             // Ausdünnung des Zeitstreifens (addStrip)
 }
 
@@ -238,7 +239,11 @@ func (a *Attack) add(e *Event) {
 		default:
 			k = e.Username + " / " + e.Password
 		}
-		a.creds[clip(k, 200)]++
+		ck := clip(k, 200)
+		if a.creds[ck] == 0 && len(a.credOrder) < credOrderMax {
+			a.credOrder = append(a.credOrder, ck) // Reihenfolge der ersten Versuche (related.go)
+		}
+		a.creds[ck]++
 		if baitUsed(e) {
 			a.tags["bait_used"]++
 		}
@@ -655,6 +660,8 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		// Nur IPs mit Aktivität in den letzten 15 Minuten aufbauen, nicht alle der letzten
 		// sechs Stunden (Dashboard "Gerade aktiv"; vorher mehrere Sekunden auf einem Pi).
 		list, truncated, err = h.loadActiveAttacks(ctx, since)
+	} else if len(ips) == 0 {
+		list, truncated, err = h.attacksSince(ctx, since) // Schnappschuss (attacksnap.go)
 	} else {
 		list, truncated, err = h.loadAttacks(ctx, since, ips)
 	}
@@ -731,8 +738,25 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 		}
 		out = append(out, a)
 	}
+	// Dauer-Brute-Forcer: Drossel und Sperre (brutebans.go)
+	var bruteIPs []string
+	for _, a := range out {
+		if a.Brute {
+			bruteIPs = append(bruteIPs, a.IP)
+		}
+	}
+	// zusammengehörige IPs (related.go)
+	groups := map[string]*IPGroup{}
+	if rel := h.relatedNow(ctx); rel != nil {
+		for _, a := range out {
+			if g := rel.groups[a.IP]; g != nil {
+				groups[a.IP] = g
+			}
+		}
+	}
 	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
-		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays(), "brute": nBrute})
+		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays(), "brute": nBrute,
+		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor(bruteIPs), "groups": groups})
 }
 
 // series: Verläufe für die Kennzahlen des Dashboards und Vergleich zum Zeitraum davor.
@@ -825,6 +849,10 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 	h.st.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(CASE WHEN hour >= ? THEN n ELSE 0 END), 0), COALESCE(SUM(CASE WHEN hour < ? THEN n ELSE 0 END), 0)
 		FROM top_hourly WHERE field = 'url' AND hour >= ?`, from, from, pfrom.UnixMilli()/3600000).Scan(&fetchNow, &fetchPrev)
 	totals["fetch"], prev["fetch"] = fetchNow, fetchPrev
+	// davon verdichtete Logins von Dauer-Brute-Forcern (bruteforce.go): Hinweis an der Kennzahl
+	var bfNow int64
+	h.st.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(n), 0) FROM top_hourly WHERE field = 'bf:cred' AND hour >= ?`, from).Scan(&bfNow)
+	totals["login_brute"] = bfNow
 	writeJSON(w, map[string]any{"from": from * 3600000, "bucket_hours": bucket, "series": series, "totals": totals, "prev": prev,
 		"active_tarpits": h.sensors.ActiveTarpits()})
 }

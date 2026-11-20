@@ -315,6 +315,12 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 	since, _ := rangeSince(r)
 	q := `SELECT key, MAX(label) AS label, SUM(n) AS n FROM top_hourly WHERE field = ? AND hour >= ?
 		GROUP BY key ORDER BY n DESC LIMIT ?`
+	if r.URL.Query().Get("nobrute") == "1" && bruteTopField(field) {
+		// Ohne Dauer-Brute-Force: verdichtete Versuche (Zähler unter "bf:<feld>", bruteforce.go)
+		// abziehen. Je Brute-Forcer bleiben die Versuche bis zur Erkennung, die Rohdaten unberührt.
+		q = `SELECT key, MAX(label) AS label, SUM(CASE WHEN field = ?1 THEN n ELSE -n END) AS n FROM top_hourly
+			WHERE field IN (?1, 'bf:' || ?1) AND hour >= ?2 GROUP BY key HAVING SUM(CASE WHEN field = ?1 THEN n ELSE -n END) > 0 ORDER BY n DESC LIMIT ?3`
+	}
 	if field == "username" || field == "password" || field == "cred" { // ungewöhnliche hervorheben (weekly.go)
 		ctx, cancel := qctx(r)
 		defer cancel()
@@ -349,7 +355,7 @@ func (h *Hive) countryStats(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	from, err := strconv.ParseInt(r.URL.Query().Get("today_from"), 10, 64)
 	if err != nil || from <= 0 || from > time.Now().UnixMilli() {
-		now := time.Now()
+		now := hiveNow()
 		from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
 	}
 	rs, err := h.rows(ctx, `SELECT country, SUM(cnt) AS total, SUM(CASE WHEN hour >= ? THEN cnt ELSE 0 END) AS today
@@ -470,7 +476,18 @@ func (h *Hive) attacker(w http.ResponseWriter, r *http.Request) {
 	creds, _ := h.rows(ctx, `SELECT username, password, COUNT(*) AS n FROM events WHERE src_ip = ? AND type='login' GROUP BY username, password ORDER BY n DESC LIMIT 50`, ip)
 	ports, creds, condensed := h.mergeCondensed(ctx, ip, ports, creds) // Dauer-Brute-Force (bruteforce.go)
 	evs, _ := h.rows(ctx, `SELECT `+evCols+` FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 300`, ip)
-	writeJSON(w, map[string]any{"info": info[0], "ports": ports, "creds": creds, "events": evs, "condensed": condensed})
+	out := map[string]any{"info": info[0], "ports": ports, "creds": creds, "events": evs, "condensed": condensed,
+		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor([]string{ip})}
+	// Verlauf über alle Angriffe dieser IP (history.go); nur diese IP, über den Index
+	if list, tr, err := h.loadAttacks(ctx, time.Now().AddDate(0, 0, -max(h.retentionDays(), 1)), []string{ip}); err == nil {
+		out["history"] = buildHistory(list, tr)
+	}
+	if rel := h.relatedNow(ctx); rel != nil { // zusammengehörige IPs (related.go)
+		if g, others := rel.related(ip); g != nil {
+			out["group"], out["related"] = g, others
+		}
+	}
+	writeJSON(w, out)
 }
 
 func (h *Hive) sessionsList(w http.ResponseWriter, r *http.Request) {
@@ -569,7 +586,7 @@ func (h *Hive) exportEvents(w http.ResponseWriter, r *http.Request) {
 	defer rs.Close()
 	cols, _ := rs.Columns()
 	format := r.URL.Query().Get("format")
-	stamp := time.Now().Format("20060102-1504")
+	stamp := hiveNow().Format("20060102-1504")
 	vals := make([]any, len(cols))
 	ptrs := make([]any, len(cols))
 	for i := range vals {

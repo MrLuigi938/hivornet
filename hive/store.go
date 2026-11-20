@@ -716,7 +716,7 @@ func (w *Writer) writeBatch(batch []*Event) error {
 			if _, err := top.Exec(ms/3600000, k[0], k[1], k[2]); err != nil {
 				return fmt.Errorf("top: %w", err)
 			}
-			if e.condensed && condensedTopField[k[0]] { // für das Neuzählen (setup.go) aufheben
+			if e.condensed && (condensedTopField[k[0]] || k[0] == "asn") { // Neuzählen (setup.go), Top-Listen ohne Dauer-Brute-Force (api.go)
 				if _, err := top.Exec(ms/3600000, "bf:"+k[0], k[1], k[2]); err != nil {
 					return fmt.Errorf("top: %w", err)
 				}

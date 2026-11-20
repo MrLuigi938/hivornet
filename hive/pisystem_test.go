@@ -50,6 +50,15 @@ func TestInstallSystemAllowlist(t *testing.T) {
 			t.Errorf("fehlt: %s in\n%s", w, joined)
 		}
 	}
+	if strings.Contains(joined, "hivornet-cowrie.service") {
+		t.Errorf("Cowrie ohne Änderung neu gestartet:\n%s", joined)
+	}
+	// geänderte Cowrie-Dienstdatei: neu starten, damit neue StateDirectory-Ordner entstehen
+	calls = nil
+	applySystem([]string{"etc/systemd/system/hivornet-cowrie.service"}, func(n string, a ...string) error { calls = append(calls, n+" "+strings.Join(a, " ")); return nil }, os.Stderr)
+	if j := strings.Join(calls, "\n"); !strings.Contains(j, "systemctl daemon-reload") || !strings.Contains(j, "systemctl try-restart hivornet-cowrie.service") {
+		t.Errorf("Cowrie-Dienst geändert, aber kein Neustart:\n%s", j)
+	}
 }
 
 func TestEnsureAndWriteCowrieAuth(t *testing.T) {

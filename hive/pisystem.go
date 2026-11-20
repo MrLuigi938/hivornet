@@ -154,6 +154,14 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			run("systemctl", "restart", path.Base(c))
 		}
 	}
+	// Neue Zeitgeber, die schon laufende Geräte brauchen (Sperrliste der Drossel für die Web-UI)
+	for _, c := range changed {
+		if c == "etc/systemd/system/hivornet-brute-bans.timer" {
+			if err := run("systemctl", "enable", "--now", "hivornet-brute-bans.timer"); err != nil {
+				fmt.Fprintf(w, "Einschalten von hivornet-brute-bans.timer: %v\n", err)
+			}
+		}
+	}
 	// Geänderte Netzsperre sofort anwenden, nicht erst nach dem nächsten Neustart (M8 des
 	// dritten Audits). Direkt "apply" statt "systemctl restart": restart ruft vorher ExecStop
 	// (remove) auf, der Honeypot liefe kurz ohne Sperre; apply ersetzt die Regeln in einem
@@ -168,11 +176,24 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			break
 		}
 	}
+	// Geänderte Cowrie-Dienstdatei (z. B. neue Ordner unter StateDirectory=) wirkt erst nach
+	// einem Neustart; try-restart lässt einen ausgeschalteten Dienst aus.
+	cowrieRestart := false
+	for _, c := range changed {
+		if c == "etc/systemd/system/hivornet-cowrie.service" {
+			cowrieRestart = true
+		}
+	}
 	if ch, err := ensureCowrieAuth(cowrieCfgPath); err != nil {
 		fmt.Fprintf(w, "Cowrie-Anmelderegel: %v\n", err)
 	} else if ch {
-		run("systemctl", "try-restart", "hivornet-cowrie.service")
+		cowrieRestart = true
 		fmt.Fprintln(w, "Cowrie: Anmeldung erst nach 2 bis 5 Versuchen je IP eingestellt")
+	}
+	if cowrieRestart {
+		if err := run("systemctl", "try-restart", "hivornet-cowrie.service"); err != nil {
+			fmt.Fprintf(w, "Cowrie neu starten: %v\n", err)
+		}
 	}
 }
 

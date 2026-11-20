@@ -138,7 +138,7 @@ async function tabHoneypot() {
   if (isAdmin()) {
     out.push(cowrieAuthCard());
     const ex = await extrasCtx().catch(() => null);
-    if (ex) out.push(bruteCard(ex).el, homeCard(ex).el);
+    if (ex) out.push(bruteCard(ex).el, homeCard(ex).el, zoneCard(ex).el);
   }
   return out;
 }
@@ -610,6 +610,34 @@ function homeCard(ex) {
   row("Bezeichnung", ex.text(x.home, "label", { maxlength: 40 })));
 }
 
+// Zeitzone für Uhrzeiten in Texten des Hives (Angriffsbericht, Wochenbericht, KI-Texte) und
+// für seine Zeitpläne. Die Seiten selbst zeigen Zeiten immer in der Zeitzone des Browsers.
+function zoneCard(ex) {
+  const x = ex.x;
+  let browser = "";
+  try { browser = Intl.DateTimeFormat().resolvedOptions().timeZone || ""; } catch { /* alter Browser */ }
+  let zones = [];
+  try { zones = Intl.supportedValuesOf("timeZone"); } catch { /* alter Browser: freie Eingabe */ }
+  // Noch nichts eingestellt: Vorschlag aus dem Browser eintragen (erst Speichern übernimmt ihn)
+  const suggest = !x.time_zone && !!browser && isAdmin();
+  if (suggest) x.time_zone = browser;
+  const list = h("datalist", { id: "tz-list" }, zones.map((z) => h("option", { value: z })));
+  const input = h("input", { value: x.time_zone || "", class: "wide", list: "tz-list", maxlength: 64, placeholder: "z. B. Europe/Berlin", onchange: (e) => { x.time_zone = e.target.value.trim(); } });
+  const eff = ex.d.time_zone_effective || "UTC";
+  const sec = section("Zeitzone", {
+    intro: "Für Uhrzeiten, die der Hive selbst schreibt (Angriffsbericht, Wochenbericht, KI-Texte, Fehlermeldungen), und für Zeitpläne wie „Wochenbericht montags ab 8 Uhr“. Die Seiten hier zeigen Zeiten immer in der Zeitzone deines Browsers.",
+    saveLabel: "Zeitzone speichern",
+    save: async () => { await ex.save(["time_zone"]); return "Gespeichert. Gilt sofort für neue Texte."; },
+  },
+  row("Zeitzone", h("div", null, input, list),
+    suggest ? `Vorschlag aus deinem Browser, noch nicht gespeichert; der Hive rechnet zurzeit in ${eff}.`
+      : x.time_zone ? `Wirksam: ${eff}.` : `Nicht eingestellt; der Hive rechnet in ${eff} (Umgebungsvariable TZ, sonst UTC).`),
+  browser && browser !== x.time_zone ? h("p", { class: "help" }, `Dein Browser nutzt ${browser}. `,
+    h("button", { class: "btn small", type: "button", onclick: () => { input.value = browser; x.time_zone = browser; sec.markDirty(); } }, "Übernehmen")) : null);
+  if (suggest) sec.markDirty();
+  return sec;
+}
+
 // ---------- Auswertung und KI ----------
 
 async function tabAuswertung() {
@@ -818,6 +846,19 @@ function shareLogTable(ch, subjectLabel, okText) {
       })))) : h("div", { class: "empty" }, "Noch keine Einträge."));
 }
 
+// Nachlade-Adressen, die der Hive bewusst nicht geholt hat (hive/share.go, sampleSkip).
+function skippedTable(list) {
+  const intro = h("p", { class: "muted" }, "Jede Runde (alle 5 Minuten) sucht in Befehlen und Downloads seit der letzten vollständigen Runde, beim ersten Mal in den letzten 24 Stunden. ",
+    "Geholt wird nur aus ausgeführten Befehlen und Downloads; Adressen in Web-Anfragen oder Rohdaten (z. B. Forschungsscanner) zählen in der Übersicht als Nachladeversuch, werden aber nie geholt.");
+  if (!list || !list.length) return h("div", null, intro, h("div", { class: "empty" }, "Seit dem letzten Start nichts übersprungen."));
+  return h("div", null, intro, h("div", { class: "tablewrap" }, h("table", null,
+    h("thead", null, h("tr", null, ["Zeit", "Adresse", "Grund"].map((t) => h("th", null, t)))),
+    h("tbody", null, list.map((s) => h("tr", null,
+      h("td", { class: "num" }, new Date(s.time).toLocaleString("de-DE")),
+      h("td", { class: "mono", style: { wordBreak: "break-all" } }, s.url),
+      h("td", null, s.reason)))))));
+}
+
 function quarantineTable(q) {
   if (!q || !q.files.length) return h("div", { class: "empty" }, "Die Quarantäne ist leer.");
   return h("div", null,
@@ -877,7 +918,8 @@ async function shareCards(ex) {
   row("Platz insgesamt (MB)", ex.num(sc, "max_total_mb", 10, 10000, 10), "Darüber werden die ältesten Dateien gelöscht."),
   row("User-Agent", ex.text(sc, "user_agent", { maxlength: 120 }), "Wie ein gewöhnliches Werkzeug, z. B. Wget/1.21.4 oder curl/8.5.0. Keine Angaben, die auf dich hinweisen."),
   h("details", null, h("summary", null, "Quarantäne"), quarantineTable(st && st.quarantine)),
-  h("details", null, h("summary", null, "Protokoll der Downloads"), shareLogTable(st && st.sample, "Adresse", "geholt")));
+  h("details", null, h("summary", null, "Protokoll der Downloads"), shareLogTable(st && st.sample, "Adresse", "geholt")),
+  h("details", null, h("summary", null, "Nicht geholt (mit Grund)"), skippedTable(st && st.sample && st.sample.skipped)));
 
   const bz = x.bazaar;
   const bazaar = section("MalwareBazaar: Proben teilen", {

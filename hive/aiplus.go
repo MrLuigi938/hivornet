@@ -129,7 +129,7 @@ type aiBudget struct {
 
 // aiBudgetNow: Stand des Tages (im Schlüssel-Wert-Speicher, überlebt Neustarts).
 func (h *Hive) aiBudgetNow() aiBudget {
-	day := time.Now().Format("2006-01-02")
+	day := hiveNow().Format("2006-01-02")
 	var b aiBudget
 	if v, ok := h.st.GetKV("ai_plus_budget"); ok {
 		json.Unmarshal([]byte(v), &b)
@@ -374,7 +374,7 @@ func (h *Hive) weeklyAIData(ctx context.Context, d weeklyData) string {
 			tags = append(tags, nonEmptyFirst(t.Label, t.Key))
 		}
 		fmt.Fprintf(&b, "- %s: %d Angriffe von %d IPs, höchste Stufe %d, seit %s; Muster: %s\n", f.Name, f.Attacks, f.IPs, f.Stufe,
-			time.UnixMilli(f.First).Format("02.01. 15:04"), strings.Join(tags, ", "))
+			time.UnixMilli(f.First).In(hiveLoc()).Format("02.01. 15:04"), strings.Join(tags, ", "))
 		for _, c := range f.Example[:min(3, len(f.Example))] {
 			b.WriteString("    " + clip(c, 200) + "\n")
 		}
@@ -663,7 +663,7 @@ func (h *Hive) runAIPlus(stop <-chan struct{}) {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		h.briefScan(ctx)
 		// KI-Wochenbericht auch ohne Benachrichtigungen montags bereitlegen
-		if now := time.Now(); now.Weekday() == time.Monday && now.Hour() >= 8 {
+		if now := hiveNow(); now.Weekday() == time.Monday && now.Hour() >= 8 {
 			if s, ok := h.aiWeeklyGet(); !ok || s.Week != isoWeek(now) {
 				if _, _, err := h.aiPlusConf("weekly"); err == nil {
 					h.aiWeekly(ctx, time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()), false)
@@ -937,7 +937,7 @@ func (h *Hive) aiSearchAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	sys := aiSearchPrompt() + "\nHeute ist " + time.Now().Format("Monday, 02.01.2006") + "."
+	sys := aiSearchPrompt() + "\nHeute ist " + hiveNow().Format("Monday, 02.01.2006") + "."
 	out, err := h.aiRun(ctx, c, p, aiTask{Feature: "search", System: sys, Data: "Frage: " + q, MaxTok: 400})
 	if err != nil {
 		aiHTTPErr(w, err)

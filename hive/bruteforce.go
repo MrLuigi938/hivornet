@@ -262,6 +262,10 @@ func (h *Hive) mergeCondensed(ctx context.Context, ip string, ports, creds []map
 	return ports, creds, total
 }
 
+// bruteTopField: Top-Listen, die sich ohne Dauer-Brute-Force zeigen lassen (es gibt Zähler
+// unter "bf:<feld>"; asn erst ab 0.8.1).
+func bruteTopField(f string) bool { return condensedTopField[f] || f == "asn" }
+
 // ---------- Verdichten (Writer) ----------
 
 const (

@@ -29,12 +29,67 @@ import (
 // ---------- C2: Familien ----------
 
 var (
-	normURL  = regexp.MustCompile(`(?i)\b(?:https?|ftp|tftp)://\S+`)
-	normIP   = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b`)
-	normHex  = regexp.MustCompile(`(?i)\b[0-9a-f]{8,}\b`)
+	normURL = regexp.MustCompile(`(?i)\b(?:https?|ftp|tftp)://\S+`)
+	normIP  = regexp.MustCompile(`\b\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?\b`)
+	// Hex-Folgen auch mitten in Wörtern ("check_7c4d…_small", "sysde56f9f3f"): der Unterstrich
+	// ist ein Wortzeichen, \b griffe dort nicht. Ersetzt wird nur, wenn eine Ziffer darin
+	// steckt (sonst blieben Wörter wie "deadbeef" oder "facade" erhalten).
+	normHex = regexp.MustCompile(`(?i)[0-9a-f]{8,}`)
+	// Zufallskennungen aus gemischter Groß- und Kleinschreibung ("aSkcLraK", Wallet-Adressen)
+	normRnd  = regexp.MustCompile(`[A-Za-z0-9]{6,}`)
 	normNum  = regexp.MustCompile(`\b\d+\b`)
 	normSplt = regexp.MustCompile(`[\s;|&]+`)
 )
+
+func hexRun(s string) string {
+	if strings.ContainsAny(s, "0123456789") && strings.IndexFunc(s, func(r rune) bool { return r < '0' || r > '9' }) >= 0 {
+		return "HEX"
+	}
+	return s
+}
+
+// randomToken: wirkt die Folge wie eine Zufallskennung? Mindestens drei Wechsel von klein
+// auf groß ("aSkcLraK") oder Groß- und Kleinbuchstaben mit Ziffern ab acht Zeichen
+// (Wallet-Adressen). "CamelCase", "NetworkManager" und "x86" bleiben erhalten.
+func randomToken(s string) string {
+	var up, low, dig, humps int
+	prevLow := false
+	for _, r := range s {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			up++
+			if prevLow {
+				humps++
+			}
+			prevLow = false
+		case r >= 'a' && r <= 'z':
+			low++
+			prevLow = true
+		default:
+			dig++
+			prevLow = false
+		}
+	}
+	if humps >= 3 || up > 0 && low > 0 && dig > 0 && len(s) >= 8 {
+		return rndMark
+	}
+	return s
+}
+
+// rndMark übersteht das Kleinschreiben und wird danach zu "RND".
+const rndMark = "\x00"
+
+// normCommand ersetzt zufällige Teile eines Befehls durch Platzhalter.
+func normCommand(c string) string {
+	c = normRnd.ReplaceAllStringFunc(c, randomToken) // braucht noch die Groß- und Kleinschreibung
+	c = strings.ToLower(c)
+	c = strings.ReplaceAll(c, rndMark, "RND")
+	c = normURL.ReplaceAllString(c, "URL")
+	c = normIP.ReplaceAllString(c, "IP")
+	c = normHex.ReplaceAllStringFunc(c, hexRun)
+	c = normNum.ReplaceAllString(c, "N")
+	return c
+}
 
 // commandTokens: normalisierte Wörter und Wortpaare einer Befehlsfolge. Zufällige Teile
 // (Adressen, Hashes, Zahlen) werden durch Platzhalter ersetzt, damit Varianten derselben
@@ -43,11 +98,7 @@ func commandTokens(cmds []string) map[string]bool {
 	set := map[string]bool{}
 	var prev string
 	for _, c := range cmds {
-		c = strings.ToLower(c)
-		c = normURL.ReplaceAllString(c, "URL")
-		c = normIP.ReplaceAllString(c, "IP")
-		c = normHex.ReplaceAllString(c, "HEX")
-		c = normNum.ReplaceAllString(c, "N")
+		c = normCommand(c)
 		for _, w := range normSplt.Split(c, -1) {
 			if w == "" || len(set) > 400 {
 				continue
@@ -80,6 +131,55 @@ func jaccard(a, b map[string]bool) float64 {
 }
 
 const familyThreshold = 0.5
+
+// familySim: Jaccard-Ähnlichkeit; steckt eine Befehlsfolge mit mindestens 8 Merkmalen
+// fast ganz (90 %) in der anderen, zählt das ebenfalls als Treffer (ein Bot, der einmal
+// abbricht und einmal weitermacht, bleibt eine Familie).
+func familySim(a, b map[string]bool) float64 {
+	j := jaccard(a, b)
+	if j >= familyThreshold {
+		return j
+	}
+	small, big := a, b
+	if len(small) > len(big) {
+		small, big = big, small
+	}
+	if len(small) < 8 {
+		return j
+	}
+	in := 0
+	for k := range small {
+		if big[k] {
+			in++
+		}
+	}
+	if float64(in) >= 0.9*float64(len(small)) {
+		return familyThreshold
+	}
+	return j
+}
+
+// distinctFamilyNames: Tragen mehrere Familien denselben Namen (z. B. drei verschiedene
+// Befehlsfolgen, die alle als "Dienst-Erkundung über Docker-API" gelten), bekommt jede
+// den Anfang ihres ersten Befehls dazu, damit sie nicht wie Doppelungen aussehen.
+func distinctFamilyNames(out []Family) {
+	n := map[string]int{}
+	for _, f := range out {
+		n[f.Name]++
+	}
+	for i := range out {
+		if n[out[i].Name] < 2 || len(out[i].Example) == 0 {
+			continue
+		}
+		hint := clip(strings.Join(strings.Fields(out[i].Example[0]), " "), 40)
+		if _, rest, ok := strings.Cut(out[i].Name, " …“"); ok && strings.HasPrefix(out[i].Name, "„") {
+			// "„uname …“ über SSH" → "„uname -s -m“ über SSH"
+			out[i].Name = "„" + hint + "“" + rest
+			continue
+		}
+		out[i].Name += " · „" + hint + "“"
+	}
+}
 
 type Family struct {
 	ID        string   `json:"id"`
@@ -121,7 +221,7 @@ func buildFamilies(ctx context.Context, list []*Attack, now time.Time) []Family 
 		var best, closest *fam
 		bestSim, closestSim := familyThreshold, -1.0
 		for _, f := range fams {
-			s := jaccard(toks, f.rep)
+			s := familySim(toks, f.rep)
 			if s >= bestSim {
 				best, bestSim = f, s
 			}
@@ -174,6 +274,7 @@ func buildFamilies(ctx context.Context, list []*Attack, now time.Time) []Family 
 		fm.Name = familyName(fm, rep)
 		out = append(out, fm)
 	}
+	distinctFamilyNames(out)
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].New != out[j].New {
 			return out[i].New
@@ -373,7 +474,7 @@ func (h *Hive) insights(w http.ResponseWriter, r *http.Request) {
 	}
 	// Für "neu" braucht es Vorgeschichte: mindestens 7 Tage laden.
 	d := max(rangeDur(rng, 7*24*time.Hour), 7*24*time.Hour)
-	list, truncated, err := h.loadAttacks(ctx, time.Now().Add(-d), nil)
+	list, truncated, err := h.attacksSince(ctx, time.Now().Add(-d))
 	if err != nil {
 		httpErr(w, 500, err.Error())
 		return

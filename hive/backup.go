@@ -316,7 +316,7 @@ func (h *Hive) backupExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer f.Close()
-	name := "hivornet-sicherung-" + time.Now().Format("2006-01-02-1504") + ".hvbak"
+	name := "hivornet-sicherung-" + hiveNow().Format("2006-01-02-1504") + ".hvbak"
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
 	w.Header().Set("Cache-Control", "no-store")

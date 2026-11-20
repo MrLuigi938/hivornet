@@ -2,6 +2,28 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+**Update:** Raspberry Pi per Knopf; der Updater übernimmt die geänderte Cowrie-Dienstdatei, startet Cowrie neu und schaltet den neuen Zeitgeber `hivornet-brute-bans.timer` ein. Danach unter Einstellungen → Honeypot einmal die **Zeitzone** speichern (Vorschlag aus dem Browser).
+
+### Neu
+- **Zeitzone als Einstellung** (Einstellungen → Honeypot): Uhrzeiten, die der Hive selbst schreibt (Angriffsbericht, Wochenbericht, KI-Texte, Fehlermeldungen), und seine Zeitpläne („Wochenbericht montags ab 8 Uhr“) richten sich nach ihr. Vorschlag aus der Zeitzone des Browsers; ohne Einstellung gilt die Umgebungsvariable `TZ`, sonst UTC. Die Zonendaten sind eingebettet.
+- **Zusammengehörige IPs:** Die Angreiferseite zeigt „Gehört vermutlich zu …“ mit Begründung, Angriffslisten ein dezentes Merkmal „Gruppe · N IPs“. Gebündelt wird nur bei derselben Zugangsdatenliste (mindestens 10 Kombinationen), derselben Nachlade-Adresse oder Wallet, oder wenn ein seltener Fingerabdruck, dieselbe Befehlsfolge oder dieselben ersten 20 Zugangsdaten in derselben Reihenfolge mit demselben Netz (/24) bzw. Netzbetreiber zusammentreffen. Netz, Netzbetreiber oder zeitliche Nähe allein genügen nie.
+- **Dauer-Brute-Force: gedrosselt oder gesperrt?** Auf dem Raspberry Pi schreibt ein Zeitgeber jede Minute die Sperrliste der Drossel in eine Statusdatei; der Hive liest nur diese Datei und bekommt keine Rechte an der Firewall. „Gerade aktiv“, Angriffe und Angreiferseite zeigen bei aktiven Dauer-Brute-Forcern z. B. „wird gedrosselt (6/min, Spitze 20) · gesperrt bis 14:05“; im Docker-Betrieb ehrlich „Status je IP unbekannt“.
+- **Statistiken ohne Dauer-Brute-Force:** Die Top-Listen Zugangsdaten, Befehle, Clients und Netzbetreiber (Dashboard und „Zugangsdaten“) lassen standardmäßig die verdichteten Versuche erkannter Dauer-Brute-Forcer weg; je Brute-Forcer zählen nur die Versuche bis zur Erkennung. Schalter „einblenden“ (im Browser gemerkt); die Kennzahl Login-Versuche nennt den Anteil. Rohdaten bleiben vollständig. Netzbetreiber erst für Daten ab dieser Version.
+- **Angreiferseite bei vielen Angriffen: Zusammenfassung zuerst.** Ab dem 4. Angriff einer IP steht oben eine Auswertung über alle Angriffe, die die Aufbewahrung hält (auf dem Hive berechnet): Anzahl und Tage, Rhythmus, angenommene Logins, Zeitstreifen mit einem Punkt je Angriff (Farbe = Stufe, Nächte dunkel), Stufen, in Sätzen was er gemacht hat, häufigste Zugangsdaten und alle Befehle in Reihenfolge. Darunter die letzten 3 Angriffe als Karten, ältere auf Knopfdruck als kompakte Zeilen, die sich aufklappen lassen. Bis 3 Angriffe bleibt die Seite wie bisher.
+- **Dateien sammeln: „Nicht geholt (mit Grund)“** listet Nachlade-Adressen, die der Hive bewusst nicht geholt hat (ftp/tftp, Forschungsscanner, eigene Adresse, Limits …).
+
+### Geändert
+- **Schneller:** Erkenntnisse, Kampagnen, Exploits und die Seite „Angriffe“ nutzen einen gemeinsamen Schnappschuss der Angriffe der letzten sieben Tage (voller Aufbau im Hintergrund, dazwischen nur IPs mit neuen Ereignissen). Mit 185.000 Testereignissen auf einem Desktop: Erkenntnisse 586 → 18 ms, Kampagnen 529 → 28 ms, Exploits 517 → 5 ms; auf dem Pi bisher je etwa 7 Sekunden. Neue Ereignisse erscheinen dort spätestens nach 20 Sekunden; ungenutzt gibt der Hive den Schnappschuss nach 20 Minuten frei.
+- **Angriffsfamilien:** Zufallskennungen mitten in Wörtern (`check_<hex>_small_control`) und Zufallsnamen aus gemischter Schreibung (`busybox aSkcLraK`, Wallet-Adressen) gelten als Platzhalter; eine fast vollständig enthaltene Befehlsfolge gehört zur selben Familie; gleich benannte Familien bekommen den Anfang ihres ersten Befehls dazu.
+
+### Behoben
+- **Cowrie auf dem Pi ohne Mitschnitte und Downloads:** Die Ordner `lib/tty` und `lib/downloads` fehlten („Failed to open TTY log“); jetzt legt sie die Dienstdatei an.
+- **Uhrzeiten in UTC:** Angriffsbericht, Wochenbericht und KI-Texte nannten auf dem Pi und im Container UTC-Zeiten (siehe Zeitzone).
+- **Angriffsbericht** nannte als Zahl der verschiedenen Kombinationen die Länge der auf 40 gekürzten Liste („1000 Login-Versuche mit 40 verschiedenen Kombinationen“); jetzt die echte Zahl.
+- **Dateien sammeln** sah nur die letzten 30 Minuten: Adressen von vor dem Einschalten, aus einem Neustart oder Update oder einer abgebrochenen Runde wurden nie geholt. Jetzt ab der letzten vollständigen Runde (beim ersten Mal 24 Stunden, höchstens 48).
+
 ## [0.8.0-beta] – 2026-11-20
 
 **Update:** Raspberry Pi per Knopf (System → Updates, Kanal „Vorabversionen“), kein neues Image nötig. Ab dieser Version spielt der Pi nur noch signierte Veröffentlichungen ein; das Update auf 0.8.0-beta selbst übernimmt noch der bisherige Updater. Docker: `sh update.sh`, danach `sudo sh tools/firewall.sh`; wer die neue Drossel für Dauer-Brute-Forcer nutzen will, stattdessen den Aufruf aus Einstellungen → Honeypot → Dauer-Brute-Force. Beim ersten Start zählt der Hive die Top-Listen einmal neu (neue Exploit-Regeln, Fremdprotokolle). Die neuen Weitergabe- und KI-Funktionen sind zunächst aus; die eigene öffentliche Adresse wird ab dem Start automatisch ermittelt (abschaltbar).

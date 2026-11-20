@@ -132,7 +132,7 @@ func (h *Hive) weeklyStats(ctx context.Context, to time.Time) weeklyData {
 func (d weeklyData) Text() string {
 	var b strings.Builder
 	f := func(n int64) string { return fmtThousands(n) }
-	fmt.Fprintf(&b, "%s bis %s\n", d.From.Format("02.01."), d.To.Add(-time.Minute).Format("02.01.2006"))
+	fmt.Fprintf(&b, "%s bis %s\n", d.From.In(hiveLoc()).Format("02.01."), d.To.Add(-time.Minute).In(hiveLoc()).Format("02.01.2006"))
 	fmt.Fprintf(&b, "%s Verbindungen von %s IPs; %s Login-Versuche, davon %s angenommen; %s Web-Anfragen; %s Befehle; %s Downloads.\n",
 		f(d.Connects), f(d.IPs), f(d.Logins), f(d.Success), f(d.Requests), f(d.Commands), f(d.Downl))
 	list := func(title string, c []Count, label bool) {
@@ -193,7 +193,7 @@ func (h *Hive) runWeekly(stop <-chan struct{}) {
 			continue
 		}
 		last, _ := h.st.GetKV("weekly_last")
-		now := time.Now()
+		now := hiveNow()
 		if !weeklyDue(now, last) {
 			continue
 		}

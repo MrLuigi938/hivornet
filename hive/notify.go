@@ -232,7 +232,7 @@ func (n *Notifier) Run(stop <-chan struct{}) {
 			err := n.Send(n.cfg(), nt)
 			n.mu.Lock()
 			if err != nil {
-				n.lastErr = time.Now().Format("02.01. 15:04") + ": " + err.Error()
+				n.lastErr = hiveNow().Format("02.01. 15:04") + ": " + err.Error()
 				log.Printf("Benachrichtigung: %v", err)
 			} else {
 				n.sent++

@@ -6,7 +6,7 @@
 # und (nur für den Honeypot) die Sensor-API des Hive auf 127.0.0.1:8089. Wird der Honeypot übernommen, kommt der
 # Angreifer von dort weder ins Heimnetz noch ins Internet noch an die Web-UI.
 #
-#   hivornet-firewall apply | remove | status
+#   hivornet-firewall apply | remove | status | bans
 #
 # Verwaltungsanschluss: Ein USB-Netzwerkadapter (eth1 … eth9 oder enx…) darf ins
 # Heimnetz, während der eingebaute Anschluss im Gastnetz steckt. Über ihn ist nur die
@@ -326,11 +326,55 @@ $cow  }
 EOF
 }
 
+# bans: schreibt die gerade gesperrten IPs der Drossel nach $STATUS_DIR/brute-bans, damit die
+# Web-UI zeigen kann, ob ein Dauer-Brute-Forcer gesperrt ist (hivornet-brute-bans.timer, jede
+# Minute). Der Hive liest nur diese Datei, er bekommt dafür keine Rechte an nftables.
+# Format: Zustand (ok|off|failed), Unix-Zeit, Text, danach je Zeile "IP ABLAUF" (Unix-Zeit),
+# höchstens 2000 Zeilen. Nur Zeichen aus IP-Adressen gelangen in die Datei.
+ban_lines() { # ban_lines MENGE JETZT
+  nft list set inet hivornet "$1" 2>/dev/null | tr '\n\t' '  ' |
+    sed -n 's/.*elements = {\([^}]*\)}.*/\1/p' | tr ',' '\n' |
+    awk -v now="$2" '
+      function secs(d,   t, n, u) {
+        t = 0
+        while (match(d, /^[0-9]+(ms|d|h|m|s)/)) {
+          n = substr(d, 1, RLENGTH); d = substr(d, RLENGTH + 1)
+          u = n; sub(/^[0-9]+/, "", u); sub(/[a-z]+$/, "", n)
+          if (u == "d") t += n * 86400; else if (u == "h") t += n * 3600
+          else if (u == "m") t += n * 60; else if (u == "s") t += n
+        }
+        return t
+      }
+      {
+        ip = $1; ex = ""
+        for (i = 2; i < NF; i++) if ($i == "expires") ex = $(i + 1)
+        if (ip ~ /^[0-9a-fA-F:.]+$/ && length(ip) <= 45 && ex != "") print ip, now + secs(ex)
+      }'
+}
+write_bans() {
+  mkdir -p "$STATUS_DIR" 2>/dev/null || return 0
+  f="$STATUS_DIR/brute-bans"
+  read_brute
+  now=$(date +%s)
+  if [ "$BRUTE" != 1 ]; then
+    printf 'off\n%s\nDrossel aus\n' "$now" >"$f.neu"
+  elif ! command -v nft >/dev/null 2>&1 || ! nft list table inet hivornet >/dev/null 2>&1; then
+    printf 'failed\n%s\nnftables-Tabelle nicht lesbar\n' "$now" >"$f.neu"
+  else
+    { printf 'ok\n%s\nDrossel aktiv: %s je Minute, Spitze %s, Sperre %s Minuten\n' "$now" "$RATE" "$BURST" "$BAN"
+      { ban_lines brute_ban4 "$now"; ban_lines brute_ban6 "$now"; } | head -n 2000
+    } >"$f.neu"
+  fi
+  chmod 644 "$f.neu"
+  mv "$f.neu" "$f"
+}
+
 case "${1:-apply}" in
   apply) apply ;;
+  bans) write_bans ;;
   remove) remove; rm -f "$STATUS_DIR/firewall"; echo "Netzsperre entfernt." ;;
   status)
     if command -v nft >/dev/null 2>&1; then nft list table inet hivornet 2>/dev/null || echo "nicht aktiv"; fi
     ;;
-  *) die "unbekannter Befehl: $1 (apply|remove|status)" ;;
+  *) die "unbekannter Befehl: $1 (apply|remove|status|bans)" ;;
 esac
