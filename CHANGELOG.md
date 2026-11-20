@@ -2,9 +2,9 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.9.0-beta] – 2026-11-20
 
-**Update:** Raspberry Pi per Knopf; der Updater übernimmt die geänderte Cowrie-Dienstdatei, startet Cowrie neu und schaltet den neuen Zeitgeber `hivornet-brute-bans.timer` ein. Danach unter Einstellungen → Honeypot einmal die **Zeitzone** speichern (Vorschlag aus dem Browser).
+**Update:** Docker: `sh update.sh`. Raspberry Pi per Knopf (System → Updates); der Updater übernimmt die geänderte Cowrie-Dienstdatei, startet Cowrie neu und schaltet den neuen Zeitgeber `hivornet-brute-bans.timer` ein. Danach unter Einstellungen → Honeypot einmal die **Zeitzone** speichern (Vorschlag aus dem Browser).
 
 ### Neu
 - **Zeitzone als Einstellung** (Einstellungen → Honeypot): Uhrzeiten, die der Hive selbst schreibt (Angriffsbericht, Wochenbericht, KI-Texte, Fehlermeldungen), und seine Zeitpläne („Wochenbericht montags ab 8 Uhr“) richten sich nach ihr. Vorschlag aus der Zeitzone des Browsers; ohne Einstellung gilt die Umgebungsvariable `TZ`, sonst UTC. Die Zonendaten sind eingebettet.
