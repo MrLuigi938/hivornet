@@ -62,6 +62,7 @@ type Hive struct {
 	probe     *portProbe    // lauschen die Cowrie-Ports? (probe.go)
 	abuse     abuseReporter // Meldungen an AbuseIPDB (abusereport.go)
 	ports     portActivity  // seit wann welche Ports laufen (silentports.go)
+	share     shareState    // URLhaus, Dateien sammeln, MalwareBazaar, DShield (share.go)
 }
 
 func env(k, def string) string {
@@ -221,6 +222,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("PUT /api/extras", a.Require(h.putExtras))
 	ui.HandleFunc("POST /api/extras/test-notify", a.Require(h.testNotify))
 	ui.HandleFunc("GET /api/abuse/log", a.Require(h.abuseLog))
+	ui.HandleFunc("GET /api/share/status", a.Require(h.shareStatus))
 	ui.HandleFunc("GET /api/campaigns", a.Require(h.campaigns))
 	ui.HandleFunc("GET /api/analysis/patterns", a.Require(h.patternStats))
 	ui.HandleFunc("GET /api/analysis/exploits", a.Require(h.exploitsAPI)) // Exploits nach Produkt (exploits.go)
@@ -330,6 +332,8 @@ func main() {
 	go h.checkUpdates(bgStop)
 	h.abuse.load(st)
 	go h.runAbuseReports(bgStop)
+	h.share.load(st)
+	go h.runSharing(bgStop)
 	botVerifier.mu.Lock()
 	botVerifier.st = st
 	botVerifier.mu.Unlock()
