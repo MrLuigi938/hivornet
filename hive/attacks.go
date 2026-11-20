@@ -65,6 +65,7 @@ type Attack struct {
 	Fingerprints  []string       `json:"fingerprints,omitempty"` // JA4, JA3, HASSH, HTTP-Kopfzeilen (tlsfp.go)
 	Tags          []Count        `json:"tags,omitempty"`         // erkannte Muster (Key = ID, Label = Name)
 	CVEs          []Count        `json:"cves,omitempty"`         // bekannte Lücken (cve.go; Key = CVE, Label = Name)
+	Exploits      []ExploitHit   `json:"exploits,omitempty"`     // Regeltreffer: Produkt, CVE, Probe oder Ausnutzung (cve.go)
 	Mitre         []string       `json:"mitre,omitempty"`        // MITRE-ATT&CK-Techniken der Muster
 	Success       bool           `json:"success,omitempty"`
 	SuccessCred   string         `json:"success_cred,omitempty"`
@@ -80,6 +81,7 @@ type Attack struct {
 	// nur zum Aufbau
 	creds, paths, tags, loginSvc map[string]int
 	cves                         map[string]int
+	rules                        ruleHits
 	svc                          map[string]bool
 	port                         map[int]bool
 	seenCmd, seenSess, seenCli   map[string]bool
@@ -276,6 +278,12 @@ func (a *Attack) add(e *Event) {
 	for _, r := range eventCVEs(text, on) {
 		a.cves[r.CVE]++
 	}
+	for _, r := range an.rules {
+		if a.rules == nil {
+			a.rules = ruleHits{}
+		}
+		a.rules.add(r, requestKey(e), ms)
+	}
 	for _, d := range an.revealed {
 		if len(a.Decoded) < 10 && !slices.Contains(a.Decoded, clip(d, 500)) {
 			a.Decoded = append(a.Decoded, clip(d, 500))
@@ -347,8 +355,9 @@ func (a *Attack) finish() {
 	}
 	a.CVEs = topCounts(a.cves, 8)
 	for i := range a.CVEs {
-		a.CVEs[i].Label = cveByID[a.CVEs[i].Key].Name
+		a.CVEs[i].Label = cveLabel(a.CVEs[i].Key)
 	}
+	a.Exploits = a.rules.list(12)
 	a.Stufe = a.stufe()
 	a.Own = ownHidden(a.IP)              // eigener Test, der aus Kennzahlen herausgehalten wird
 	a.Scanner = researchScanner(a.ASOrg) // nur AS-Name, nie der User-Agent (scanner.go)
@@ -427,7 +436,7 @@ func (a *Attack) classify() string {
 		if a.svc["dockerapi"] && len(a.svc) == 1 {
 			return "Docker-API-Abfrage"
 		}
-		if has("web_rce") || has("iot_exploit") || has("log4shell") || has("java4shell") || has("traversal") || has("sqli") {
+		if has("web_rce") || has("iot_exploit") || has("log4shell") || has("java4shell") || has("known_exploit") || has("traversal") || has("sqli") {
 			return "Web-Exploit"
 		}
 		return "Web-Scanner"
@@ -576,6 +585,9 @@ func (a *Attack) matches(q string) bool {
 	}
 	for _, c := range a.CVEs {
 		parts = append(parts, c.Key, c.Label)
+	}
+	for _, x := range a.Exploits {
+		parts = append(parts, x.Product, x.CVE)
 	}
 	return strings.Contains(strings.ToLower(strings.Join(parts, "\n")), q)
 }

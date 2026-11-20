@@ -6,6 +6,7 @@
 import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip } from "./dom.js";
 import { svcName, svcColor } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, MODE_NAME, route } from "./app.js";
+import { cveInfo, cveBadges, cveDetails, kindChip } from "./attacks.js";
 
 // ---------- Bausteine ----------
 
@@ -90,8 +91,8 @@ export async function viewAnalysis(el, ctx) {
   const total = pats.reduce((a, p) => a + p.n, 0);
   const deepest = pats.length ? Math.max(...pats.map((p) => p.phase)) : -1;
 
-  // Kennzahlen; drei davon kommen mit /api/campaigns nach (das dauert länger)
-  const tCamp = asyncTile("Kampagnen"), tHp = asyncTile("Honeypot-Prüfungen"), tNoCve = asyncTile("Exploits ohne CVE");
+  // Kennzahlen; drei davon kommen mit /api/campaigns bzw. /api/analysis/exploits nach (das dauert länger)
+  const tCamp = asyncTile("Kampagnen"), tHp = asyncTile("Honeypot-Prüfungen"), tNoCve = asyncTile("Exploits ohne Zuordnung");
   const kpis = h("div", { class: "grid kpi" },
     tile("Muster-Treffer", fmtNum(total), `${fmtNum(pats.length)} verschiedene Muster`),
     tile("Weiteste Phase", deepest >= 0 ? pd.phases[deepest] : "–", deepest >= 0 ? pats.filter((p) => p.phase === deepest).map((p) => p.name).slice(0, 2).join(", ") : "noch nichts erkannt"),
@@ -154,15 +155,14 @@ export async function viewAnalysis(el, ctx) {
   // Kampagnen, Honeypot-Prüfungen, Lücken: Platzhalter, gefüllt nach /api/campaigns
   const campBody = h("div", { class: "muted" }, "Wird berechnet …");
   const hpBody = h("div", { class: "muted" }, "Wird berechnet …");
-  const noCveBody = h("div");
   const cveCard = card("Bekannte Lücken",
     rankMore(cves, 8, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => find(x.key), color: () => "var(--sev4)", empty: "Keine Ausnutzungsversuche bekannter Lücken erkannt." }),
-    h("p", { class: "muted aw-small" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre."),
-    noCveBody);
+    h("p", { class: "muted aw-small" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre. Proben und Produkte ohne CVE stehen in der Tabelle „Exploits nach Produkt“."));
+  const xp = exploitSection(ctx, tNoCve);
 
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Was Angreifer tun, nachdem sie verbunden sind: erkannte Vorgehensweisen nach Phasen, ihre Werkzeuge und woran man sie wiedererkennt. Die Zuordnung erfolgt nach festen Regeln auf dem Hive."),
-    kpis, phaseBoard,
+    kpis, phaseBoard, xp.el,
     h("div", { class: "grid aw-21" }, toolsCard, indCard),
     h("div", { class: "grid two" }, fpCard,
       h("div", { class: "stack" }, card("Kampagnen", campBody), card("Honeypot-Prüfungen", hpBody), cveCard))));
@@ -170,10 +170,9 @@ export async function viewAnalysis(el, ctx) {
   let d;
   try { d = await api("campaigns?range=" + state.range); } catch (e) { campBody.replaceWith(h("div", { class: "msg err" }, e.message)); return; }
   if (ctx && !ctx.current()) return;
-  const camps = d.campaigns || [], hp = d.hp_check || { attacks: 0, ips: 0, continued: 0, recent: [] }, nc = d.no_cve || { attacks: 0, paths: [], recent: [] };
+  const camps = d.campaigns || [], hp = d.hp_check || { attacks: 0, ips: 0, continued: 0, recent: [] };
   tCamp.set(fmtNum(camps.length), camps.filter((c) => c.reasons.some((r) => r.startsWith("gleiche Wallet"))).length ? "auch über gleiche Wallet" : "gleiche Liste, Adresse oder Wallet");
   tHp.set(fmtNum(hp.attacks), hp.attacks ? `${fmtNum(hp.ips)} IPs · ${fmtNum(hp.continued)} haben weitergemacht` : "Shell-Echtheitstests");
-  tNoCve.set(fmtNum(nc.attacks), nc.attacks ? "Regeln fehlen, Liste unten" : "alle Exploits zugeordnet");
   for (const t of d.tools || []) if (fpIPs[t.fingerprint]) fpIPs[t.fingerprint].textContent = `${fmtNum(t.n_ips)} IPs · ${fpIPs[t.fingerprint].textContent}`;
 
   campBody.replaceWith(camps.length ? moreList(camps, 6, (list) => h("div", null, list.map((c) => h("div", { class: "aw-item" },
@@ -190,11 +189,150 @@ export async function viewAnalysis(el, ctx) {
         h("div", { class: "row" }, flag(x.country || ""), ipLink(x.ip), x.continued ? chip("weitergemacht", "ok") : chip("abgebrochen", "warn"), h("span", { class: "muted aw-right" }, relTime(x.last))),
         x.next ? h("div", { class: "mono aw-small muted", title: x.next }, "danach: " + x.next) : null))))]
       : h("div", { class: "empty" }, "Im Zeitraum keine Honeypot-Prüfungen.")));
+}
 
-  if (nc.attacks) noCveBody.replaceWith(h("div", { class: "aw-note" },
-    h("b", null, `${fmtNum(nc.attacks)} Exploit-Versuche ohne CVE-Zuordnung`),
-    h("div", { class: "muted aw-small" }, "Häufigste Pfade; Vorlage für neue Regeln in hive/cve.go."),
-    moreList(nc.paths, 10, (list) => h("div", null, list.map((p) => code(p.key, p.n))))));
+// ---------- Exploits nach Produkt (hive/exploits.go, cvedb.go, cvesuggest.go) ----------
+
+const isAdmin = () => state.user && state.user.role === "admin";
+const CHECK = { kev: ["im KEV-Katalog", "ok"], nvd: ["in der NVD", "ok"], unbekannt: ["der NVD unbekannt", "warn"], offen: ["noch nicht geprüft", ""], "ungültig": ["ungültig", "warn"] };
+
+// Tabelle Anfrage → Produkt → Lücke, darunter Exploits ohne Zuordnung mit Regelvorschlägen der KI.
+function exploitSection(ctx, tileNoCve) {
+  const body = h("div", { class: "muted" }, "Wird berechnet …");
+  const lower = h("div");
+  const el = card("Exploits nach Produkt",
+    h("p", { class: "sub" }, "Welche Software Angreifer suchen (Probe) oder angreifen (Ausnutzung): Anfrage → Produkt → Lücke. CVSS und Beschreibung stammen von der NVD, EPSS (FIRST) schätzt die Wahrscheinlichkeit einer Ausnutzung in den nächsten 30 Tagen, KEV heißt: im CISA-Katalog der tatsächlich ausgenutzten Lücken. Ein Treffer heißt: versucht, nicht: verwundbar."),
+    body, lower);
+  let d = null, extra = { suggestions: [], rules: [] }, notice = "";
+  let kind = "", filter = "";
+
+  const load = async () => {
+    try { d = await api("analysis/exploits?range=" + state.range); } catch (e) { mount(body, h("div", { class: "msg err" }, e.message)); return; }
+    if (ctx && !ctx.current()) return;
+    const nc = d.no_cve || { attacks: 0, paths: [] };
+    tileNoCve.set(fmtNum(nc.attacks), nc.attacks ? "ohne Regel, Liste unter der Tabelle" : "alle Exploits zugeordnet");
+    renderTable();
+    await loadExtra();
+  };
+  const loadExtra = async () => {
+    try { extra = await api("cve/suggestions"); } catch { extra = { suggestions: [], rules: [] }; }
+    if (ctx && !ctx.current()) return;
+    renderLower();
+  };
+
+  function renderTable() {
+    const st = d.cvedb || {};
+    const status = h("p", { class: "muted aw-small" },
+      `${fmtNum(d.rules_total)} Regeln · im Zeitraum ${fmtNum(d.products)} Produkte, ${fmtNum(d.cves)} CVEs · ${fmtNum(d.exploit_attacks)}× Ausnutzung, ${fmtNum(d.probe_attacks)}× Probe. `,
+      st.enabled ? (st.kev_count ? `CISA KEV: ${fmtNum(st.kev_count)} Einträge, Stand ${st.kev_version || fmtDateTime(st.kev_updated)}.` : "CISA KEV wird geladen.") : "Lückendetails sind ausgeschaltet (Einstellungen → Auswertung und KI).",
+      st.pending ? ` NVD: ${fmtNum(st.pending)} Abfragen stehen aus.` : "",
+      st.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + st.last_error) : null,
+      d.truncated ? " Sehr viele Ereignisse: die ältesten fehlen." : "");
+    const seg = h("div", { class: "seg", role: "group", "aria-label": "Art" }, [["", "Alle"], ["exploit", "Ausnutzungen"], ["probe", "Proben"]].map(([k, t]) =>
+      h("button", { class: kind === k ? "on" : "", "aria-pressed": String(kind === k), onclick: () => { kind = k; renderTable(); } }, t)));
+    const tbody = h("tbody");
+    const drawRows = () => {
+      const f = filter.trim().toLowerCase();
+      const rows = (d.rows || []).filter((r) => (!kind || r.kind === kind) &&
+        (!f || [r.product, r.name, r.cve || "", ...(r.paths || []).map((p) => p.key)].some((x) => x.toLowerCase().includes(f))));
+      mount(tbody, rows.length ? rows.map(xpRow) : h("tr", null, h("td", { colspan: 7, class: "muted" }, d.rows && d.rows.length ? "Nichts passt zum Filter." : "Im Zeitraum keine Anfragen an bekannte Produkte erkannt.")));
+    };
+    const search = h("input", { type: "search", placeholder: "Produkt, CVE oder Pfad …", value: filter, "aria-label": "Tabelle filtern", class: "xp-search",
+      oninput: (e) => { filter = e.target.value; drawRows(); } });
+    drawRows();
+    mount(body, status, h("div", { class: "filters" }, seg, search),
+      h("div", { class: "tablewrap" }, h("table", { class: "xp-table" },
+        h("thead", null, h("tr", null, ["Anfrage", "Produkt", "Art", "Lücke", "Angriffe", "IPs", "Zuletzt"].map((t) => h("th", null, t)))), tbody)));
+  }
+
+  function xpRow(r) {
+    const badges = h("div", { class: "xp-badges" }, cveBadges(r.info));
+    const cell = h("td", { colspan: 7 });
+    const detail = h("tr", { class: "xp-detail", hidden: true }, cell);
+    let info = r.info;
+    if (r.cve && info && info.pending) cveInfo(r.cve, (i) => { info = i; mount(badges, cveBadges(i)); if (!detail.hidden) mount(cell, cveDetails(r.cve, i)); });
+    const toggle = r.cve ? h("button", { class: "linklike mono", "aria-expanded": "false", "aria-label": r.cve + ": Details anzeigen", onclick: () => {
+      detail.hidden = !detail.hidden;
+      toggle.setAttribute("aria-expanded", String(!detail.hidden));
+      if (!detail.hidden) mount(cell, cveDetails(r.cve, info));
+    } }, r.cve) : h("span", { class: "muted" }, "ohne CVE");
+    return [h("tr", null,
+      h("td", { class: "xp-paths" }, (r.paths || []).map((p) => h("div", null, code(p.key, p.n)))),
+      h("td", null, h("b", null, r.product), h("div", { class: "muted aw-small" }, r.name), r.custom ? h("span", { class: "chip", title: "Eigene Regel aus einem KI-Vorschlag" }, "eigene Regel") : null),
+      h("td", null, kindChip(r.kind)),
+      h("td", null, h("div", null, toggle), badges),
+      h("td", { class: "num" }, h("a", { href: find("regel:" + r.id), title: "Passende Angriffe anzeigen" }, fmtNum(r.attacks)), h("div", { class: "muted aw-small" }, fmtNum(r.n) + " Anfr.")),
+      h("td", { class: "num" }, fmtNum(r.ips)),
+      h("td", { title: fmtDateTime(r.last) }, relTime(r.last))), detail];
+  }
+
+  function renderLower() {
+    const nc = d.no_cve || { attacks: 0, paths: [] };
+    const open = (extra.suggestions || []).filter((x) => x.status === "neu"), rules = extra.rules || [];
+    const byPath = new Map(open.map((x) => [x.path, x]));
+    const canAsk = isAdmin() && d.ai_enabled;
+    const noCve = nc.attacks ? h("div", { class: "aw-note" },
+      h("b", null, `${fmtNum(nc.attacks)} Exploit-Versuch${nc.attacks === 1 ? "" : "e"} ohne Zuordnung`),
+      h("div", { class: "muted aw-small" }, canAsk
+        ? "Keine Regel kennt diese Anfragen. „KI fragen“ schickt eine Beispielanfrage (ohne Host, Cookies, Zugangsdaten und eigene Adressen) an das Modell der KI-Auswertung; es schlägt Produkt, CVE und eine Regel vor. Übernommen wird nur, was du annimmst."
+        : isAdmin() ? "Keine Regel kennt diese Anfragen. Mit eingerichteter KI-Auswertung (Einstellungen → Auswertung und KI) kann ein Modell Regeln vorschlagen." : "Keine Regel kennt diese Anfragen."),
+      moreList(nc.paths, 10, (list) => h("div", { class: "xp-open" }, list.map((p) => {
+        const path = p.key.replace(/^[A-Z]{3,7} /, "");
+        const msg = h("span", { class: "muted aw-small" }, byPath.has(path) ? "Vorschlag liegt vor (unten)" : "");
+        const btn = canAsk ? h("button", { class: "btn small", onclick: async () => {
+          btn.disabled = true;
+          msg.className = "muted aw-small";
+          msg.textContent = "Das Modell arbeitet …";
+          try { await api("cve/suggest", { method: "POST", body: { path: p.key } }); await loadExtra(); }
+          catch (e) { msg.className = "warn-text aw-small"; msg.textContent = e.message; btn.disabled = false; }
+        } }, byPath.has(path) ? "Erneut fragen" : "KI fragen") : null;
+        return h("div", { class: "row" }, code(p.key, p.n), btn, msg);
+      })))) : h("p", { class: "muted aw-small" }, "Alle Exploit-Versuche im Zeitraum sind einer Regel zugeordnet.");
+
+    const suggBox = open.length ? [h("h3", null, "Regelvorschläge der KI"), h("div", { class: "aw-list" }, open.map(suggItem))] : null;
+    const ruleBox = rules.length ? [h("h3", null, "Eigene Regeln"),
+      h("p", { class: "muted aw-small" }, "Angenommene Vorschläge; sie gelten wie die eingebauten Regeln, auch für ältere Ereignisse (wird im Hintergrund nachgezählt)."),
+      h("div", { class: "aw-list" }, rules.map((c) => h("div", { class: "aw-item" },
+        h("div", { class: "row" }, kindChip(c.kind), h("b", null, c.product), h("span", null, c.name), c.cve ? h("span", { class: "mono" }, c.cve) : h("span", { class: "muted" }, "ohne CVE"),
+          h("a", { class: "aw-right", href: find("regel:" + c.rule_id) }, "Angriffe"),
+          isAdmin() ? h("button", { class: "linklike", onclick: async (e) => {
+            if (!confirm(`Regel „${c.name}“ löschen? Passende Anfragen sind danach wieder ohne Zuordnung.`)) return;
+            e.target.disabled = true;
+            try { await api("cve/rules/" + c.id, { method: "DELETE" }); await load(); } catch (err) { alert(err.message); e.target.disabled = false; }
+          } }, "Löschen") : null),
+        h("code", { class: "mono aw-small xp-expr" }, c.expr))))] : null;
+    mount(lower, h("h3", null, "Exploits ohne Zuordnung"), notice ? h("div", { class: "msg ok aw-small", role: "status" }, notice) : null, noCve, suggBox, ruleBox);
+    notice = "";
+  }
+
+  function suggItem(x) {
+    const [chk, cls] = CHECK[x.cve_check] || [x.cve_check || "", ""];
+    const msg = h("span", { class: "aw-small" });
+    const act = (what) => async (e) => {
+      e.target.disabled = true;
+      try {
+        const res = await api(`cve/suggestions/${x.id}/${what}`, { method: "POST" });
+        notice = res.note || (what === "accept" ? "Regel übernommen. Sie gilt ab sofort; ältere Ereignisse werden im Hintergrund nachgezählt." : "Vorschlag verworfen.");
+        await (what === "accept" ? load() : loadExtra());
+      } catch (err) { msg.className = "warn-text aw-small"; msg.textContent = err.message; e.target.disabled = false; }
+    };
+    return h("div", { class: "aw-item xp-sugg" },
+      h("div", { class: "row" }, kindChip(x.kind), h("b", null, x.product), h("span", null, x.name),
+        x.cve ? [h("span", { class: "mono" }, x.cve), h("span", { class: "chip " + cls, title: "Prüfung der Nummer gegen CISA KEV und NVD" }, chk)] : h("span", { class: "muted" }, "ohne CVE"),
+        h("span", { class: "muted aw-right" }, relTime(x.created))),
+      h("div", { class: "aw-small" }, h("span", { class: "muted" }, "Pfad: "), h("span", { class: "mono" }, x.path)),
+      x.explanation ? h("p", { class: "aw-small" }, x.explanation) : null,
+      h("div", { class: "aw-small" }, h("span", { class: "muted" }, "Regel: "), h("code", { class: "mono xp-expr" }, x.expr || "(keine)")),
+      x.problem ? h("div", { class: "msg warn aw-small" }, "Nicht übernehmbar: " + x.problem) : null,
+      x.cve && x.cve_check !== "kev" && x.cve_check !== "nvd" ? h("div", { class: "muted aw-small" }, "Die CVE ist nicht bestätigt; beim Annehmen wird sie weggelassen und die Regel erkennt nur das Produkt.") : null,
+      h("details", null, h("summary", { class: "aw-small" }, "An das Modell geschickt"), h("pre", { class: "json" }, x.sample)),
+      isAdmin() ? h("div", { class: "row" },
+        h("button", { class: "btn small primary", disabled: !!x.problem, onclick: act("accept") }, "Als Regel übernehmen"),
+        h("button", { class: "btn small", onclick: act("discard") }, "Verwerfen"), msg) : null);
+  }
+
+  load();
+  return { el };
 }
 
 // ================= Zugangsdaten =================

@@ -6,7 +6,7 @@ package main
 //   service:ssh  stufe>=3  country:CN  cmd:*wget*  -tag:miner  user:root  "two words"
 //
 // Felder:  ip, country/land, asn, org, service/dienst, port, stufe, events, user, pass, cred,
-//          cmd/befehl, path/pfad, url, tag/muster, cve, client, fp, wallet, art/profile,
+//          cmd/befehl, path/pfad, url, tag/muster, cve, regel (Regel-ID, cve.go), produkt, client, fp, wallet, art/profile,
 //          scanner (ja/nein), login (ja/nein), ki (ja/nein: das Sprachmodell hat geantwortet),
 //          nachladen (ja/nein: wollte eine Datei nachladen, über welchen Dienst auch immer)
 // Werte:   ohne * = enthält (Groß-/Kleinschreibung egal), mit * = Platzhalter über den ganzen Wert
@@ -39,12 +39,12 @@ var qFieldRe = regexp.MustCompile(`^(-?)([a-zäöü]+)(>=|<=|:|=|<|>)(.*)$`)
 var qAliases = map[string]string{
 	"land": "country", "dienst": "service", "svc": "service", "befehl": "cmd", "command": "cmd", "pfad": "path",
 	"muster": "tag", "pattern": "tag", "profile": "art", "benutzer": "user", "passwort": "pass", "password": "pass",
-	"fingerprint": "fp", "organisation": "org", "as": "asn", "ai": "ki", "fetch": "nachladen",
+	"fingerprint": "fp", "organisation": "org", "as": "asn", "ai": "ki", "fetch": "nachladen", "rule": "regel", "product": "produkt",
 }
 
 var qFields = map[string]bool{"ip": true, "country": true, "asn": true, "org": true, "service": true, "port": true, "stufe": true,
 	"events": true, "user": true, "pass": true, "cred": true, "cmd": true, "path": true, "url": true, "tag": true, "cve": true,
-	"client": true, "fp": true, "wallet": true, "art": true, "scanner": true, "login": true, "ki": true, "nachladen": true}
+	"client": true, "fp": true, "wallet": true, "art": true, "regel": true, "produkt": true, "scanner": true, "login": true, "ki": true, "nachladen": true}
 
 var stufeNames = map[string]int{"abtasten": 0, "scan": 0, "versuche": 1, "login": 2, "befehle": 3, "download": 4, "datei": 4}
 
@@ -194,6 +194,25 @@ func (a *Attack) matchTerm(t qTerm) bool {
 	case "cve":
 		for _, x := range a.CVEs {
 			if t.str(x.Key, x.Label) {
+				return true
+			}
+		}
+		for _, x := range a.Exploits { // auch Proben mit CVE
+			if x.CVE != "" && t.str(x.CVE) {
+				return true
+			}
+		}
+		return false
+	case "regel":
+		for _, x := range a.Exploits {
+			if t.str(x.ID) {
+				return true
+			}
+		}
+		return false
+	case "produkt":
+		for _, x := range a.Exploits {
+			if t.str(x.Product) {
 				return true
 			}
 		}

@@ -24,10 +24,11 @@ import (
 
 type textAnalysis struct {
 	revealed       []string
-	ids            []string // Muster ohne Köder
-	cves           []cveRule
-	urls           []string // Nachlade-Adressen; bei "web" nur aus Entschlüsseltem (Pfade sind oft nur Proben)
-	wallets, pools []string // nur "cmd" und "raw" (indicators.go)
+	ids            []string  // Muster ohne Köder
+	rules          []cveRule // alle Regeltreffer (cve.go)
+	cves           []cveRule // davon Ausnutzungen mit CVE
+	urls           []string  // Nachlade-Adressen; bei "web" nur aus Entschlüsseltem (Pfade sind oft nur Proben)
+	wallets, pools []string  // nur "cmd" und "raw" (indicators.go)
 }
 
 // analysisGenMax: Einträge je Generation. Die meisten Einträge sind klein (keine Funde);
@@ -63,8 +64,9 @@ func analyzeText(text, on string) *textAnalysis {
 	if !isTLSText(text) { // Handshake-Bytes sind keine Verschleierung
 		a.revealed = slices.Clip(revealHidden(text))
 	}
-	a.ids = slices.Clip(matchAll(text, on, a.revealed))
-	a.cves = slices.Clip(matchCVEs(text, on))
+	a.rules = slices.Clip(matchRules(text, on))
+	a.cves = slices.Clip(exploitsOnly(a.rules))
+	a.ids = slices.Clip(append(matchAll(text, on, a.revealed), ruleTags(a.rules)...))
 	src := text
 	if on == "web" {
 		src = ""
@@ -141,7 +143,7 @@ func (h *Hive) warmAnalysis(stop <-chan struct{}) {
 	}
 }
 
-// resetAnalysisCache: nach Änderungen an Regeln (nur Tests).
+// resetAnalysisCache: nach Änderungen an Regeln (eigene Regeln, cvesuggest.go; Tests).
 func resetAnalysisCache() {
 	c := &analysisCache
 	c.mu.Lock()

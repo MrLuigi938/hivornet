@@ -180,6 +180,18 @@ var migrations = []string{
 	// 5: Zwischenspeicher der Sprachmodell-Antworten für den Honeypot (mimic.go)
 	`CREATE TABLE IF NOT EXISTS mimic_cache (k TEXT PRIMARY KEY, kind TEXT NOT NULL, input TEXT NOT NULL, out TEXT NOT NULL,
 	  created INTEGER NOT NULL, hits INTEGER NOT NULL DEFAULT 0, last_hit INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID;`,
+	// 6: CISA-Katalog der ausgenutzten Lücken (cvedb.go), Regelvorschläge der KI und eigene Regeln (cvesuggest.go)
+	`CREATE TABLE IF NOT EXISTS kev (cve TEXT PRIMARY KEY, vendor TEXT NOT NULL DEFAULT '', product TEXT NOT NULL DEFAULT '',
+	  name TEXT NOT NULL DEFAULT '', added TEXT NOT NULL DEFAULT '', descr TEXT NOT NULL DEFAULT '', action TEXT NOT NULL DEFAULT '',
+	  due TEXT NOT NULL DEFAULT '', ransomware TEXT NOT NULL DEFAULT '', cwes TEXT NOT NULL DEFAULT '') WITHOUT ROWID;
+	CREATE TABLE IF NOT EXISTS rule_suggestions (id INTEGER PRIMARY KEY, created INTEGER NOT NULL, path TEXT NOT NULL,
+	  sample TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'neu', product TEXT NOT NULL DEFAULT '', cve TEXT NOT NULL DEFAULT '',
+	  kind TEXT NOT NULL DEFAULT '', name TEXT NOT NULL DEFAULT '', explanation TEXT NOT NULL DEFAULT '', expr TEXT NOT NULL DEFAULT '', problem TEXT NOT NULL DEFAULT '',
+	  model TEXT NOT NULL DEFAULT '', decided INTEGER NOT NULL DEFAULT 0);
+	CREATE INDEX IF NOT EXISTS sugg_path ON rule_suggestions(path);
+	CREATE TABLE IF NOT EXISTS custom_rules (id INTEGER PRIMARY KEY, created INTEGER NOT NULL, kind TEXT NOT NULL,
+	  product TEXT NOT NULL, cve TEXT NOT NULL DEFAULT '', name TEXT NOT NULL, expr TEXT NOT NULL, note TEXT NOT NULL DEFAULT '',
+	  suggestion INTEGER NOT NULL DEFAULT 0);`,
 }
 
 func OpenStore(path string) (*Store, error) {
@@ -414,7 +426,7 @@ func topKeys(e *Event) [][3]string {
 		add("tag", id, patternByID[id].Name)
 	}
 	for _, r := range eventCVEs(text, on) {
-		add("cve", r.CVE, r.Name)
+		add("cve", r.CVE, r.Label())
 	}
 	for _, t := range eventTools(e) {
 		add("tool", t, "")

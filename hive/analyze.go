@@ -97,6 +97,11 @@ var patterns = []Pattern{
 	pat("api_probe", "Dienst-Erkundung", "Fragt Versions- und Statusseiten ab.", "web", 1,
 		`/version$|/_ping|/actuator/health|/api/v1/|/v2/_catalog|/containers/json|/\.well-known/|/robots\.txt|/favicon\.ico|/sitemap\.xml`),
 
+	// Regeltreffer (cve.go, cverules.go): keine eigenen Textmuster, sondern abgeleitet aus den Regeln
+	// für Produkte und Lücken. Die Regel passt nur auf ihren Platzhalter.
+	pat("known_exploit", "Bekannte Lücke ausgenutzt", "Die Anfrage trägt die Nutzlast einer bekannten Lücke oder nutzt eine Fehlkonfiguration (offene Docker-API, Standardpasswort); Produkt und CVE stehen in der Analyse unter „Exploits nach Produkt“.", "meta", 3, `^hivornet:regel-exploit$`),
+	pat("product_probe", "Produkt-Erkundung", "Prüft, ob eine bestimmte Software vorhanden ist (Versions- oder Anmeldeseite eines Routers, VPN-Gateways oder Servers), meist vor einem Exploit.", "meta", 1, `^hivornet:regel-probe$`),
+
 	// Köder (bait.go): kein Textmuster, sondern Abgleich mit den Köder-Zugangsdaten. Die Regel
 	// passt nur auf ihren eigenen Platzhalter und steht hier für Name, Text und Schweregrad.
 	pat("bait_used", "Köder benutzt", "Hat Zugangsdaten aus einer Köderdatei des Web-Honeypots (.env, .git/config …) benutzt; hat die Datei also gelesen und gezielt ausprobiert.", "meta", 3, `^hivornet:koeder$`),
@@ -262,32 +267,33 @@ type TagHit struct {
 
 // Report fasst zusammen, was ein Angreifer (eine IP oder eine Sitzung) getan hat.
 type Report struct {
-	Subject   string    `json:"subject"`
-	Origin    string    `json:"origin"`
-	First     time.Time `json:"first"`
-	Last      time.Time `json:"last"`
-	Events    int       `json:"events"`
-	Sessions  int       `json:"sessions"`
-	Services  []Count   `json:"services"`
-	Logins    int       `json:"logins"`
-	LoginsOK  int       `json:"logins_ok"`
-	Creds     []Count   `json:"creds"`
-	Tags      []TagHit  `json:"tags"`
-	Tools     []Count   `json:"tools"`
-	URLs      []string  `json:"urls"`
-	Hashes    []string  `json:"hashes"`
-	Files     []string  `json:"files"`
-	Commands  []string  `json:"commands"`
-	Decoded   []string  `json:"decoded"` // entschlüsselte Inhalte (Base64, Hex …)
-	Timeline  []string  `json:"-"`       // Ablauf für die KI-Auswertung
-	Requests  []Count   `json:"requests"`
-	Clients   []string  `json:"clients"`
-	CVEs      []Count   `json:"cves"`       // bekannte Lücken (cve.go)
-	AIReplies []AIReply `json:"ai_replies"` // Antworten des Sprachmodells an den Angreifer
-	TarpitMs  int64     `json:"tarpit_ms"`
-	Severity  string    `json:"severity"` // niedrig | mittel | hoch
-	Summary   []string  `json:"summary"`
-	Truncated bool      `json:"truncated"` // es gab mehr Ereignisse als ausgewertet
+	Subject   string       `json:"subject"`
+	Origin    string       `json:"origin"`
+	First     time.Time    `json:"first"`
+	Last      time.Time    `json:"last"`
+	Events    int          `json:"events"`
+	Sessions  int          `json:"sessions"`
+	Services  []Count      `json:"services"`
+	Logins    int          `json:"logins"`
+	LoginsOK  int          `json:"logins_ok"`
+	Creds     []Count      `json:"creds"`
+	Tags      []TagHit     `json:"tags"`
+	Tools     []Count      `json:"tools"`
+	URLs      []string     `json:"urls"`
+	Hashes    []string     `json:"hashes"`
+	Files     []string     `json:"files"`
+	Commands  []string     `json:"commands"`
+	Decoded   []string     `json:"decoded"` // entschlüsselte Inhalte (Base64, Hex …)
+	Timeline  []string     `json:"-"`       // Ablauf für die KI-Auswertung
+	Requests  []Count      `json:"requests"`
+	Clients   []string     `json:"clients"`
+	CVEs      []Count      `json:"cves"`       // bekannte Lücken (cve.go)
+	Rules     []ExploitHit `json:"rules"`      // Produkte und Lücken mit Art (Probe, Ausnutzung)
+	AIReplies []AIReply    `json:"ai_replies"` // Antworten des Sprachmodells an den Angreifer
+	TarpitMs  int64        `json:"tarpit_ms"`
+	Severity  string       `json:"severity"` // niedrig | mittel | hoch
+	Summary   []string     `json:"summary"`
+	Truncated bool         `json:"truncated"` // es gab mehr Ereignisse als ausgewertet
 }
 
 const (
@@ -429,6 +435,7 @@ func (c *counter) keys(max int) []string {
 func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}, AIReplies: []AIReply{}}
 	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions, decoded, cves counter
+	rules := ruleHits{}
 	loc, _ := time.LoadLocation("Local")
 	var lastBody, lastLine string
 	repeat := 0
@@ -482,6 +489,9 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		for _, c := range eventCVEs(text, on) {
 			cves.add(c.CVE)
 			maxSev = 3
+		}
+		for _, rh := range eventRules(text, on) {
+			rules.add(rh, requestKey(e), e.TS.UnixMilli())
 		}
 		for _, u := range allURLs(text, revealed, 8) {
 			urls.add(clip(u, 300))
@@ -561,8 +571,9 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r.Commands, r.Requests, r.Clients = cmds.keys(80), reqs.top(reportMaxList), clients.keys(12)
 	r.Decoded = decoded.keys(reportMaxList)
 	r.CVEs = cves.top(reportMaxList)
+	r.Rules = rules.list(reportMaxList)
 	for i := range r.CVEs {
-		r.CVEs[i].Label = cveByID[r.CVEs[i].Key].Name
+		r.CVEs[i].Label = cveLabel(r.CVEs[i].Key)
 	}
 	for _, t := range tags {
 		r.Tags = append(r.Tags, *t)
@@ -635,6 +646,18 @@ func (r *Report) summarize() []string {
 	for _, c := range r.CVEs {
 		s = append(s, fmt.Sprintf("Versuch, eine bekannte Lücke auszunutzen: %s, %s (%d×).", c.Key, c.Label, c.N))
 	}
+	var probed []string
+	for _, x := range r.Rules {
+		if x.Kind == kindProbeR && !contains(probed, x.Product) {
+			probed = append(probed, x.Product)
+		}
+		if x.Kind == kindExploit && x.CVE == "" {
+			s = append(s, fmt.Sprintf("Versuch, eine Fehlkonfiguration oder Lücke ohne CVE auszunutzen: %s, %s (%d×).", x.Product, x.Name, x.N))
+		}
+	}
+	if len(probed) > 0 {
+		s = append(s, "Hat nach dieser Software gesucht (Probe, noch kein Exploit): "+strings.Join(probed, ", ")+".")
+	}
 	if len(r.Tools) > 0 {
 		s = append(s, "Benutzte Werkzeuge: "+countList(r.Tools, 12)+".")
 	}
@@ -698,6 +721,15 @@ func (r *Report) Text() string {
 		cl2 = append(cl2, fmt.Sprintf("%s %s (%d×)", c.Key, c.Label, c.N))
 	}
 	sec("Bekannte Lücken (CVE)", cl2)
+	var pl []string
+	for _, x := range r.Rules {
+		kind := "Ausnutzung"
+		if x.Kind == kindProbeR {
+			kind = "Probe"
+		}
+		pl = append(pl, strings.TrimSpace(fmt.Sprintf("%s: %s – %s, %s (%d×) %s", kind, x.Product, x.Name, nonEmptyFirst(x.CVE, "ohne CVE"), x.N, x.Path)))
+	}
+	sec("Produkte und Lücken (Pfad → Produkt → CVE)", pl)
 	sec("Zugangsdaten", cl(r.Creds))
 	sec("Befehle (in Reihenfolge)", r.Commands)
 	sec("Entschlüsselte Inhalte (Base64, Hex, URL-Kodierung)", r.Decoded)

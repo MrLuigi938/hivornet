@@ -9,6 +9,7 @@ package main
 import (
 	"net/http"
 	"sort"
+	"strings"
 )
 
 type PatternStat struct {
@@ -74,7 +75,7 @@ func toInt64(v any) int64 {
 
 // ---- Exploits ohne CVE ----
 
-var exploitTags = []string{"iot_exploit", "web_rce", "log4shell"}
+var exploitTags = []string{"iot_exploit", "web_rce", "log4shell", "java4shell"}
 
 type NoCVEItem struct {
 	IP      string `json:"ip"`
@@ -94,7 +95,7 @@ func noCVEStats(list []*Attack) NoCVEStats {
 	st := NoCVEStats{Paths: []Count{}, Recent: []NoCVEItem{}}
 	paths := map[string]int{}
 	for _, a := range list {
-		if a.Own || len(a.CVEs) > 0 {
+		if a.Own {
 			continue
 		}
 		tag := ""
@@ -107,21 +108,17 @@ func noCVEStats(list []*Attack) NoCVEStats {
 		if tag == "" {
 			continue
 		}
+		open := unassignedPaths(a)
+		if len(open) == 0 {
+			continue
+		}
 		st.Attacks++
-		path := ""
-		for _, p := range a.Paths {
-			if p.Key != "" && p.Key != "/" && p.Key != "/favicon.ico" {
-				path = p.Key
+		for _, p := range open {
+			if len(paths) < 2000 || paths[p.Key] > 0 {
 				paths[p.Key] += p.N
-				if len(paths) > 2000 {
-					break
-				}
 			}
 		}
-		if path == "" && len(a.Paths) > 0 {
-			path = a.Paths[0].Key
-		}
-		st.Recent = append(st.Recent, NoCVEItem{IP: a.IP, Country: a.Country, Pattern: tag, Path: path, Last: a.Last})
+		st.Recent = append(st.Recent, NoCVEItem{IP: a.IP, Country: a.Country, Pattern: tag, Path: open[0].Key, Last: a.Last})
 	}
 	st.Paths = topCounts(paths, 15)
 	sort.Slice(st.Recent, func(i, j int) bool { return st.Recent[i].Last > st.Recent[j].Last })
@@ -129,4 +126,48 @@ func noCVEStats(list []*Attack) NoCVEStats {
 		st.Recent = st.Recent[:15]
 	}
 	return st
+}
+
+// unassignedPaths: Pfade eines Angriffs, die nach Exploit aussehen, aber keiner Regel
+// (cve.go) zugeordnet sind. Ein Angriff kann eine Lücke treffen und eine andere, unbekannte
+// versuchen; gezählt wird je Pfad. Hat der Angriff gar keinen Regeltreffer, gelten alle
+// auffälligen Pfade als offen (der Exploit kann auch im Body stecken).
+func unassignedPaths(a *Attack) []Count {
+	if len(a.Exploits) == 0 && len(a.CVEs) == 0 {
+		var out []Count
+		for _, p := range a.Paths {
+			if p.Key != "" && p.Key != "/" && p.Key != "/favicon.ico" {
+				out = append(out, p)
+			}
+		}
+		if len(out) == 0 && len(a.Paths) > 0 {
+			out = a.Paths[:1]
+		}
+		return out
+	}
+	hit := map[string]bool{}
+	for _, x := range a.Exploits {
+		hit[x.Path] = true
+	}
+	var out []Count
+	for _, p := range a.Paths {
+		if hit[p.Key] {
+			continue
+		}
+		path := p.Key
+		if i := strings.IndexByte(path, ' '); i > 0 && i < 10 { // "POST /pfad"
+			path = path[i+1:]
+		}
+		an := analyzeText(path, "web")
+		if len(an.rules) > 0 {
+			continue
+		}
+		for _, id := range an.ids {
+			if contains(exploitTags, id) {
+				out = append(out, p)
+				break
+			}
+		}
+	}
+	return out
 }

@@ -26,7 +26,9 @@ func TestAnalysisCacheSameResult(t *testing.T) {
 		if !isTLSText(text) {
 			rev = revealHidden(text)
 		}
-		if !reflect.DeepEqual(cold.ids, matchAll(text, on, rev)) || len(cold.cves) != len(matchCVEs(text, on)) {
+		hits := matchRules(text, on)
+		want := append(matchAll(text, on, rev), ruleTags(hits)...)
+		if !reflect.DeepEqual(cold.ids, want) && (len(cold.ids) > 0 || len(want) > 0) || len(cold.cves) != len(exploitsOnly(hits)) || len(cold.rules) != len(hits) {
 			t.Fatalf("Ergebnis weicht ab: %q", text)
 		}
 	}
