@@ -224,22 +224,20 @@ func pauseFor(code int) time.Duration {
 	return 0
 }
 
-// ownPublicIP: zuletzt ermittelte öffentliche Adresse (System → "Wie Shodan dich sieht").
+// ownPublicIP: aktuelle eigene öffentliche Adresse (ownip.go), sonst die zuletzt bei Shodan
+// abgefragte (System → "Wie Shodan dich sieht"); leer, wenn unbekannt.
 func (h *Hive) ownPublicIP() string {
-	data, _, ok := h.st.lookupGet("self", "internetdb", 0)
-	if !ok {
-		return ""
+	if l := h.knownOwnIPs(); len(l) > 0 {
+		return l[0]
 	}
-	var e Exposure
-	json.Unmarshal([]byte(data), &e)
-	return e.IP
+	return ""
 }
 
 // ownMarkers: Zeichenfolgen, die nie nach außen gehen: die eigene öffentliche Adresse und die
 // Hostnamen der Honeypots und des Hive (klein geschrieben, mindestens 4 Zeichen).
 func (h *Hive) ownMarkers() []string {
 	var out []string
-	for _, s := range append(h.honeypotNames(), h.ownPublicIP()) {
+	for _, s := range append(h.honeypotNames(), h.knownOwnIPs()...) {
 		if s = strings.ToLower(strings.TrimSpace(s)); len(s) >= 4 && !contains(out, s) {
 			out = append(out, s)
 		}

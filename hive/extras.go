@@ -37,6 +37,7 @@ type Extras struct {
 	Samples       SampleCollectConfig `json:"samples"`
 	Bazaar        BazaarConfig        `json:"bazaar"`
 	DShield       DShieldConfig       `json:"dshield"`
+	OwnIP         OwnIPConfig         `json:"own_ip"`  // eigene öffentliche Adresse und Namen (ownip.go)
 	AIPlus        AIPlusConfig        `json:"ai_plus"` // weitere KI-Funktionen (aiplus.go)
 	Brute         BruteConfig         `json:"brute"`   // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
 }
@@ -72,6 +73,7 @@ func defaultExtras() Extras {
 	x.Notify.OnLogin, x.Notify.OnDownload, x.Notify.OnSevere, x.Notify.OnWarning = true, true, true, true
 	x.Notify.MaxPerHour = 20
 	x.Own.Private = true
+	x.OwnIP.Auto = true // nur ipify erfährt die eigene Adresse, die es ohnehin sieht
 	x.AbuseReport = defaultAbuseReport()
 	x.Mimic = defaultMimic()
 	x.CVEDB.Enabled = true // es gehen nur CVE-Nummern hinaus
@@ -124,6 +126,9 @@ func (x *Extras) Validate() error {
 		}
 	}
 	if err := x.Own.validate(); err != nil {
+		return err
+	}
+	if err := x.OwnIP.validate(); err != nil {
 		return err
 	}
 	if err := x.AbuseReport.validate(); err != nil {

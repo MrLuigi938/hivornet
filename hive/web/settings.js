@@ -635,7 +635,7 @@ async function tabAuswertung() {
       save: () => ex.save(["mimic"], ["mimic_api_key"]),
     },
     h("div", { class: "msg warn" }, "Bei einem Dienst im Internet (z. B. OpenRouter) gehen die Eingaben der Angreifer dorthin und jede neue Antwort kostet Geld. Die Grenzen unten deckeln das; darüber antwortet der Honeypot wie bisher. ",
-      "Private Adressen und die öffentliche Adresse des Anschlusses werden vorher durch Platzhalter ersetzt; die öffentliche allerdings nur, wenn sie unter System bei „Wie Shodan dich sieht“ einmal abgefragt wurde. Die IP des Angreifers und der Host-Kopf gehen nie hinaus."),
+      "Private Adressen und die öffentliche Adresse des Anschlusses werden vorher durch Platzhalter ersetzt; die öffentliche ermittelt der Hive automatisch (Zugang und Sicherheit → Eigene öffentliche Adresse). Die IP des Angreifers und der Host-Kopf gehen nie hinaus."),
     row("Aktiv", ex.check(x.mimic, "enabled", "Sprachmodell-Antworten einschalten")),
     row("Wofür", [ex.check(x.mimic, "shell", "unbekannte Befehle der Telnet-Shell"), " ", ex.check(x.mimic, "web", "unbekannte Pfade des Web-Honeypots")]),
     row("Adresse", ex.text(x.mimic, "base_url", { placeholder: "leer = wie KI-Auswertung" }), "Eigene Schnittstelle, z. B. https://openrouter.ai/api/v1. Leer: Adresse und Schlüssel der KI-Auswertung."),
@@ -868,7 +868,7 @@ async function shareCards(ex) {
   h("p", { class: "sub" }, "Schutz: nur http und https; vor jeder Verbindung (auch nach Weiterleitungen und neuer Namensauflösung) wird geprüft, dass das Ziel ",
     "weder im Heimnetz noch sonst privat, lokal oder die eigene Adresse ist. Größe und Zeit sind begrenzt, HTML-Seiten werden verworfen. ",
     "Dateien heißen nur nach ihrem SHA-256, sind nicht ausführbar und werden nie entpackt, ausgeführt oder über die Web-UI ausgeliefert."),
-  st && !st.own_ip_known ? h("div", { class: "msg" }, "Die eigene öffentliche Adresse ist noch unbekannt. Unter System → „Wie Shodan dich sieht“ einmal abfragen; dann holt und meldet der Hive sie nie.") : null,
+  st && !st.own_ip_known ? h("div", { class: "msg" }, "Die eigene öffentliche Adresse ist noch unbekannt. Unter Zugang und Sicherheit → „Eigene öffentliche Adresse“ die automatische Ermittlung einschalten oder „Jetzt ermitteln“ klicken; dann holt und meldet der Hive sie nie.") : null,
   row("Aktiv", ex.check(sc, "enabled", "Dateien von Nachlade-Adressen holen")),
   row("Downloads pro Tag", ex.num(sc, "daily_limit", 1, 100, 1), "Jeder Versuch zählt, auch ein gescheiterter."),
   row("Je Server und Tag", ex.num(sc, "per_host_daily", 1, 20, 1)),
@@ -1002,7 +1002,7 @@ async function tabZugang() {
   const out = [passwordCard()];
   if (!isAdmin()) return out;
   const [s, ex] = await Promise.all([api("settings"), extrasCtx()]);
-  out.push(await usersCard(), sensorTokensCard(), ownNetsCard(ex).el, accessCard(s).el);
+  out.push(await usersCard(), sensorTokensCard(), ownNetsCard(ex).el, ownIPCard(ex).el, accessCard(s).el);
   return out;
 }
 
@@ -1118,6 +1118,36 @@ function ownNetsCard(ex) {
     onchange: (e) => { own.nets = e.target.value.split(/[\s,]+/).map((v) => v.trim()).filter(Boolean); } }, (own.nets || []).join("\n")),
   "Eine Adresse oder ein Netz (CIDR) je Zeile, z. B. die feste IP deines Anschlusses, wenn du von außen testest."),
   row("Trotzdem zählen", ex.check(own, "in_stats", "Eigene Tests in Kennzahlen und Benachrichtigungen mitzählen")));
+}
+
+// Eigene öffentliche Adresse und eigene Namen (hive/ownip.go): gehen nie nach außen.
+function ownIPCard(ex) {
+  const box = h("div", { class: "muted", "data-nodirty": "" }, "Lade …");
+  const load = () => api("ownip").then((d) => mount(box,
+    h("p", { class: "muted" },
+      d.current && d.current.length ? ["Aktuell: ", h("b", { class: "num" }, d.current.join(", ")), ". "] : "Noch keine Adresse ermittelt. ",
+      d.checked ? `Zuletzt geprüft ${relTime(d.checked)}` : null,
+      d.changed ? `, zuletzt gewechselt ${fmtDateTime(d.changed)}. ` : (d.checked ? ". " : null),
+      d.previous && d.previous.length ? `Früher bekannt: ${d.previous.join(", ")}. ` : null,
+      d.error ? h("span", { class: "warn-text" }, d.error) : null),
+    h("button", { type: "button", class: "btn small", onclick: async (e) => {
+      e.target.disabled = true;
+      try { await api("ownip/refresh", { method: "POST" }); load(); } catch (err) { mount(box, h("span", { class: "warn-text" }, err.message)); }
+    } }, "Jetzt ermitteln"))).catch((e) => mount(box, h("span", { class: "warn-text" }, e.message)));
+  load();
+  const o = ex.x.own_ip = ex.x.own_ip || { auto: true, names: [] };
+  return section("Eigene öffentliche Adresse", {
+    intro: "Die öffentliche Adresse deines Anschlusses und eigene Namen (Domain, DynDNS) werden vor jeder Weitergabe entfernt: an Sprachmodelle, URLhaus, MalwareBazaar, DShield und AbuseIPDB-Kommentare. Nachlade-Adressen, die auf deinen Anschluss zeigen, werden nie geholt.",
+    saveLabel: "Speichern",
+    save: async () => { await ex.save(["own_ip"]); load(); },
+  },
+  row("Automatisch", ex.check(o, "auto", "Adresse stündlich ermitteln (empfohlen)"),
+    "Fragt bei api.ipify.org (und api6.ipify.org für IPv6) nach. ipify erfährt dabei nur deine Adresse, die es durch die Verbindung ohnehin sieht. Frühere Adressen bleiben 30 Tage bekannt."),
+  row("Eigene Namen", h("textarea", { rows: 3, class: "mono wide", spellcheck: false, autocomplete: "off", placeholder: "hivornet.example.de\nmeinanschluss.dyndns.example",
+    onchange: (e) => { o.names = e.target.value.split(/[\s,]+/).map((v) => v.trim()).filter(Boolean); } }, (o.names || []).join("\n")),
+  "Ein Name je Zeile, z. B. die Domain deines Reverse-Proxys oder dein DynDNS-Name. Sie werden wie die Adresse behandelt."),
+  h("h3", null, "Stand"),
+  box);
 }
 
 // Zugriff über einen Reverse-Proxy (erlaubte Hostnamen)

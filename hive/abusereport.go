@@ -321,7 +321,7 @@ func (h *Hive) honeypotNames() []string {
 	for _, s := range h.sensors.All() {
 		out = append(out, s.Sensor)
 	}
-	return out
+	return append(out, h.Extras().OwnIP.Names...) // eigene Domains und DynDNS-Namen (ownip.go)
 }
 
 // abuseRound prüft die Angriffe der letzten 30 Minuten und meldet, was die Regeln erlauben.

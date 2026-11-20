@@ -344,7 +344,7 @@ func viewerAllowed(r *http.Request) bool {
 		return true
 	case r.Method != "GET":
 		return false
-	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"), strings.HasPrefix(p, "/api/abuse"), strings.HasPrefix(p, "/api/share"), strings.HasPrefix(p, "/api/feed"), strings.HasPrefix(p, "/api/sensor-tokens"), strings.HasPrefix(p, "/api/mimic"),
+	case strings.HasPrefix(p, "/api/extras"), strings.HasPrefix(p, "/api/users"), strings.HasPrefix(p, "/api/logs"), strings.HasPrefix(p, "/api/abuse"), strings.HasPrefix(p, "/api/share"), strings.HasPrefix(p, "/api/feed"), strings.HasPrefix(p, "/api/sensor-tokens"), strings.HasPrefix(p, "/api/mimic"), strings.HasPrefix(p, "/api/ownip"),
 		p == "/api/brute": // Drossel: zeigt eigene Netze und "Nie sperren" (bruteforce.go)
 		return false
 	// Abfragen bei Dritten mit den Schlüsseln des Admins und teure Auswertungen

@@ -92,9 +92,7 @@ func (h *Hive) dshieldCollect(ctx context.Context, cfg DShieldConfig, lastID int
 	own := h.ownPublicIP()
 	untrusted := h.untrustedSensors()
 	scrub := h.honeypotNames()
-	if own != "" {
-		scrub = append(scrub, own)
-	}
+	scrub = append(scrub, h.knownOwnIPs()...) // auch frühere Adressen (ownip.go)
 	// Ohne bekannte eigene Adresse lässt sie sich aus Pfaden und Kopfzeilen nicht entfernen:
 	// dann keine Web-Anfragen (Verbindungen und Anmeldungen tragen sie nicht, dip ist 0.0.0.0).
 	webOK := own != ""
@@ -185,7 +183,7 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 	if b.truncated {
 		e.Detail = "mehr folgt"
 	} else if b.webSkipped {
-		e.Detail = "Web-Anfragen ausgelassen: eigene öffentliche Adresse unbekannt (System → „Wie Shodan dich sieht“)"
+		e.Detail = "Web-Anfragen ausgelassen: eigene öffentliche Adresse unbekannt (Einstellungen → Zugang und Sicherheit → Eigene öffentliche Adresse)"
 	}
 	if len(b.firewall)+len(b.web)+len(b.logins) == 0 {
 		h.st.SetKV("dshield_last_id", strconv.FormatInt(b.lastID, 10))

@@ -200,6 +200,8 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/searches", a.Require(h.searches))
 	ui.HandleFunc("GET /api/exposure", a.Require(h.exposure))
 	ui.HandleFunc("POST /api/exposure", a.Require(h.exposure))
+	ui.HandleFunc("GET /api/ownip", a.Require(h.ownIPAPI))
+	ui.HandleFunc("POST /api/ownip/refresh", a.Require(h.ownIPRefreshAPI))
 	ui.HandleFunc("POST /api/searches", a.Require(h.searches))
 	ui.HandleFunc("DELETE /api/searches/{name}", a.Require(h.searches))
 	ui.HandleFunc("DELETE /api/mimic/cache", a.Require(h.mimicClear))
@@ -345,6 +347,7 @@ func main() {
 	go h.runSpikes(bgStop) // Spitzen-Warnung (insights.go)
 	h.loadCustomRules()    // eigene Regeln aus KI-Vorschlägen (cvesuggest.go), vor Neuzählung und Zwischenspeicher
 	go h.warmAnalysis(bgStop)
+	go h.runOwnIP(bgStop) // eigene öffentliche Adresse (ownip.go)
 	go h.runCVEDB(bgStop) // KEV-Katalog, NVD und EPSS (cvedb.go)
 	upgradeSensorConfigs(st)
 	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"

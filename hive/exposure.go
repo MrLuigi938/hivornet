@@ -115,6 +115,9 @@ func (h *Hive) exposure(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 	defer cancel()
 	ip, detected := strings.TrimSpace(in.IP), false
+	if cur := h.ownIPState().Current; ip == "" && len(cur) > 0 && h.Extras().OwnIP.Auto {
+		ip, detected = cur[0], true // automatisch ermittelt (ownip.go)
+	}
 	if ip == "" {
 		var err error
 		if ip, err = publicIP(ctx); err != nil {

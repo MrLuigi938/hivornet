@@ -342,20 +342,16 @@ func (h *Hive) mimicCached(key string) (mimicResp, bool) {
 	return r, true
 }
 
-// ownPublicIPs: die zuletzt auf der Seite System ermittelte öffentliche Adresse (exposure.go).
+// ownPublicIPs: alle bekannten eigenen öffentlichen Adressen (ownip.go): aktuelle, die der
+// letzten 30 Tage und die zuletzt bei Shodan abgefragte.
 func (h *Hive) ownPublicIPs() []net.IP {
-	data, _, ok := h.st.lookupGet("self", "internetdb", 0)
-	if !ok {
-		return nil
+	var out []net.IP
+	for _, s := range h.knownOwnIPs() {
+		if ip := net.ParseIP(s); ip != nil {
+			out = append(out, ip)
+		}
 	}
-	var e struct{ IP string }
-	if json.Unmarshal([]byte(data), &e) != nil {
-		return nil
-	}
-	if ip := net.ParseIP(e.IP); ip != nil {
-		return []net.IP{ip}
-	}
-	return nil
+	return out
 }
 
 func (h *Hive) mimicStore(key string, req mimicReq, r mimicResp) {
