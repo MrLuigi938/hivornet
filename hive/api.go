@@ -478,6 +478,10 @@ func (h *Hive) attacker(w http.ResponseWriter, r *http.Request) {
 	evs, _ := h.rows(ctx, `SELECT `+evCols+` FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 300`, ip)
 	out := map[string]any{"info": info[0], "ports": ports, "creds": creds, "events": evs, "condensed": condensed,
 		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor([]string{ip})}
+	// Verlauf über alle Angriffe dieser IP (history.go); nur diese IP, über den Index
+	if list, tr, err := h.loadAttacks(ctx, time.Now().AddDate(0, 0, -max(h.retentionDays(), 1)), []string{ip}); err == nil {
+		out["history"] = buildHistory(list, tr)
+	}
 	if rel := h.relatedNow(ctx); rel != nil { // zusammengehörige IPs (related.go)
 		if g, others := rel.related(ip); g != nil {
 			out["group"], out["related"] = g, others

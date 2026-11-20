@@ -4,7 +4,7 @@ import {
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
-import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, BRUTE_TITLE } from "./attacks.js";
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
 import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
@@ -734,7 +734,7 @@ async function viewSession(el, ctx, id) {
 
 async function viewAttacker(el, ctx, ip) {
   header("Angreifer");
-  const [d, at] = await Promise.all([api("attackers/" + encodeURIComponent(ip)), api(`attacks?range=7d&limit=50&own=1&ip=${encodeURIComponent(ip)}`).catch(() => null)]);
+  const [d, at] = await Promise.all([api("attackers/" + encodeURIComponent(ip)), api(`attacks?range=all&limit=200&own=1&ip=${encodeURIComponent(ip)}`).catch(() => null)]);
   const i = d.info;
   noteBrute(at);
   noteBrute(d);
@@ -742,8 +742,15 @@ async function viewAttacker(el, ctx, ip) {
   const top = attacks.reduce((m, a) => (a.stufe > m ? a.stufe : m), 0);
   const fact = (k, v) => h("div", null, h("div", { class: "k" }, k), h("div", { class: "v num" }, v));
   const openCards = new Set();
-  const list = h("div", { class: "feed" }, attacks.length ? attacks.map((a, n) => { a.seen = attacks.length - n; return attackCard(a, { showIP: false, open: openCards }); })
-    : h("div", { class: "empty" }, "In den letzten 7 Tagen keine Angriffe (ältere Rohdaten sind nach der Aufbewahrungszeit gelöscht)."));
+  // Ab dem 4. Angriff: Zusammenfassung über alle Angriffe zuerst (attacks.js, historyView)
+  const hist = d.history || null;
+  const nAttacks = hist ? Math.max(hist.attacks, attacks.length) : attacks.length;
+  const list = h("div", { class: "feed" });
+  const renderList = (freshId) => mount(list, !attacks.length
+    ? h("div", { class: "empty" }, "Keine Angriffe in den gespeicherten Rohdaten (ältere sind nach der Aufbewahrungszeit gelöscht).")
+    : hist && nAttacks >= HISTORY_FROM ? historyView(hist, attacks, { open: openCards })
+      : attacks.map((x, k) => { x.seen = attacks.length - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === freshId }); }));
+  renderList();
   const chain = chainCard({ ip });
   mount(el, h("div", { class: "stack" },
     h("section", { class: "card" },
@@ -759,12 +766,13 @@ async function viewAttacker(el, ctx, ip) {
         Date.now() - toMs(i.last_seen) < 15 * 60e3 ? h("span", { class: "badge active" }, "● gerade aktiv") : null),
       h("div", { class: "facts-row" },
         fact("Erstmals gesehen", fmtDateTime(i.first_seen)), fact("Zuletzt gesehen", relTime(i.last_seen)),
-        fact("Angriffe (7 Tage)", fmtNum(attacks.length)), fact("Ereignisse", fmtNum(i.events)),
+        fact("Angriffe", fmtNum(nAttacks)), fact("Ereignisse", fmtNum(i.events)),
         fact("Login-Versuche", fmtNum(i.logins)), fact("Befehle", fmtNum(i.commands)), fact("Tarpit-Zeit", fmtDur(i.tarpit_ms)),
         d.condensed ? fact("Davon verdichtet", fmtNum(d.condensed)) : null),
       d.condensed ? h("p", { class: "muted", style: { margin: "8px 0 0" } }, BRUTE_TITLE) : null),
     relatedCard(d),
-    card("Angriffe dieser IP", list),
+    h("section", { class: "card" }, h("div", { class: "head" }, h("h2", null, "Angriffe dieser IP"), h("div", { class: "grow" }),
+      hist && nAttacks >= HISTORY_FROM ? h("span", { class: "hint" }, `${fmtNum(nAttacks)} Angriffe · ${fmtDateTime(hist.first)} bis ${fmtDateTime(hist.last)}`) : null), list),
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
       card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: `${c.username} / ${c.password}`, n: c.n }))))),
@@ -779,7 +787,7 @@ async function viewAttacker(el, ctx, ip) {
     const n = attacks.findIndex((x) => x.id === a.id);
     if (n >= 0) attacks.splice(n, 1);
     attacks.unshift(a);
-    mount(list, attacks.map((x, k) => { x.seen = attacks.length - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === a.id }); }));
+    renderList(a.id);
   });
 }
 

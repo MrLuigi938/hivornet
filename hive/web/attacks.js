@@ -583,3 +583,115 @@ export function viewSwitch(cur) {
       h("button", { class: cur === k ? "on" : "", "aria-pressed": String(cur === k), onclick: () => { location.hash = href; } }, label)));
 }
 
+
+// ---------- Angreiferseite: viele Angriffe einer IP ("Zusammenfassung zuerst") ----------
+// Ab dem 4. Angriff: oben eine Auswertung über ALLE Angriffe (hive/history.go, über die ganze
+// Aufbewahrung), darunter die letzten 3 als volle Karten, ältere auf Knopfdruck als kompakte
+// Zeilen, die sich zur vollen Karte aufklappen. Bis 3 Angriffe bleibt die Liste wie bisher.
+export const HISTORY_FROM = 4;
+
+const fmtDayTime = (ms) => new Date(ms).toLocaleString("de-DE", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+const fmtGap = (ms) => (ms >= 48 * 3600e3 ? `${Math.round(ms / 86400e3)} Tage` : fmtDur(ms).replace(/ \d+ s$/, ""));
+
+function historyTiles(hs) {
+  const t = (label, value, hint) => h("div", { class: "card tile" }, h("div", { class: "label" }, label), h("div", { class: "value num" }, value), h("div", { class: "hint" }, hint));
+  return h("div", { class: "grid kpi" },
+    t("Angriffe", fmtNum(hs.attacks), `an ${fmtNum(hs.days)} Tag${hs.days === 1 ? "" : "en"}`),
+    t("Rhythmus", hs.median_gap_ms ? "≈ " + fmtGap(hs.median_gap_ms) : "–", "Abstand zwischen Angriffen (Median)"),
+    t("Logins angenommen", fmtNum(hs.logins_ok), `von ${fmtNum(hs.logins)} Versuchen`),
+    t("Zuletzt", relTime(hs.last), fmtDayTime(hs.last)));
+}
+
+// Zeitstreifen: ein Punkt je Angriff, Farbe = Stufe, groß = Befehle ausgeführt, dunkel = Nacht (0–6 Uhr, Browser-Zeit)
+function historyStrip(hs) {
+  const pts = hs.points || [];
+  if (!pts.length) return null;
+  const from = pts[0].t - 3600e3, to = Math.max(Date.now(), hs.last) + 3600e3, span = Math.max(1, to - from);
+  const x = (ms) => Math.min(100, Math.max(0, ((ms - from) / span) * 100));
+  const nights = [];
+  for (let d = new Date(from); d.getTime() < to && nights.length < 400; d = new Date(d.getTime() + 86400e3)) {
+    const n0 = new Date(d); n0.setHours(0, 0, 0, 0);
+    const a = x(n0.getTime()), b = x(n0.getTime() + 6 * 3600e3);
+    if (b > a) nights.push(h("div", { class: "hs-night", style: { left: a + "%", width: (b - a) + "%" } }));
+  }
+  const dots = pts.map((p) => h("span", {
+    class: "hs-dot" + (p.commands ? " big" : ""), style: { left: x(p.t) + "%", "--c": sevColor(p.stufe) },
+    title: `${fmtDayTime(p.t)} · ${STUFE[p.stufe]} · ${p.kind || ""}\n${fmtNum(p.logins)} Logins${p.commands ? ` · ${fmtNum(p.commands)} Befehle` : ""}${p.success ? " · Login angenommen" : ""}`,
+  }));
+  return h("div", null, h("div", { class: "hs-strip" }, nights, dots),
+    h("div", { class: "hs-axis" }, h("span", null, fmtDayTime(pts[0].t)), h("span", null, "dunkel = Nacht (0–6 Uhr)"), h("span", null, "jetzt")));
+}
+
+function historyStages(hs) {
+  const total = hs.by_stufe.reduce((a, b) => a + b, 0) || 1;
+  return h("div", null,
+    h("div", { class: "hs-stbar" }, hs.by_stufe.map((n, s) => (n ? h("i", { style: { width: (n / total) * 100 + "%", background: sevColor(s) }, title: `${STUFE[s]}: ${fmtNum(n)} Angriffe` }) : null))),
+    h("div", { class: "hs-legend" }, hs.by_stufe.map((n, s) => (n ? h("span", null, h("i", { class: "dot", style: { background: sevColor(s) } }), `${STUFE[s]} ${fmtNum(n)}`) : null))));
+}
+
+// Kompakte Zeilen älterer Angriffe; Klick klappt die volle Karte auf. cache hält die Zeilen,
+// damit aufgeklappte beim Nachladen weiterer Zeilen offen bleiben.
+function olderRows(list, open, cache) {
+  return h("div", { class: "hs-rows" }, list.map((a) => {
+    if (cache.has(a.id)) return cache.get(a.id);
+    const box = h("div", { class: "hs-x", hidden: true });
+    let built = false;
+    const row = h("div", {
+      class: "hs-row", tabindex: 0, role: "button", "aria-expanded": "false",
+      onclick: () => {
+        const on = box.hidden;
+        if (on && !built) { mount(box, attackCard(a, { showIP: false, open })); built = true; }
+        box.hidden = !on;
+        row.classList.toggle("open", on);
+        row.setAttribute("aria-expanded", on ? "true" : "false");
+      },
+      onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); row.click(); } },
+    },
+    h("span", { class: "w num" }, fmtDayTime(a.first)),
+    h("span", { class: "k" }, h("i", { class: "dot", style: { background: sevColor(a.stufe) } }), STUFE[a.stufe] + " · " + a.profile),
+    h("span", { class: "n num" }, a.counts && a.counts.login ? `${fmtNum(a.counts.login)} Logins` : ""),
+    h("span", { class: "n num" }, a.commands && a.commands.length ? `${fmtNum(a.commands.length)} Befehle` : ""),
+    h("span", { class: "n num" }, fmtDur(Math.max(0, a.last - a.first)).replace(/ \d+ s$/, "")));
+    const el = h("div", null, row, box);
+    cache.set(a.id, el);
+    return el;
+  }));
+}
+
+// historyView: Zusammenfassung, letzte 3 Karten und ältere Angriffe. attacks: neueste zuerst.
+export function historyView(hs, attacks, { open = null } = {}) {
+  let shown = 3;
+  const older = h("div"), more = h("div", { class: "hs-more" }), cache = new Map();
+  const draw = () => {
+    mount(older, shown > 3 ? [h("h3", { class: "hs-h3" }, "Ältere Angriffe", h("span", { class: "r" }, "anklicken zum Aufklappen")), olderRows(attacks.slice(3, shown), open, cache)] : []);
+    const rest = attacks.length - shown;
+    mount(more, rest > 0
+      ? [h("button", { class: "btn", onclick: () => { shown = Math.min(attacks.length, shown + 10); draw(); } }, `${Math.min(10, rest)} ältere anzeigen`),
+        rest > 10 ? h("button", { class: "linklike", onclick: () => { shown = attacks.length; draw(); } }, `alle ${fmtNum(rest)}`) : null]
+      : shown > 3 ? h("button", { class: "linklike", onclick: () => { shown = 3; draw(); } }, "wieder einklappen") : []);
+  };
+  draw();
+  const notLoaded = hs.attacks - attacks.length;
+  const nCmds = hs.commands.length + (hs.commands_more || 0);
+  return h("div", { class: "hs" },
+    historyTiles(hs),
+    h("h3", { class: "hs-h3" }, "Verlauf", h("span", { class: "r" }, "jeder Punkt ein Angriff, groß = Befehle ausgeführt")),
+    historyStrip(hs),
+    h("h3", { class: "hs-h3" }, "Wie weit er kam"),
+    historyStages(hs),
+    h("h3", { class: "hs-h3" }, "Was er gemacht hat"),
+    h("ul", { class: "hs-story" }, (hs.story || []).map((s) => h("li", null, s))),
+    h("div", { class: "grid two" },
+      h("div", null, h("h3", { class: "hs-h3" }, "Häufigste Zugangsdaten", h("span", { class: "r" }, `${fmtNum(hs.creds_distinct)} verschiedene`)),
+        hs.creds.length ? h("div", { class: "chips" }, hs.creds.map((c) => h("span", { class: "chip mono", title: c.key }, c.key + " ", h("b", null, fmtNum(c.n)))))
+          : h("div", { class: "empty" }, "Keine Logins.")),
+      h("div", null, h("h3", { class: "hs-h3" }, "Alle Befehle", h("span", { class: "r" }, `${fmtNum(nCmds)}, in Reihenfolge`)),
+        hs.commands.length ? h("div", { class: "hs-term mono" }, hs.commands.map((c) => h("div", null, c)),
+          hs.commands_more ? h("div", { class: "muted" }, `… und ${fmtNum(hs.commands_more)} weitere`) : null)
+          : h("div", { class: "empty" }, "Keine Befehle ausgeführt."))),
+    hs.truncated ? h("p", { class: "muted" }, "Sehr viele Ereignisse: Die ältesten Angriffe fehlen in der Auswertung.") : null,
+    h("h3", { class: "hs-h3" }, "Letzte 3 Angriffe"),
+    h("div", { class: "feed" }, attacks.slice(0, 3).map((a, k) => { a.seen = attacks.length - k; return attackCard(a, { showIP: false, open }); })),
+    older, more,
+    notLoaded > 0 ? h("p", { class: "muted" }, `Geladen sind die neuesten ${fmtNum(attacks.length)} Angriffe; die Zusammenfassung oben umfasst alle ${fmtNum(hs.attacks)}.`) : null);
+}
