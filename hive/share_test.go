@@ -392,7 +392,7 @@ func TestURLhausSubmit(t *testing.T) {
 
 func TestURLhausErrorPauses(t *testing.T) {
 	allowDoc(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "bad key", 401) }))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Error(w, "bad key", http.StatusUnauthorized) }))
 	defer srv.Close()
 	old := urlhausSubmitURL
 	urlhausSubmitURL = srv.URL

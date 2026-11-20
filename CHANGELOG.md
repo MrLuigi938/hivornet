@@ -2,6 +2,25 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+**Update:** Beim ersten Start zählt der Hive die Top-Listen einmal neu (neue Exploit-Regeln, Fremdprotokolle). Alle neuen Weitergabe- und KI-Funktionen sind zunächst aus.
+
+### Neu
+- **Exploit-Erkennung mit Produkt und CVE:** rund 200 Regeln für Router, Kameras, VPN-Gateways, Atlassian, Exchange, Java/Spring, CMS, PHP, Docker-API, Tomcat und mehr. Jede Regel unterscheidet Abtasten (Probe) und Ausnutzung; eine Ausnutzung verdrängt die Probe desselben Produkts. Neue Tabelle **„Exploits nach Produkt“** in der Auswertung, Details an Angriffskarte und Bericht, Suchfelder `regel:` und `produkt:`.
+- **Lückendetails (CVE):** CISA-KEV wird täglich lokal geladen, NVD und EPSS werden gedrosselt nachgeschlagen und zwischengespeichert; es gehen nur CVE-Nummern hinaus. Abschaltbar, optional mit NVD-Schlüssel.
+- **KI-Regelvorschläge:** Für Exploits ohne Zuordnung schlägt die KI Produkt, CVE und Regel vor; Ausdruck und CVE werden geprüft, angenommene Regeln gelten sofort.
+- **Web-Köder:** glaubwürdige Seiten für FortiGate, Ivanti, Cisco ASA, Hikvision, ONVIF, Tomcat, Jira und Keycloak mit „verwundbaren“ Antworten für bekannte Lücken. Anmeldungen und Exploits antworten bewusst langsam. Einstellung „Köder“ beim Geräteprofil (passend zum Profil, alle, aus).
+- **Weitergabe an die Community** (jeweils opt-in, mit Probemodus und Tageslimit): Nachlade-Adressen an **URLhaus** melden, **Dateien sammeln** in eine Quarantäne (eigener abgesicherter Download, keine Verbindungen ins LAN, Größen- und Zeitgrenzen), **MalwareBazaar** (Hash nachschlagen, unbekannte Programme hochladen) und stündliche Meldungen an **DShield** (eigene Adresse wird nie gesendet).
+- **Weitere KI-Funktionen** (je einzeln schaltbar, gemeinsames Tagesbudget): KI-Wochenbericht, Kurzanalyse schwerer Angriffe (je Angriffsfamilie ein Aufruf), Suche in Alltagssprache (Vorschlag wird geprüft und erst nach Klick angewendet), „Mit KI erklären“ für Befehle und nachgeladene Skripte.
+- **Stille Ports:** Der Hive merkt sich, seit wann ein Port läuft, und weist auf Ports ohne jede Verbindung hin (z. B. vom Provider gesperrt).
+- **Hostname-Prüfung** nach RFC 952/1123 mit Hinweis beim Tippen und Vorschlag; neue ungültige Namen werden abgelehnt.
+
+### Geändert
+- **KI-Webantworten:** Produkt wird aus dem Pfad erkannt, feste Produkthinweise je Pfadfamilie, doppelt maskierte Antworten (wörtliches `\n`) werden entmaskiert. 404 und Zufalls- oder Scannerpfade gehen nicht mehr ans Modell.
+- **Fremdprotokolle als ein Ereignis:** HTTP-Anfragen, TLS-Handshakes und Binärdaten an Redis, FTP, SMTP, Telnet, MySQL und PostgreSQL zählen nicht mehr als Befehle oder Zugangsdaten je Zeile, sondern als ein Abtast-Ereignis. Behebt überhöhte Redis-Zähler.
+- **Geräteprofil** zeigt vor dem Speichern, wie viele Verbindungen die abgeschalteten Dienste zuletzt pro Woche brachten.
+
 ## [0.7.5-beta] – 2026-11-19
 
 **Update:** Raspberry Pi per Knopf (System → Updates, Kanal „Vorabversionen“), kein neues Image nötig. Docker: `sh update.sh`, danach **`sudo sh tools/firewall.sh`** (neue, ausfallsichere Netzsperre). Beim ersten Start zählt der Hive die Top-Listen einmal neu (Java4Shell). Empfehlung: unter Einstellungen → Auswertung und KI den Zwischenspeicher der Sprachmodell-Antworten einmal leeren.
