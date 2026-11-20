@@ -83,6 +83,7 @@ f="$rel/\${url##*/}"
 cp "\$f" "\$out"
 EOS
 chmod +x "$t/bin/curl"
+# shellcheck disable=SC2016 # $1 und $(...) gehören in das erzeugte Skript
 printf '#!/bin/sh\n[ "$1" = verify-release ] || exit 0\nexit $(cat "%s/verify-rc")\n' "$t" >"$t/root/opt/hivornet/hive"
 chmod +x "$t/root/opt/hivornet/hive"
 

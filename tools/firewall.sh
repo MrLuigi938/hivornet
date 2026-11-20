@@ -94,7 +94,7 @@ remove() {
 # num WERT MIN MAX NAME: ganze Zahl im Bereich, sonst Abbruch
 num() {
   case "$1" in '' | *[!0-9]*) die "$4: ganze Zahl von $2 bis $3 erwartet, nicht '$1'" ;; esac
-  [ "${#1}" -le 5 ] && [ "$1" -ge "$2" ] && [ "$1" -le "$3" ] || die "$4: $2 bis $3 erlaubt, nicht $1"
+  if [ "${#1}" -gt 5 ] || [ "$1" -lt "$2" ] || [ "$1" -gt "$3" ]; then die "$4: $2 bis $3 erlaubt, nicht $1"; fi
 }
 
 # apply_brute: Drossel setzen oder entfernen (BRUTE_LIMIT). Läuft nach der Netzsperre in einer

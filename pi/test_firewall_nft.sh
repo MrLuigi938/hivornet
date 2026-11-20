@@ -71,7 +71,7 @@ ok=0
 for _ in 1 2 3 4 5 6 7 8 9 10; do
   if ip netns exec wan nc -z -w 2 198.51.100.1 22; then ok=$((ok + 1)); fi
 done
-[ "$ok" -ge 4 ] && [ "$ok" -le 6 ] || fail "Drossel: $ok von 10 Verbindungen durchgekommen, erwartet etwa 5 (Spitze)"
+if [ "$ok" -lt 4 ] || [ "$ok" -gt 6 ]; then fail "Drossel: $ok von 10 Verbindungen durchgekommen, erwartet etwa 5 (Spitze)"; fi
 nft list set inet hivornet brute_ban4 | grep -q 198.51.100.2 || fail "IP nach Überschreiten nicht gesperrt"
 # Heimnetz (privat) nie gedrosselt
 for _ in 1 2 3 4 5 6 7 8 9 10; do
