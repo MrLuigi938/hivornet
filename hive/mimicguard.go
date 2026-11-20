@@ -170,7 +170,10 @@ var unsafeWebRe = regexp.MustCompile(`(?is)<script[^>]*\ssrc\s*=\s*["']?\s*(?:[a
 	`\s(?:action|formaction)\s*=\s*["']?\s*(?:[a-z][a-z0-9+.-]*:|//|\\\\)|` +
 	`http-equiv\s*=\s*["']?\s*refresh|<base[\s>]|` +
 	`\b(?:window|document|top|self|parent)\s*\.\s*location\b|\blocation\s*\.\s*(?:href|replace|assign)\b|\bwindow\s*\.\s*open\s*\(|` +
-	`\bimport\s*\(|\bfetch\s*\(\s*["'\x60]\s*(?:https?:)?//|\beval\s*\(|\batob\s*\(|\bfromCharCode\b`)
+	`\bimport\s*\(|\bfetch\s*\(\s*["'\x60]\s*(?:https?:)?//|\beval\s*\(|\batob\s*\(|\bfromCharCode\b|` +
+	// Audit 4: Cookies und Speicher per Skript (an safeSetCookie vorbei; Cookies trennen nicht
+	// nach Port, die Hive-UI kann auf demselben Host laufen), Beacons, Code aus Text
+	`\bdocument\s*\.\s*cookie\b|\b(?:local|session)Storage\b|\bsendBeacon\b|\bnew\s+Function\b|\bset(?:Timeout|Interval)\s*\(\s*["'\x60]`)
 
 // Adressen in Eingaben (M2 des dritten Audits): Scanner schreiben die Zieladresse oft selbst in
 // Pfad oder Befehl ("/?url=http://<öffentliche IP>/…", "wget http://<öffentliche IP>/…"). Vor dem

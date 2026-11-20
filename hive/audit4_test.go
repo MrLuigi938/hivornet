@@ -319,3 +319,18 @@ func TestAIStatusErrorAdminOnly(t *testing.T) {
 		t.Fatal("Admin sieht den Fehlertext nicht")
 	}
 }
+
+// Modell-Webantworten dürfen per Skript keine Cookies setzen oder Daten wegschicken.
+func TestUnsafeWebScriptCookies(t *testing.T) {
+	for _, s := range []string{`<script>document.cookie="hv_session=x; path=/"</script>`, `<script>localStorage.setItem("a","b")</script>`,
+		`<script>navigator.sendBeacon("/x", d)</script>`, `<script>new Function("a")()</script>`, `<script>setTimeout("alert(1)",9)</script>`} {
+		if !unsafeWebRe.MatchString(s) {
+			t.Errorf("nicht erkannt: %s", s)
+		}
+	}
+	for _, s := range []string{`<script>document.getElementById("x").focus()</script>`, `<p>Cookies helfen uns.</p>`} {
+		if unsafeWebRe.MatchString(s) {
+			t.Errorf("harmlos verworfen: %s", s)
+		}
+	}
+}
