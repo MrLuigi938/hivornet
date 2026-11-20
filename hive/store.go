@@ -366,6 +366,9 @@ func topKeys(e *Event) [][3]string {
 			add("snmp", e.Password, dataString(e.Data, "pdu"))
 			break
 		}
+		if foreignEvent(e) { // HTTP-Zeilen an der Telnet-Anmeldung (einstufung.go, Regel 1b)
+			break
+		}
 		if lines, ok := promptLines(e); ok { // Befehle an der Login-Abfrage sind keine Zugangsdaten
 			for _, l := range lines {
 				add("command", l, e.Service)
@@ -378,7 +381,7 @@ func topKeys(e *Event) [][3]string {
 			add("cred", e.Username+" / "+e.Password, "")
 		}
 	case "command":
-		if in := dataString(e.Data, "input"); !isTLSText(in) {
+		if in := dataString(e.Data, "input"); !isTLSText(in) && !foreignEvent(e) {
 			add("command", in, e.Service)
 		}
 	case "request":

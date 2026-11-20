@@ -289,7 +289,7 @@ func handleTelnet(s *Session) {
 		s.ReadDeadline(60 * time.Second)
 		if first { // TLS-Client am Telnet-Port: erst nach der ersten Abfrage prüfen, Bots warten auf sie
 			first = false
-			if s.sniffTLS(br) {
+			if kind, _ := s.sniffForeign(br, false); kind != "" { // auch HTTP: Kopfzeilen sind keine Zugangsdaten
 				return "", false
 			}
 		}

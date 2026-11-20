@@ -77,11 +77,17 @@ func handleSMTP(s *Session) {
 		line, err := readLine(br, smtpMaxLine)
 		return line, err == nil
 	}
-	s.ReadDeadline(60 * time.Second)
-	if s.sniffTLS(br) {
-		return
-	}
 	for i := 0; i < smtpMaxCommands; i++ {
+		s.ReadDeadline(60 * time.Second)
+		if kind, _ := s.sniffForeign(br, true); kind != "" {
+			switch kind { // Postfix: smtpd_forbidden_commands (GET, POST …) beendet die Sitzung
+			case "http":
+				s.WriteString("221 2.7.0 Error: I can break rules, too. Goodbye.\r\n")
+			case "binary":
+				s.WriteString("502 5.5.2 Error: command not recognized\r\n")
+			}
+			return
+		}
 		line, ok := read()
 		if !ok {
 			return

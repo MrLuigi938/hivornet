@@ -61,6 +61,7 @@ type Hive struct {
 	hosts     hostList      // erlaubte Hostnamen der Web-UI (hosts.go)
 	probe     *portProbe    // lauschen die Cowrie-Ports? (probe.go)
 	abuse     abuseReporter // Meldungen an AbuseIPDB (abusereport.go)
+	ports     portActivity  // seit wann welche Ports laufen (silentports.go)
 }
 
 func env(k, def string) string {
@@ -229,6 +230,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/lookup/malwarebazaar", a.Require(h.lookupBazaar))
 	ui.HandleFunc("GET /api/tarpit", a.Require(h.tarpit))
 	ui.HandleFunc("GET /api/settings", a.Require(h.getSettings))
+	ui.HandleFunc("GET /api/ports/activity", a.Require(h.portActivityAPI))
 	ui.HandleFunc("PUT /api/settings", a.Require(h.putSettings))
 	ui.HandleFunc("POST /api/password", a.Require(h.changePassword))
 	ui.HandleFunc("GET /api/system", a.Require(h.system))
