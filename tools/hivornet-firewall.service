@@ -12,6 +12,9 @@ Before=docker.service
 Type=oneshot
 RemainAfterExit=yes
 Environment=ALLOW_DOWNLOADS=0
+# Drossel für Dauer-Brute-Force (siehe tools/firewall.sh; Werte aus der Hivornet-UI übernehmen):
+Environment=BRUTE_LIMIT=0 BRUTE_RATE=6 BRUTE_BURST=20 BRUTE_BAN=15
+#Environment="BRUTE_ALLOW=203.0.113.0/24"
 ExecStart=/bin/sh /opt/hivornet/tools/firewall.sh apply
 
 [Install]

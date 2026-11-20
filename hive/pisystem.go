@@ -150,6 +150,8 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			if err := run("systemctl", "enable", "--now", path.Base(c)); err != nil {
 				fmt.Fprintf(w, "Einschalten von %s: %v\n", path.Base(c), err)
 			}
+			// lief er schon, beobachtet er neue Pfade (z. B. brute-request) erst nach einem Neustart
+			run("systemctl", "restart", path.Base(c))
 		}
 	}
 	// Geänderte Netzsperre sofort anwenden, nicht erst nach dem nächsten Neustart (M8 des

@@ -19,6 +19,18 @@
 # nicht erreichen: Docker gibt der Bridge die Gateway-Adresse 172.30.250.1 auf dem Host.
 # Honeypot und Hive sprechen dort nur untereinander.
 #
+# Drossel für Dauer-Brute-Force (abschaltbar, Standard aus): begrenzt NEUE Verbindungen zu Cowrie
+# (SSH und Telnet, im Container 2222/2223) je Quell-IP. Überzählige Versuche werden ohne Antwort
+# verworfen; der Bot wartet bis zu seiner Zeitüberschreitung. Nie gedrosselt werden private Netze
+# und BRUTE_ALLOW. Die Werte zeigt die Hivornet-UI unter Einstellungen → Honeypot → Dauer-Brute-Force.
+#
+#   BRUTE_LIMIT=1 BRUTE_RATE=6 BRUTE_BURST=20 BRUTE_BAN=15 BRUTE_ALLOW="203.0.113.0/24" sudo -E sh tools/firewall.sh
+#       BRUTE_RATE  neue Verbindungen je Minute und IP (2-120), BRUTE_BURST Spitze (5-1000),
+#       BRUTE_BAN   danach so viele Minuten gesperrt (0-1440, 0 = nur drosseln),
+#       BRUTE_ALLOW weitere IPv4-Netze, die nie gedrosselt werden (Leerzeichen getrennt)
+# Die Drossel entsteht wie die Sperre erst in einer Kette -NEU. Scheitert sie (z. B. fehlt das
+# Kernel-Modul hashlimit), bleibt die Netzsperre gesetzt und die bisherige Drossel unverändert.
+#
 # Die Regeln überleben keinen Neustart der NAS. Siehe README: beim Systemstart
 # ausführen (Synology: Aufgabenplaner, sonst tools/hivornet-firewall.service).
 set -eu
@@ -32,6 +44,8 @@ NET_INGEST=172.30.250.0/24
 COWRIE_IP=172.30.252.10
 CHAIN=HIVORNET-OUT
 CHAIN_IN=HIVORNET-HOST
+CHAIN_BRUTE=HIVORNET-BRUTE
+COWRIE_PORTS=2222,2223
 
 die() { printf 'FEHLER: %s\n' "$*" >&2; exit 1; }
 command -v iptables >/dev/null 2>&1 || die "iptables fehlt"
@@ -42,6 +56,7 @@ command -v iptables >/dev/null 2>&1 || die "iptables fehlt"
 # Augenblick ohne Sperre, und ein Fehler mittendrin lässt die bisherige Sperre unverändert.
 NEW=$CHAIN-NEU
 NEW_IN=$CHAIN_IN-NEU
+NEW_BRUTE=$CHAIN_BRUTE-NEU
 
 # unhook KETTE: alle Sprünge in diese Kette entfernen
 unhook() {
@@ -51,6 +66,11 @@ unhook() {
   while iptables -D INPUT -i "$BR_INGEST" -j "$1" 2>/dev/null; do :; done
   while iptables -D INPUT -s "$NET" -j "$1" 2>/dev/null; do :; done
   while iptables -D INPUT -s "$NET_INGEST" -j "$1" 2>/dev/null; do :; done
+}
+
+# unhook_brute KETTE: Sprünge der Drossel entfernen (nur neue Verbindungen zu Cowrie)
+unhook_brute() {
+  while iptables -D DOCKER-USER -d "$COWRIE_IP" -p tcp -m multiport --dports "$COWRIE_PORTS" -m conntrack --ctstate NEW -j "$1" 2>/dev/null; do :; done
 }
 
 drop_chain() {
@@ -65,6 +85,66 @@ remove() {
     unhook "$c"
     drop_chain "$c"
   done
+  for c in "$CHAIN_BRUTE" "$NEW_BRUTE"; do
+    unhook_brute "$c"
+    drop_chain "$c"
+  done
+}
+
+# num WERT MIN MAX NAME: ganze Zahl im Bereich, sonst Abbruch
+num() {
+  case "$1" in '' | *[!0-9]*) die "$4: ganze Zahl von $2 bis $3 erwartet, nicht '$1'" ;; esac
+  [ "${#1}" -le 5 ] && [ "$1" -ge "$2" ] && [ "$1" -le "$3" ] || die "$4: $2 bis $3 erlaubt, nicht $1"
+}
+
+# apply_brute: Drossel setzen oder entfernen (BRUTE_LIMIT). Läuft nach der Netzsperre in einer
+# eigenen Shell; ein Fehler hier lässt Sperre und bisherige Drossel unverändert.
+apply_brute() {
+  if exists "$NEW_BRUTE" && ! exists "$CHAIN_BRUTE"; then iptables -E "$NEW_BRUTE" "$CHAIN_BRUTE"; fi
+  unhook_brute "$NEW_BRUTE"
+  drop_chain "$NEW_BRUTE"
+  if [ "${BRUTE_LIMIT:-0}" != 1 ]; then
+    unhook_brute "$CHAIN_BRUTE"
+    drop_chain "$CHAIN_BRUTE"
+    echo "Drossel für Dauer-Brute-Force: aus."
+    return 0
+  fi
+  rate=${BRUTE_RATE:-6} burst=${BRUTE_BURST:-20} ban=${BRUTE_BAN:-15}
+  num "$rate" 2 120 BRUTE_RATE
+  num "$burst" 5 1000 BRUTE_BURST
+  num "$ban" 0 1440 BRUTE_BAN
+  allow=""
+  for n in ${BRUTE_ALLOW:-}; do
+    if printf '%s' "$n" | grep -Eq '^([0-9]{1,3}\.){3}[0-9]{1,3}(/([0-9]|[12][0-9]|3[0-2]))?$'; then
+      allow="$allow $n"
+    elif printf '%s' "$n" | grep -q ':'; then
+      echo "Hinweis: BRUTE_ALLOW $n ist IPv6; Cowrie im Docker-Netz ist nur über IPv4 erreichbar, übersprungen." >&2
+    else
+      die "BRUTE_ALLOW: '$n' ist keine IPv4-Adresse und kein Netz"
+    fi
+  done
+  iptables -N "$NEW_BRUTE"
+  # nie drosseln: private Netze (Heimnetz, Docker, Loopback) und die eigene Liste
+  for net in 10.0.0.0/8 172.16.0.0/12 192.168.0.0/16 127.0.0.0/8 169.254.0.0/16 100.64.0.0/10 $allow; do
+    iptables -A "$NEW_BRUTE" -s "$net" -j RETURN
+  done
+  if [ "$ban" -gt 0 ]; then
+    iptables -A "$NEW_BRUTE" -m recent --name hvbrute --rcheck --seconds "$((ban * 60))" -j DROP
+  fi
+  # Name mit den Werten: Beim Tausch der Ketten gibt es kurz alte und neue Regel nebeneinander,
+  # und hashlimit teilt Tabellen gleichen Namens.
+  iptables -A "$NEW_BRUTE" -m hashlimit --hashlimit-upto "$rate/min" --hashlimit-burst "$burst" --hashlimit-mode srcip \
+    --hashlimit-name "hvb$rate-$burst" --hashlimit-htable-expire 600000 -j RETURN
+  if [ "$ban" -gt 0 ]; then
+    iptables -A "$NEW_BRUTE" -m recent --name hvbrute --set -j DROP
+  else
+    iptables -A "$NEW_BRUTE" -j DROP
+  fi
+  iptables -I DOCKER-USER 1 -d "$COWRIE_IP" -p tcp -m multiport --dports "$COWRIE_PORTS" -m conntrack --ctstate NEW -j "$NEW_BRUTE"
+  unhook_brute "$CHAIN_BRUTE"
+  drop_chain "$CHAIN_BRUTE"
+  iptables -E "$NEW_BRUTE" "$CHAIN_BRUTE"
+  echo "Drossel für Dauer-Brute-Force: höchstens $rate neue Verbindungen je Minute und IP (Spitze $burst), Sperre $ban Minuten."
 }
 
 DONE=0
@@ -129,6 +209,18 @@ apply() {
   done
   echo "Netzsperre aktiv für $BR ($NET) und $BR_INGEST ($NET_INGEST) (Downloads nur Cowrie: ${ALLOW_DOWNLOADS:-0})."
   echo "Prüfung: Unter System zeigt die Hivornet-UI nach spätestens 10 Minuten 'Internet: gesperrt'."
+  # eigene Shell ohne "if": nur so bricht set -e dort beim ersten Fehler ab
+  set +e
+  (
+    set -e
+    apply_brute
+  )
+  rc=$?
+  set -e
+  if [ "$rc" != 0 ]; then
+    echo "FEHLER: Drossel für Dauer-Brute-Force nicht (neu) gesetzt; die Netzsperre ist aktiv, eine bisherige Drossel gilt unverändert weiter." >&2
+    exit 1
+  fi
 }
 
 case "${1:-apply}" in
@@ -137,6 +229,7 @@ case "${1:-apply}" in
   status)
     iptables -S "$CHAIN" 2>/dev/null || echo "Kette $CHAIN fehlt (Netzsperre nicht aktiv)"
     iptables -S "$CHAIN_IN" 2>/dev/null || true
+    iptables -S "$CHAIN_BRUTE" 2>/dev/null || echo "Drossel für Dauer-Brute-Force: aus"
     ;;
   *) die "unbekannter Befehl: $1 (apply|status|remove)" ;;
 esac

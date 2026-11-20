@@ -28,7 +28,8 @@ EOF
   # shellcheck disable=SC2016 # $* und $1 gehören in die Ersatzskripte
   if [ "$1" = nft ]; then
     # NFT_FAIL=1: nft -f scheitert (Syntaxfehler, fehlendes Modul)
-    printf '#!/bin/sh\necho "nft $*" >>"%s"\n[ "$1" = -f ] && cat >>"%s" && [ -n "${NFT_FAIL:-}" ] && exit 1\nexit 0\n' "$t/log" "$t/log" >"$t/bin/nft"
+    # NFT_FAIL_BRUTE=1: scheitert nur, wenn die Drossel dabei ist (altes nftables ohne Mengen mit limit)
+    printf '#!/bin/sh\necho "nft $*" >>"%s"\nif [ "$1" = -f ]; then\n  in=$(cat)\n  printf "%%s\\n" "$in" >>"%s"\n  [ -n "${NFT_FAIL:-}" ] && exit 1\n  case "$in" in *"chain brute"*) [ -n "${NFT_FAIL_BRUTE:-}" ] && exit 1 ;; esac\nfi\nexit 0\n' "$t/log" "$t/log" >"$t/bin/nft"
   else
     # -D findet beim ersten Aufruf nichts (wie ohne alte Regeln), sonst Erfolg
     for ipt in iptables ip6tables; do
@@ -38,7 +39,7 @@ EOF
   chmod +x "$t/bin/"*
 }
 
-run() { HIVORNET_STATUS_DIR="$t/status" PATH="$t/bin:/usr/bin:/bin" sh "$fw" "$@" >"$t/out" 2>&1 || { cat "$t/out"; fail "hivornet-firewall $* (Exit-Code)"; }; }
+run() { HIVORNET_BRUTE_CONF="$t/brute.conf" HIVORNET_STATUS_DIR="$t/status" PATH="$t/bin:/usr/bin:/bin" sh "$fw" "$@" >"$t/out" 2>&1 || { cat "$t/out"; fail "hivornet-firewall $* (Exit-Code)"; }; }
 has() { grep -qF -- "$1" "$t/log" || { cat "$t/log"; fail "erwartet: $1"; }; }
 hasnt() { if grep -qF -- "$1" "$t/log"; then cat "$t/log"; fail "unerwartet: $1"; fi; }
 
@@ -81,4 +82,64 @@ for cow in 1 0; do
   [ "$(head -n 1 "$t/status/firewall")" = ok ] || fail "Statusdatei nicht ok (iptables)"
   run remove
 done
+# Drossel für Dauer-Brute-Force (brute.conf von hivornet-cowrie-config)
+st() { head -n 1 "$t/status/$1"; }
+setup nft 1
+rm -f "$t/brute.conf" "$t/status/brute"
+run apply
+hasnt "chain brute"
+[ ! -e "$t/status/brute" ] || fail "Status brute ohne brute.conf"
+printf 'brute 6 20 15\nallow 203.0.113.0/24\nallow 2001:db8::/32\n' >"$t/brute.conf"
+: >"$t/log"
+run apply
+has "chain brute {"
+has "tcp dport { 22, 23 } ct state new jump brute"
+has "update @brute_rate4 { ip saddr limit rate over 6/minute burst 20 packets } add @brute_ban4 { ip saddr timeout 15m } drop"
+has "update @brute_rate6 { ip6 saddr limit rate over 6/minute burst 20 packets } add @brute_ban6 { ip6 saddr timeout 15m } drop"
+has "192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16, 100.64.0.0/10, 203.0.113.0/24 }"
+has "fe80::/10, 2001:db8::/32 }"
+has "meta skuid 990 drop" # Sperre unverändert dabei
+# Ausnahmen vor Sperre und Rate
+[ "$(grep -n 'saddr @brute_allow4 return' "$t/log" | cut -d: -f1)" -lt "$(grep -n 'saddr @brute_ban4 drop' "$t/log" | cut -d: -f1)" ] || fail "Ausnahmen nicht zuerst"
+[ "$(grep -c '^nft -f' "$t/log")" = 1 ] || fail "mit Drossel nicht genau ein nft -f"
+{ [ "$(st brute)" = ok ] && [ "$(st firewall)" = ok ]; } || fail "Status mit Drossel nicht ok"
+grep -q "Drossel aktiv: höchstens 6" "$t/status/brute" || fail "Statustext der Drossel"
+# ohne Sperre
+printf 'brute 10 30 0\n' >"$t/brute.conf"
+: >"$t/log"
+run apply
+has "update @brute_rate4 { ip saddr limit rate over 10/minute burst 30 packets } drop"
+hasnt "add @brute_ban4"
+# nftables kennt die Drossel nicht: Sperre trotzdem, Status brute failed
+printf 'brute 6 20 15\n' >"$t/brute.conf"
+: >"$t/log"
+NFT_FAIL_BRUTE=1 run apply
+[ "$(grep -c '^nft -f' "$t/log")" = 2 ] || fail "nach abgelehnter Drossel nicht ohne sie wiederholt"
+[ "$(st firewall)" = ok ] || fail "Sperre nach abgelehnter Drossel nicht ok"
+[ "$(st brute)" = failed ] || fail "Status brute nach Ablehnung nicht failed"
+# aus
+printf 'brute off\n' >"$t/brute.conf"
+: >"$t/log"
+run apply
+hasnt "chain brute"
+{ [ "$(st brute)" = ok ] && grep -q "Drossel aus" "$t/status/brute"; } || fail "Status 'Drossel aus'"
+# ungültige oder von Hand verdorbene Datei: keine Drossel, nichts davon in nft
+for bad in "brute 6 20 15
+allow 1.2.3.4/32 } ; flush ruleset ; table x {" "brute 6 20 15
+allow 203.0.113.0" "brute 999 20 15" "brute 6 20 15
+reboot" "brute 6;20;15"; do
+  printf '%s\n' "$bad" >"$t/brute.conf"
+  : >"$t/log"
+  run apply
+  hasnt "chain brute"
+  hasnt "flush ruleset"
+  has "meta skuid 990 drop"
+  [ "$(st brute)" = failed ] || fail "ungültige brute.conf nicht gemeldet: $bad"
+done
+# iptables (ohne nft): Hinweis, Sperre trotzdem
+printf 'brute 6 20 15\n' >"$t/brute.conf"
+setup iptables 1
+run apply
+has "--uid-owner hivornet-pot -j HIVORNET-POT"
+[ "$(st brute)" = failed ] || fail "iptables: Drossel nicht als nicht möglich gemeldet"
 echo "hivornet-firewall: alle Prüfungen bestanden"

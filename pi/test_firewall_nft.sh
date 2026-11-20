@@ -40,6 +40,35 @@ ip netns exec home nc -z -w 3 10.9.0.1 8088 || fail "Web-UI aus dem Heimnetz nic
 if ip netns exec home nc -z -w 3 10.9.0.1 2222; then fail "Honeypot-Port 2222 aus dem Heimnetz erreichbar"; fi
 if nc -z -w 3 10.9.0.2 9000; then fail "Pi kann über eth1 ins Heimnetz verbinden"; fi
 
+# Drossel für Dauer-Brute-Force: "Internet" (öffentliche Testadresse) über einen eigenen Anschluss
+ip netns add wan
+ip link add wan0 type veth peer name wan1
+ip link set wan1 netns wan
+ip addr add 198.51.100.1/24 dev wan0
+ip link set wan0 up
+ip -n wan addr add 198.51.100.2/24 dev wan1
+ip -n wan link set wan1 up
+ip -n wan link set lo up
+nc -lk -p 22 >/dev/null 2>&1 &
+sleep 1
+printf 'brute 2 5 1\n' >/tmp/brute.conf
+HIVORNET_BRUTE_CONF=/tmp/brute.conf HIVORNET_STATUS_DIR=/tmp/status sh "$fw" apply
+[ "$(head -n 1 /tmp/status/brute)" = ok ] || fail "Drossel nicht übernommen: $(cat /tmp/status/brute)"
+nft list chain inet hivornet brute >/dev/null || fail "Kette brute fehlt"
+ok=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ip netns exec wan nc -z -w 2 198.51.100.1 22; then ok=$((ok + 1)); fi
+done
+[ "$ok" -ge 4 ] && [ "$ok" -le 6 ] || fail "Drossel: $ok von 10 Verbindungen durchgekommen, erwartet etwa 5 (Spitze)"
+nft list set inet hivornet brute_ban4 | grep -q 198.51.100.2 || fail "IP nach Überschreiten nicht gesperrt"
+# Heimnetz (privat) nie gedrosselt
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  ip netns exec home nc -z -w 3 10.9.0.1 8088 || fail "Heimnetz gedrosselt"
+done
+printf 'brute off\n' >/tmp/brute.conf
+HIVORNET_BRUTE_CONF=/tmp/brute.conf HIVORNET_STATUS_DIR=/tmp/status sh "$fw" apply
+ip netns exec wan nc -z -w 3 198.51.100.1 22 || fail "nach 'brute off' weiter gesperrt"
+
 HIVORNET_STATUS_DIR=/tmp/status sh "$fw" remove
 nc -z -w 3 10.9.0.2 9000 || fail "nach remove keine Verbindung (Testaufbau defekt?)"
-echo "hivornet-firewall (nftables, Verwaltungsanschluss): alle Prüfungen bestanden"
+echo "hivornet-firewall (nftables, Verwaltungsanschluss, Drossel): alle Prüfungen bestanden"

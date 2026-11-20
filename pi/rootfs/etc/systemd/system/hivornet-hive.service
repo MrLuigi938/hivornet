@@ -18,6 +18,8 @@ Environment=HIVE_FLUSH_MS=5000 HIVE_MAX_DB_MB=1024 HIVE_MIN_FREE_MB=512
 Environment=HIVE_DIRECT_PORTS=1 HIVE_UPDATE_REQUEST=/var/lib/hivornet/update-request HIVE_UPDATE_STATUS=/var/lib/hivornet-update/status
 # Anmelderegel von Cowrie aus der Web-UI (angewendet von hivornet-cowrie-config, root)
 Environment=HIVE_COWRIE_REQUEST=/var/lib/hivornet/cowrie-request HIVE_COWRIE_CONFIG_STATUS=/var/lib/hivornet-status/cowrie-config
+# Drossel für Dauer-Brute-Force (hive/bruteforce.go, angewendet von hivornet-cowrie-config)
+Environment=HIVE_BRUTE_REQUEST=/var/lib/hivornet/brute-request HIVE_BRUTE_STATUS=/var/lib/hivornet-status/brute
 # Seite "Protokolle" (nur lesen, nur Admins): journalctl der Hivornet-Dienste, Installationsprotokoll
 # und Stand der Cowrie-Installation. Die Gruppe systemd-journal erlaubt das Lesen des Journals.
 Environment=HIVE_JOURNAL=1 HIVE_INSTALL_LOG=/var/log/hivornet-install.log HIVE_COWRIE_INSTALL_STATUS=/var/lib/hivornet-status/cowrie-install
