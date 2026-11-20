@@ -661,7 +661,7 @@ var warNameRe = regexp.MustCompile(`filename="([A-Za-z0-9._-]{1,64})\.war"`)
 
 func tomcatContextParam(req *http.Request) string {
 	c := req.URL.Query().Get("path")
-	if c == "" || len(c) > 64 || !strings.HasPrefix(c, "/") || strings.ContainsAny(c, " <>\"'\\") {
+	if c == "" || len(c) > 64 || !strings.HasPrefix(c, "/") || strings.ContainsAny(c, " <>\"'\\;") || hasCtl(c) { // Audit 4: kein CR/LF (Kopfzeile)
 		return ""
 	}
 	return c

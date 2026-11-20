@@ -233,6 +233,16 @@ func serveHTTP(s *Session, api *httpAPI) {
 	}
 }
 
+// hasCtl: Steuerzeichen außer Tab. In Kopfzeilen nie erlaubt, CR/LF hängt sonst Zeilen an.
+func hasCtl(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < 0x20 && c != '\t') || c == 0x7f {
+			return true
+		}
+	}
+	return false
+}
+
 func writeHTTP(s *Session, method string, status int, ctype, body string, extra map[string]string, api *httpAPI, closing bool) error {
 	var b strings.Builder
 	fmt.Fprintf(&b, "HTTP/1.1 %d %s\r\n", status, http.StatusText(status))
@@ -262,6 +272,10 @@ func writeHTTP(s *Session, method string, status int, ctype, body string, extra 
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
+		// Audit 4: Werte aus Angreiferdaten (Pfade, Parameter) dürfen keine Kopfzeile anhängen.
+		if hasCtl(k) || hasCtl(extra[k]) {
+			continue
+		}
 		fmt.Fprintf(&b, "%s: %s\r\n", k, extra[k])
 	}
 	if closing {
