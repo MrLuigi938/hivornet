@@ -93,13 +93,19 @@ func (e *Event) Sanitize() error {
 	if e.DstPort < 0 || e.DstPort > 65535 {
 		e.DstPort = 0
 	}
-	if e.TarpitMs < 0 {
-		e.TarpitMs = 0
-	}
-	if e.DurationMs < 0 {
-		e.DurationMs = 0
-	}
+	// Dauern begrenzen (Audit 4): Summen in hourly und attackers liefen sonst bei zwei
+	// Werten nahe MaxInt64 über, SQLite meldet "integer overflow" und jede Schreib-
+	// Transaktion für diese Stunde scheiterte (verlorene Ereignisse aller Sensoren).
+	e.TarpitMs = clampMs(e.TarpitMs)
+	e.DurationMs = clampMs(e.DurationMs)
 	return nil
+}
+
+// maxEventMs: längste glaubhafte Dauer eines Ereignisses (ein Tag).
+const maxEventMs = 24 * 3600 * 1000
+
+func clampMs(v int64) int64 {
+	return min(max(v, 0), maxEventMs)
 }
 
 // truncateData kürzt zu große Inhalte feldweise statt sie ganz zu verwerfen.

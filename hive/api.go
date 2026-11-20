@@ -179,7 +179,9 @@ func (h *Hive) ingest(w http.ResponseWriter, r *http.Request) {
 			e.Sensor = req.Sensor
 		}
 		e.ID, e.Country, e.CountryName, e.City, e.Lat, e.Lon, e.ASN, e.ASOrg = 0, "", "", "", 0, 0, 0, ""
-		if e.Sanitize() != nil {
+		// "tty" erzeugt nur der Cowrie-Leser im Hive (cowrie.go). Ein Sensor dürfte sonst
+		// einer beliebigen Sitzung den Mitschnitt einer fremden Cowrie-Sitzung unterschieben.
+		if e.Type == "tty" || e.Sanitize() != nil {
 			continue
 		}
 		h.geo.Enrich(e)
