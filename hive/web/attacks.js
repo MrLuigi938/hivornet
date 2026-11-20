@@ -55,12 +55,12 @@ export function bruteHint(a) {
   return h("div", { class: "brute-hint" + (until && until > Date.now() ? " banned" : ""), title }, parts.join(" · "));
 }
 
-// Top-Listen ohne Dauer-Brute-Force (hive/api.go, nobrute=1): Standard, im Browser umschaltbar.
-// Abgezogen werden die verdichteten Versuche; je Brute-Forcer bleiben die bis zur Erkennung.
+// Top-Listen ohne Dauer-Brute-Force (hive/brutetop.go, nobrute=1): Standard, im Browser umschaltbar.
+// Abgezogen wird alles von IPs, die als Dauer-Brute-Force markiert sind, auch rückwirkend.
 export const bruteStatsParam = () => (store("statsBrute") === "1" ? "" : "&nobrute=1");
 export function bruteStatsNote(onChange) {
   const hidden = store("statsBrute") !== "1";
-  return h("p", { class: "muted brute-stats", title: "Die Rohdaten bleiben vollständig. Ausgeblendet werden die verdichteten Versuche erkannter Dauer-Brute-Forcer (Einstellungen → Honeypot → Dauer-Brute-Force); was sie bis zur Erkennung versuchten, zählt weiter mit." },
+  return h("p", { class: "muted brute-stats", title: "Ausgeblendet wird alles von IPs, die als Dauer-Brute-Force markiert sind (Einstellungen → Honeypot → Dauer-Brute-Force), auch was sie vor der Erkennung versuchten. Die Rohdaten bleiben vollständig." },
     hidden ? "Ohne Dauer-Brute-Force · " : "Mit Dauer-Brute-Force · ",
     h("button", { class: "linklike", onclick: () => { store("statsBrute", hidden ? "1" : "0"); onChange(); } }, hidden ? "einblenden" : "ausblenden"));
 }

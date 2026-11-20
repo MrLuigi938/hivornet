@@ -315,16 +315,20 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 	since, _ := rangeSince(r)
 	q := `SELECT key, MAX(label) AS label, SUM(n) AS n FROM top_hourly WHERE field = ? AND hour >= ?
 		GROUP BY key ORDER BY n DESC LIMIT ?`
-	if r.URL.Query().Get("nobrute") == "1" && bruteTopField(field) {
-		// Ohne Dauer-Brute-Force: verdichtete Versuche (Zähler unter "bf:<feld>", bruteforce.go)
-		// abziehen. Je Brute-Forcer bleiben die Versuche bis zur Erkennung, die Rohdaten unberührt.
-		q = `SELECT key, MAX(label) AS label, SUM(CASE WHEN field = ?1 THEN n ELSE -n END) AS n FROM top_hourly
-			WHERE field IN (?1, 'bf:' || ?1) AND hour >= ?2 GROUP BY key HAVING SUM(CASE WHEN field = ?1 THEN n ELSE -n END) > 0 ORDER BY n DESC LIMIT ?3`
+	// Ohne Dauer-Brute-Force: alle Beiträge markierter IPs abziehen (brutetop.go); die Rohdaten
+	// bleiben unberührt.
+	noBrute := r.URL.Query().Get("nobrute") == "1" && bruteTopField(field)
+	hour, limit := since.UnixMilli()/3600000, qInt(r, "limit", 10, 100)
+	load := func(ctx context.Context) ([]map[string]any, error) {
+		if noBrute {
+			return h.topNoBrute(ctx, field, hour, limit)
+		}
+		return h.rows(ctx, q, field, hour, limit)
 	}
 	if field == "username" || field == "password" || field == "cred" { // ungewöhnliche hervorheben (weekly.go)
 		ctx, cancel := qctx(r)
 		defer cancel()
-		rows, err := h.rows(ctx, q, field, since.UnixMilli()/3600000, qInt(r, "limit", 10, 100))
+		rows, err := load(ctx)
 		if err != nil {
 			httpErr(w, 500, err.Error())
 			return
@@ -343,7 +347,21 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, rows)
 		return
 	}
-	h.sendRows(w, r, q, field, since.UnixMilli()/3600000, qInt(r, "limit", 10, 100))
+	if noBrute {
+		ctx, cancel := qctx(r)
+		defer cancel()
+		rows, err := load(ctx)
+		if err != nil {
+			httpErr(w, 500, err.Error())
+			return
+		}
+		if rows == nil {
+			rows = []map[string]any{}
+		}
+		writeJSON(w, rows)
+		return
+	}
+	h.sendRows(w, r, q, field, hour, limit)
 }
 
 // countryStats liefert Angriffe (Verbindungen) je Land: heute und insgesamt.

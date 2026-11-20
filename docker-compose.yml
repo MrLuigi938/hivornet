@@ -19,8 +19,8 @@ services:
     <<: *hardening
     build:
       context: ./hive
-      args: { VERSION: "${HIVORNET_VERSION:-0.9.0-beta}" }
-    image: hivornet/hive:${HIVORNET_VERSION:-0.9.0-beta}
+      args: { VERSION: "${HIVORNET_VERSION:-0.9.1-beta}" }
+    image: hivornet/hive:${HIVORNET_VERSION:-0.9.1-beta}
     read_only: true
     tmpfs: [/tmp]
     environment:
@@ -88,8 +88,8 @@ services:
     <<: *hardening
     build:
       context: ./honeypot
-      args: { VERSION: "${HIVORNET_VERSION:-0.9.0-beta}" }
-    image: hivornet/honeypot:${HIVORNET_VERSION:-0.9.0-beta}
+      args: { VERSION: "${HIVORNET_VERSION:-0.9.1-beta}" }
+    image: hivornet/honeypot:${HIVORNET_VERSION:-0.9.1-beta}
     read_only: true
     tmpfs: [/tmp]
     environment:

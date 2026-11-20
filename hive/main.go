@@ -64,6 +64,7 @@ type Hive struct {
 	ports     portActivity  // seit wann welche Ports laufen (silentports.go)
 	share     shareState    // URLhaus, Dateien sammeln, MalwareBazaar, DShield (share.go)
 	snap      attackSnap    // Angriffe der letzten sieben Tage (attacksnap.go)
+	bruteTop  bruteTopCache // Top-Listen ohne Dauer-Brute-Force (brutetop.go)
 }
 
 func env(k, def string) string {

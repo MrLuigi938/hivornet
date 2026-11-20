@@ -329,3 +329,52 @@ func TestRelatedReasonsNeverNil(t *testing.T) {
 		t.Errorf("JSON enthält null: %s", b)
 	}
 }
+
+// "Ohne Dauer-Brute-Force" nimmt auch nicht verdichtete Läufe heraus (etwa von vor dem Update
+// oder die Versuche bis zur Erkennung): Live-Check 0.9.0, der Schalter änderte sonst nichts.
+func TestTopWithoutBruteRaw(t *testing.T) {
+	h := testHive(t)
+	w, err := NewWriter(h.st, func(*Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	var batch []*Event
+	for i := range 260 { // 260 Logins über 52 Minuten, ein Client: Dauer-Brute-Force
+		ts := now.Add(-55*time.Minute + time.Duration(i)*12*time.Second)
+		s := fmt.Sprintf("bf%d", i)
+		d, _ := json.Marshal(map[string]any{"version": "SSH-2.0-Go"})
+		batch = append(batch,
+			&Event{TS: ts, Type: "connect", Service: "ssh", SrcIP: "198.51.100.77", DstPort: 22, Session: s, ASN: 64496, ASOrg: "Beispiel-Bot"},
+			&Event{TS: ts, Type: "client", Service: "ssh", SrcIP: "198.51.100.77", DstPort: 22, Session: s, Data: d},
+			&Event{TS: ts, Type: "login", Service: "ssh", SrcIP: "198.51.100.77", DstPort: 22, Session: s, Username: "btf", Password: "321start"})
+	}
+	for i := range 3 { // gewöhnlicher Angreifer
+		s := fmt.Sprintf("n%d", i)
+		batch = append(batch,
+			&Event{TS: now.Add(-10 * time.Minute), Type: "connect", Service: "ssh", SrcIP: "203.0.113.8", DstPort: 22, Session: s, ASN: 64500, ASOrg: "Beispiel-Netz"},
+			&Event{TS: now.Add(-10 * time.Minute), Type: "login", Service: "ssh", SrcIP: "203.0.113.8", DstPort: 22, Session: s, Username: "root", Password: "123456"})
+	}
+	if err := w.writeBatch(batch); err != nil {
+		t.Fatal(err)
+	}
+	get := func(q string) []map[string]any {
+		rec := httptest.NewRecorder()
+		h.top(rec, httptest.NewRequest("GET", "/api/stats/top?range=24h&"+q, nil))
+		var out []map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out
+	}
+	if l := get("field=cred"); len(l) != 2 || l[0]["key"] != "btf / 321start" {
+		t.Fatalf("mit: %v", l)
+	}
+	if l := get("field=cred&nobrute=1"); len(l) != 1 || l[0]["key"] != "root / 123456" || l[0]["n"].(float64) != 3 {
+		t.Fatalf("ohne: %v", l)
+	}
+	if l := get("field=asn&nobrute=1"); len(l) != 1 || l[0]["key"] != "64500" {
+		t.Fatalf("Netzbetreiber ohne: %v", l)
+	}
+	if l := get("field=client&nobrute=1"); len(l) != 0 {
+		t.Fatalf("Clients ohne: %v", l)
+	}
+}
