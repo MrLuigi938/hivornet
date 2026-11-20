@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -28,12 +29,33 @@ type TarpitConfig struct {
 type SensorConfig struct {
 	Hostname  string           `json:"hostname"`
 	Profile   string           `json:"profile,omitempty"` // Geräteprofil (honeypot/profile.go); leer = bisher
+	Lures     string           `json:"lures,omitempty"`   // Köder des Web-Honeypots (honeypot/lures.go): leer = passend zum Profil, "all", "off" oder Liste
 	Listeners []ListenerConfig `json:"listeners"`
 	Tarpit    TarpitConfig     `json:"tarpit"`
 }
 
 // Geräteprofile, die der Honeypot kennt (honeypot/profile.go).
 var knownProfiles = []string{"", "linux-server", "nas", "router", "ip-camera", "smart-home", "dev-server"}
+
+// Köder des Web-Honeypots für häufig angegriffene Produkte (honeypot/lures.go, TestLureNamesInSync).
+var knownLures = []string{"fortinet", "ivanti", "cisco-asa", "hikvision", "onvif", "tomcat", "java-app"}
+
+// validLures: leer (passend zum Profil), "all", "off" oder eine Liste bekannter Köder.
+func validLures(v string) bool {
+	switch v {
+	case "", "all", "off":
+		return true
+	}
+	if len(v) > 200 {
+		return false
+	}
+	for _, n := range strings.Split(v, ",") {
+		if !contains(knownLures, strings.TrimSpace(n)) {
+			return false
+		}
+	}
+	return true
+}
 
 // Muss zur Tabelle "handlers" im Honeypot passen (dort prüft das TestServiceListsInSync).
 var knownServices = []string{"http", "https", "dockerapi", "ftp", "redis", "mysql", "ssh-tarpit", "raw", "telnet", "smtp", "vnc", "rdp", "sip", "snmp", "dns",
@@ -94,6 +116,9 @@ func (c *SensorConfig) Validate() error {
 	}
 	if !contains(knownProfiles, c.Profile) {
 		return fmt.Errorf("unbekanntes Geräteprofil %q", c.Profile)
+	}
+	if !validLures(c.Lures) {
+		return fmt.Errorf("unbekannte Köder %q", c.Lures)
 	}
 	if len(c.Listeners) > 64 {
 		return fmt.Errorf("höchstens 64 Ports")

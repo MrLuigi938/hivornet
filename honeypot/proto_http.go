@@ -192,6 +192,12 @@ func serveHTTP(s *Session, api *httpAPI) {
 		if req.ContentLength > maxHTTPBody || len(body) >= maxHTTPBody {
 			info["body_truncated"] = true
 		}
+		var lr *lure // Köder für ein bekanntes Produkt (lures.go)
+		if api == nil {
+			if lr = s.lureFor(req); lr != nil {
+				info["lure"] = lr.name
+			}
+		}
 		s.Emit(Event{Type: "request", Data: info})
 
 		if user, pass, ok := extractCreds(req, body); ok {
@@ -212,9 +218,13 @@ func serveHTTP(s *Session, api *httpAPI) {
 		var status int
 		var ctype, out string
 		var extra map[string]string
-		if api != nil {
+		switch {
+		case api != nil:
 			status, ctype, out, extra = api.respond(s, req)
-		} else {
+		case lr != nil:
+			r := lr.serve(s, req, body)
+			status, ctype, out, extra = r.status, r.ctype, r.body, r.hdr
+		default:
 			status, ctype, out, extra = webResponse(s, req)
 		}
 		if writeHTTP(s, req.Method, status, ctype, out, extra, api, closeAfter) != nil || closeAfter {
@@ -231,7 +241,11 @@ func writeHTTP(s *Session, method string, status int, ctype, body string, extra 
 			b.WriteString(api.headers(s))
 		}
 	} else {
-		if sv := s.m.prof().HTTPServer; sv != "" {
+		sv := s.m.prof().HTTPServer
+		if v, ok := extra["Server"]; ok { // Köder eines Geräts mit eigener Kennung ("" = keine)
+			sv = v
+		}
+		if sv != "" {
 			b.WriteString("Server: " + sv + "\r\n")
 		}
 	}
@@ -242,7 +256,9 @@ func writeHTTP(s *Session, method string, status int, ctype, body string, extra 
 	}
 	keys := make([]string, 0, len(extra))
 	for k := range extra {
-		keys = append(keys, k)
+		if k != "Server" || api != nil {
+			keys = append(keys, k)
+		}
 	}
 	sort.Strings(keys)
 	for _, k := range keys {
@@ -259,8 +275,11 @@ func writeHTTP(s *Session, method string, status int, ctype, body string, extra 
 	return s.WriteString(b.String())
 }
 
-var userKeys = []string{"username", "user", "login", "log", "email", "uname", "usr", "name", "account"}
-var passKeys = []string{"password", "pass", "pwd", "passwd", "pw", "secret"}
+// Feldnamen der Anmeldeformulare, auch der Köder (lures.go): FortiGate "credential",
+// Java-Anwendungen "j_password" und "os_password" (Jira). Die eigenen Namen der Java-Formulare
+// stehen vorn: Jira schickt daneben auch "login=Log In".
+var userKeys = []string{"j_username", "os_username", "username", "user", "login", "log", "email", "uname", "usr", "name", "account"}
+var passKeys = []string{"j_password", "os_password", "password", "pass", "pwd", "passwd", "pw", "secret", "credential"}
 
 func pick(vals url.Values, keys []string) (string, bool) {
 	for _, k := range keys {
@@ -348,6 +367,9 @@ func isTimeout(err error) bool {
 
 func webResponse(s *Session, req *http.Request) (int, string, string, map[string]string) {
 	path := req.URL.Path
+	if path == "" { // Anfrage in absoluter Form ohne Schrägstrich ("GET http://host HTTP/1.1"): Startseite
+		path = "/"
+	}
 	switch req.Method {
 	case "GET", "HEAD", "POST":
 	default: // nginx liefert statische Seiten nur für GET/HEAD; alles andere: 405

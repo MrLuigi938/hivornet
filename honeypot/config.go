@@ -34,6 +34,7 @@ type TarpitConfig struct {
 type Config struct {
 	Hostname  string           `json:"hostname" yaml:"hostname"`
 	Profile   string           `json:"profile,omitempty" yaml:"profile"` // Geräteprofil (profile.go); leer = bisher
+	Lures     string           `json:"lures,omitempty" yaml:"lures"`     // Köder (lures.go): leer = passend zum Profil, "all", "off" oder Liste
 	Listeners []ListenerConfig `json:"listeners" yaml:"listeners"`
 	Tarpit    TarpitConfig     `json:"tarpit" yaml:"tarpit"`
 }
@@ -81,6 +82,7 @@ type fileListener struct {
 type fileConfig struct {
 	Hostname  string         `yaml:"hostname"`
 	Profile   string         `yaml:"profile"`
+	Lures     string         `yaml:"lures"`
 	Listeners []fileListener `yaml:"listeners"`
 	Tarpit    TarpitConfig   `yaml:"tarpit"`
 }
@@ -94,7 +96,7 @@ func LoadConfigFile(path string) (Config, error) {
 	if err := yaml.Unmarshal(b, &fc); err != nil {
 		return Config{}, fmt.Errorf("%s: %w", path, err)
 	}
-	c := Config{Hostname: fc.Hostname, Profile: fc.Profile, Tarpit: fc.Tarpit}
+	c := Config{Hostname: fc.Hostname, Profile: fc.Profile, Lures: fc.Lures, Tarpit: fc.Tarpit}
 	for _, l := range fc.Listeners {
 		en := true
 		if l.Enabled != nil {
@@ -126,6 +128,10 @@ func (c *Config) Normalize(lowOffset int) []string {
 	if _, ok := profiles[c.Profile]; !ok {
 		warn = append(warn, "unbekanntes Geräteprofil "+c.Profile+", nutze das bisherige")
 		c.Profile = ""
+	}
+	if _, ok := lureSet(c.Lures, c.Profile); !ok {
+		warn = append(warn, "unbekannte Köder "+c.Lures+", nutze die passenden zum Profil")
+		c.Lures = ""
 	}
 	if c.Tarpit.IntervalMs < 200 {
 		c.Tarpit.IntervalMs = d.Tarpit.IntervalMs

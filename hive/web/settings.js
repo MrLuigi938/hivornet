@@ -377,6 +377,11 @@ function profileCard(s, saved, saveCfg, ports, byPort = new Map()) {
       sug && !hostnameProblem(sug) ? [" Vorschlag: ", h("b", { class: "num" }, sug), " ",
         h("button", { type: "button", class: "btn small", onclick: () => { hostIn.value = sug; checkHost(); sec.markDirty(); } }, "Übernehmen")] : null));
   };
+  // Köder des Web-Honeypots (honeypot/lures.go); eine eigene Liste aus der YAML-Datei bleibt erhalten
+  const lureOpts = { "": "Passend zum Profil", all: "Alle", off: "Aus" };
+  if (saved.lures && !(saved.lures in lureOpts)) lureOpts[saved.lures] = "Eigene Auswahl: " + saved.lures;
+  const lureSel = h("select", { "aria-label": "Köder" },
+    Object.keys(lureOpts).map((k) => h("option", { value: k, selected: (saved.lures || "") === k }, lureOpts[k])));
   const apply = h("input", { type: "checkbox", onchange: () => show() });
   const applyRow = h("label", { class: "inline" }, apply, "Passende Dienste einschalten, die übrigen ausschalten, und den Hostnamen vorschlagen");
   const show = () => {
@@ -401,7 +406,7 @@ function profileCard(s, saved, saveCfg, ports, byPort = new Map()) {
     saveLabel: "Profil speichern",
     save: async () => {
       const p = PROFILES[sel.value];
-      const part = { profile: sel.value, hostname: hostIn.value.trim() };
+      const part = { profile: sel.value, hostname: hostIn.value.trim(), lures: lureSel.value };
       if (part.hostname !== saved.hostname && hostnameProblem(part.hostname)) {
         const sug = suggestHostname(part.hostname);
         if (!sug || hostnameProblem(sug) || !confirm(`„${part.hostname}“ ist kein gültiger Hostname (${hostnameProblem(part.hostname)}). Stattdessen „${sug}“ speichern?`))
@@ -426,6 +431,7 @@ function profileCard(s, saved, saveCfg, ports, byPort = new Map()) {
   row("Hostname", h("div", null, hostIn, hostHint),
     "Erscheint in Login-Seiten, Bannern, Zertifikaten sowie Docker- und Redis-Antworten und geht mit den Befehlen an den Anbieter des Sprachmodells, falls die KI-Antworten eingeschaltet sind. " +
     "Ein unauffälliger Name wie „web01“ oder „nas-backup01“ wirkt echt; ungültige oder seltsame Namen verraten den Honeypot. Bitte keine echten Personennamen oder Hinweise auf dich verwenden."),
+  row("Köder", lureSel, "Glaubwürdige Seiten für oft angegriffene Produkte (FortiGate, Ivanti, Cisco ASA, Hikvision, ONVIF, Tomcat, Jira und Keycloak). Passend zum Profil: Kamera zeigt Hikvision und ONVIF, Server zeigen Tomcat und Java-Anwendungen."),
   applyRow, preview, impact);
   show();
   checkHost();
