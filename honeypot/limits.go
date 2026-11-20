@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/netip"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -27,6 +28,17 @@ const (
 	maxConnsPerPort = 2048 // ein einzelner Port darf nicht alle Plätze belegen
 )
 
+// limitKey: Schlüssel für alle Grenzen je Absender. IPv6 je /64 (Audit 4): Ein Anschluss
+// bekommt meist ein ganzes /64, jede Adresse darin hätte sonst eigene Plätze und Kontingente.
+func limitKey(ip string) string {
+	a, err := netip.ParseAddr(ip)
+	if err != nil || a.Is4() || a.Is4In6() {
+		return ip
+	}
+	p, _ := a.Prefix(64)
+	return p.String()
+}
+
 func NewLimits() *Limits {
 	return &Limits{conns: map[string]int{}, tarp: map[string]int{}, maxTarpit: 4096, maxTarpitPerIP: 32}
 }
@@ -38,6 +50,7 @@ func (l *Limits) Set(t TarpitConfig) {
 }
 
 func (l *Limits) AcquireConn(ip string) bool {
+	ip = limitKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.connTotal >= l.maxTarpit+extraConns || l.conns[ip] >= l.maxTarpitPerIP+extraConnsPerIP {
@@ -50,6 +63,7 @@ func (l *Limits) AcquireConn(ip string) bool {
 }
 
 func (l *Limits) ReleaseConn(ip string) {
+	ip = limitKey(ip)
 	l.mu.Lock()
 	l.connTotal--
 	if l.conns[ip]--; l.conns[ip] <= 0 {
@@ -59,6 +73,7 @@ func (l *Limits) ReleaseConn(ip string) {
 }
 
 func (l *Limits) AcquireTarpit(ip string) bool {
+	ip = limitKey(ip)
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if l.tarpTotal >= l.maxTarpit || l.tarp[ip] >= l.maxTarpitPerIP {
@@ -71,6 +86,7 @@ func (l *Limits) AcquireTarpit(ip string) bool {
 }
 
 func (l *Limits) ReleaseTarpit(ip string) {
+	ip = limitKey(ip)
 	l.mu.Lock()
 	l.tarpTotal--
 	if l.tarp[ip]--; l.tarp[ip] <= 0 {
@@ -118,6 +134,7 @@ func NewRateLimiter(rate, burst float64) *RateLimiter {
 }
 
 func (r *RateLimiter) Allow(ip string) bool {
+	ip = limitKey(ip)
 	now := time.Now()
 	r.mu.Lock()
 	defer r.mu.Unlock()

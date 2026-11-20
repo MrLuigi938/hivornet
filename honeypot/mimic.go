@@ -62,6 +62,7 @@ var (
 
 // mimicAllowed zählt eine Frage dieser IP; false = Grenze erreicht.
 func mimicAllowed(ip string) bool {
+	ip = limitKey(ip)
 	mimicRate.Lock()
 	defer mimicRate.Unlock()
 	if h := time.Now().Unix() / 3600; h != mimicRate.hour || len(mimicRate.n) >= mimicMaxIPs {

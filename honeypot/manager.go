@@ -352,10 +352,22 @@ func (m *Manager) handle(rl *runListener, c net.Conn) {
 		}
 		s.Emit(ev)
 	}()
+	// Gesamtfrist (Audit 4): Die Handler setzen ihre Lesefrist je Befehl neu; mit einem PING alle
+	// zwei Minuten hielt eine Verbindung sonst stundenlang einen der Plätze. Festgehaltene
+	// Tarpit-Verbindungen haben eigene Grenzen (MaxDurationMin, AcquireTarpit).
+	deadline := time.AfterFunc(maxSessionDur, func() {
+		if !s.inTarpit.Load() {
+			c.Close()
+		}
+	})
+	defer deadline.Stop()
 	if h := handlers[cfg.Service]; h != nil {
 		h(s)
 	}
 }
+
+// maxSessionDur: so lange darf eine Sitzung außerhalb des Tarpits höchstens dauern.
+var maxSessionDur = 20 * time.Minute
 
 func splitAddr(a net.Addr) (string, int) {
 	if ta, ok := a.(*net.TCPAddr); ok {

@@ -30,7 +30,10 @@ const (
 	adbWRTE = 0x45545257
 	adbAUTH = 0x48545541
 
-	adbMaxData = 256 << 10 // größere Nachrichten: Verbindung beenden
+	// größere Nachrichten: Verbindung beenden. Der Sensor kündigt im CNXN 4096 Byte an; mehr
+	// schickt kein echter Client. Vorher 256 KB: 48 Verbindungen je IP hielten so 12-24 MB fest
+	// (Audit 4).
+	adbMaxData = 64 << 10
 )
 
 type adbMsg struct {

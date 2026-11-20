@@ -16,6 +16,7 @@ import (
 	"math/rand/v2"
 	"net"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -42,6 +43,7 @@ type Session struct {
 	Start   time.Time
 
 	tarpitted   bool
+	inTarpit    atomic.Bool // für die Gesamtfrist in handle (anderer Goroutine)
 	tarpitStart time.Time
 	bytesOut    int64
 }
@@ -161,6 +163,7 @@ func (s *Session) Tarpit(prefix []byte, next func() []byte) {
 	s.rl.tarpitting.Add(1)
 	defer s.rl.tarpitting.Add(-1)
 	s.tarpitted = true
+	s.inTarpit.Store(true)
 	s.tarpitStart = time.Now()
 	s.m.pits.Store(s, TarpitConn{IP: s.SrcIP, SrcPort: s.SrcPort, Port: s.DstPort, Service: s.Service, Mode: s.Mode, Since: s.tarpitStart})
 	defer s.m.pits.Delete(s)
