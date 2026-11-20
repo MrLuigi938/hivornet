@@ -6,8 +6,9 @@ name: Release
 #      (ghcr.io/<owner>/hivornet-hive und -honeypot). Auf der NAS dann in .env
 #      HIVORNET_VERSION setzen und in docker-compose.yml "build:" durch das
 #      Registry-Image ersetzen (spart den Build auf der NAS).
-#   2. Programmpakete hivornet-<tag>-linux-<arch>.tar.gz mit SHA256SUMS. Daraus
-#      aktualisiert sich das Raspberry-Pi-Image selbst (Knopf in der Web-UI).
+#   2. Programmpakete hivornet-<tag>-linux-<arch>.tar.gz mit SHA256SUMS und deren
+#      Ed25519-Signatur SHA256SUMS.sig (Secret HIVORNET_SIGNING_KEY). Daraus aktualisiert
+#      sich das Raspberry-Pi-Image selbst (Knopf in der Web-UI), nur bei gültiger Signatur.
 #   3. Raspberry-Pi-Images hivornet-pi-<arch>-<tag>.img.xz zum Aufspielen auf eine SD-Karte.
 #
 # Über "Run workflow" lässt sich das Pi-Image auch ohne Tag zum Testen bauen; es liegt
@@ -103,6 +104,15 @@ jobs:
             tar -czf "out/hivornet-$tag-linux-$arch.tar.gz" -C "dist/$arch" hive honeypot VERSION system
           done
           (cd out && sha256sum hivornet-*.tar.gz >SHA256SUMS)
+      - name: Prüfsummen signieren
+        # Ed25519, privater Schlüssel nur als Secret. Der Pi-Updater prüft die Signatur mit dem
+        # öffentlichen Schlüssel im installierten Programm (hive/releasesig.go). Fehlt das Secret
+        # oder passt es nicht zum Schlüssel im Programm, scheitert der Lauf.
+        env:
+          HIVORNET_SIGNING_KEY: ${{ secrets.HIVORNET_SIGNING_KEY }}
+        run: |
+          dist/amd64/hive sign-release out/SHA256SUMS out/SHA256SUMS.sig
+          dist/amd64/hive verify-release out/SHA256SUMS out/SHA256SUMS.sig
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: programme
@@ -174,4 +184,4 @@ jobs:
           case "$GITHUB_REF_NAME" in *-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" $pre --repo "$GITHUB_REPOSITORY" --title "Hivornet ${GITHUB_REF_NAME#v}" \
             --notes "Änderungen: siehe CHANGELOG.md. Raspberry Pi: Datei hivornet-pi-arm64-*.img.xz auf eine SD-Karte schreiben (README, Abschnitt Raspberry Pi)." \
-            all/programme/out/hivornet-*.tar.gz all/programme/out/SHA256SUMS all/pi-image-*/hivornet-pi-*
+            all/programme/out/hivornet-*.tar.gz all/programme/out/SHA256SUMS all/programme/out/SHA256SUMS.sig all/pi-image-*/hivornet-pi-*

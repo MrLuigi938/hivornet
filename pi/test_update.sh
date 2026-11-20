@@ -66,4 +66,38 @@ run || fail "Ordner als Anfrage: Fehler statt still verwerfen"
 [ ! -e "$REQ" ] || fail "Ordner als Anfrage nicht entfernt"
 run v0.6.0 || true
 grep -q "älter als die installierte" "$ST" || fail "Anfrage nach dem Ordner nicht bearbeitet"
+# Signatur (Audit 4): ohne SHA256SUMS.sig oder mit ungültiger Signatur nichts einspielen.
+# curl liefert hier Dateien aus einem lokalen Ordner; das installierte Programm ($DEST/hive)
+# ist ein Ersatz, dessen Prüfergebnis der Test vorgibt.
+rel="$t/rel"; mkdir -p "$rel"
+pkg=hivornet-v0.8.0-linux-arm64.tar.gz
+printf 'paket' >"$rel/$pkg"
+# Zeile selbst bauen: sha256sum unter Windows schreibt "*Datei" statt "  Datei"
+printf '%s  %s\n' "$(sha256sum <"$rel/$pkg" | cut -d' ' -f1)" "$pkg" >"$rel/SHA256SUMS"
+cat >"$t/bin/curl" <<EOS
+#!/bin/sh
+echo "curl \$*" >>"$t/calls"
+for a; do out=\$url; url=\$a; done
+f="$rel/\${url##*/}"
+[ -f "\$f" ] || exit 22
+cp "\$f" "\$out"
+EOS
+chmod +x "$t/bin/curl"
+printf '#!/bin/sh\n[ "$1" = verify-release ] || exit 0\nexit $(cat "%s/verify-rc")\n' "$t" >"$t/root/opt/hivornet/hive"
+chmod +x "$t/root/opt/hivornet/hive"
+
+echo 0 >"$t/verify-rc"
+if run v0.8.0; then fail "ohne Signatur eingespielt"; fi
+grep -q "Signatur nicht abrufbar" "$ST" || { cat "$ST" "$t/out"; fail "fehlende Signatur nicht gemeldet"; }
+
+printf 'c2ln\n' >"$rel/SHA256SUMS.sig"
+echo 1 >"$t/verify-rc"
+if run v0.8.0; then fail "mit ungültiger Signatur eingespielt"; fi
+grep -q "Signatur ungültig" "$ST" || { cat "$ST" "$t/out"; fail "ungültige Signatur nicht gemeldet"; }
+
+# gültige Signatur: weiter bis zum Entpacken (das Ersatzpaket ist kein tar.gz)
+echo 0 >"$t/verify-rc"
+if run v0.8.0; then fail "Ersatzpaket eingespielt"; fi
+grep -q "Paket nicht entpackbar" "$ST" || { cat "$ST" "$t/out"; fail "nach gültiger Signatur nicht weiter geprüft"; }
+
 echo "hivornet-update: alle Prüfungen bestanden"

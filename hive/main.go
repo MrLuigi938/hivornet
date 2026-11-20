@@ -300,6 +300,24 @@ func main() {
 			fmt.Println(version)
 			selfInstallSystem() // nur als root beim Update durch einen älteren Updater (pisystem.go)
 			return
+		case "verify-release": // hivornet-update: Signatur von SHA256SUMS prüfen (releasesig.go)
+			if len(os.Args) < 4 {
+				log.Fatal("Aufruf: hive verify-release SHA256SUMS SHA256SUMS.sig")
+			}
+			if err := verifyRelease(os.Args[2], os.Args[3]); err != nil {
+				log.Fatalf("Signatur: %v", err)
+			}
+			fmt.Println("Signatur gültig")
+			return
+		case "sign-release": // Release-Workflow: SHA256SUMS signieren (releasesig.go)
+			if len(os.Args) < 4 {
+				log.Fatal("Aufruf: HIVORNET_SIGNING_KEY=… hive sign-release SHA256SUMS SHA256SUMS.sig")
+			}
+			if err := signRelease(os.Args[2], os.Args[3], []byte(os.Getenv("HIVORNET_SIGNING_KEY"))); err != nil {
+				log.Fatalf("Signieren: %v", err)
+			}
+			fmt.Println("signiert")
+			return
 		case "install-system": // hivornet-update (root): Systemdateien aus dem Paket übernehmen
 			if len(os.Args) < 3 {
 				log.Fatal("Ordner fehlt")

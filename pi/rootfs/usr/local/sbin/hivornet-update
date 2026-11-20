@@ -5,7 +5,8 @@
 # Dieses Skript
 #   1. prüft, dass darin nichts als eine Versionsnummer steht,
 #   2. lädt das Paket dieser Version von der festen GitHub-Adresse,
-#   3. prüft die SHA-256-Prüfsumme aus derselben Veröffentlichung,
+#   3. prüft die Signatur der Prüfsummen mit dem installierten Programm (öffentlicher
+#      Schlüssel im Programm, hive/releasesig.go) und dann die SHA-256-Prüfsumme des Pakets,
 #   4. übernimmt die Systemdateien aus dem Paket (Ordner system/: systemd-Dienste,
 #      Skripte unter /usr/local/sbin, Systembenutzer; nie Einstellungen unter /etc/hivornet),
 #   5. tauscht hive und honeypot aus und startet die Dienste neu,
@@ -89,6 +90,11 @@ trap 'rm -rf "$tmp"' EXIT
 status "Lade $ver ..."
 get "$REPO/$ver/$pkg" "$tmp/$pkg" || fail "Download von $pkg nicht möglich"
 get "$REPO/$ver/SHA256SUMS" "$tmp/SHA256SUMS" || fail "Prüfsummen nicht abrufbar"
+get "$REPO/$ver/SHA256SUMS.sig" "$tmp/SHA256SUMS.sig" || fail "Signatur nicht abrufbar; unsignierte Veröffentlichungen werden nicht eingespielt"
+# Das bereits installierte Programm prüft: Wer nur die Veröffentlichung verändert, hat den
+# privaten Schlüssel nicht und kann keine passende Signatur erzeugen.
+HIVORNET_NO_SELFINSTALL=1 "$DEST/hive" verify-release "$tmp/SHA256SUMS" "$tmp/SHA256SUMS.sig" >/dev/null 2>&1 ||
+  fail "Signatur ungültig; das Paket stammt nicht sicher vom Hivornet-Projekt"
 (cd "$tmp" && grep " $pkg\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1) || fail "Prüfsumme stimmt nicht"
 mkdir "$tmp/x"
 tar -xzf "$tmp/$pkg" -C "$tmp/x" --no-same-owner || fail "Paket nicht entpackbar"
