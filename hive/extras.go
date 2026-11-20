@@ -37,9 +37,9 @@ type Extras struct {
 	Samples       SampleCollectConfig `json:"samples"`
 	Bazaar        BazaarConfig        `json:"bazaar"`
 	DShield       DShieldConfig       `json:"dshield"`
-	OwnIP         OwnIPConfig         `json:"own_ip"`  // eigene öffentliche Adresse und Namen (ownip.go)
-	AIPlus        AIPlusConfig        `json:"ai_plus"` // weitere KI-Funktionen (aiplus.go)
-	Brute         BruteConfig         `json:"brute"`   // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
+	OwnIP         OwnIPConfig         `json:"own_ip"`    // eigene öffentliche Adresse und Namen (ownip.go)
+	AIPlus        AIPlusConfig        `json:"ai_plus"`   // weitere KI-Funktionen (aiplus.go)
+	Brute         BruteConfig         `json:"brute"`     // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
 	TimeZone      string              `json:"time_zone"` // IANA-Name für Uhrzeiten in Texten des Hives; leer: TZ, sonst UTC (timezone.go)
 }
 

@@ -277,6 +277,8 @@ type Report struct {
 	Logins    int          `json:"logins"`
 	LoginsOK  int          `json:"logins_ok"`
 	Creds     []Count      `json:"creds"`
+	CredsN    int          `json:"creds_distinct"`       // verschiedene Kombinationen (Creds ist gekürzt)
+	CredsMore bool         `json:"creds_more,omitempty"` // mehr als counterMax verschiedene
 	Tags      []TagHit     `json:"tags"`
 	Tools     []Count      `json:"tools"`
 	URLs      []string     `json:"urls"`
@@ -388,9 +390,13 @@ func nonEmptyFirst(s ...string) string {
 }
 
 type counter struct {
-	n     map[string]int
-	order []string
+	n      map[string]int
+	order  []string
+	capped bool // Obergrenze erreicht: es gab mehr verschiedene Einträge als in order
 }
+
+// counterMax: höchstens so viele verschiedene Einträge je Zähler (Speicher).
+const counterMax = 2000
 
 func (c *counter) add(k string) {
 	if k == "" {
@@ -400,7 +406,8 @@ func (c *counter) add(k string) {
 		c.n = map[string]int{}
 	}
 	if c.n[k] == 0 {
-		if len(c.order) >= 2000 { // Obergrenze für den Speicher
+		if len(c.order) >= counterMax { // Obergrenze für den Speicher
+			c.capped = true
 			return
 		}
 		c.order = append(c.order, k)
@@ -606,6 +613,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	}
 	r.Sessions = len(sessions.order) + condSess
 	r.Services, r.Creds, r.Tools = services.top(20), creds.top(reportMaxList), tools.top(reportMaxList)
+	r.CredsN, r.CredsMore = len(creds.order), creds.capped
 	r.URLs, r.Hashes, r.Files = urls.keys(reportMaxList), hashes.keys(reportMaxList), files.keys(reportMaxList)
 	r.Commands, r.Requests, r.Clients = cmds.keys(80), reqs.top(reportMaxList), clients.keys(12)
 	r.Decoded = decoded.keys(reportMaxList)
@@ -670,7 +678,12 @@ func (r *Report) summarize() []string {
 		s = append(s, "Angesprochene Dienste: "+countList(r.Services, 8)+".")
 	}
 	if r.Logins > 0 {
-		t := fmt.Sprintf("%d Login-Versuche mit %d verschiedenen Kombinationen", r.Logins, len(r.Creds))
+		t := fmt.Sprintf("%d Login-Versuche mit %d verschiedenen Kombinationen", r.Logins, r.CredsN)
+		if r.CredsMore {
+			t = fmt.Sprintf("%d Login-Versuche mit über %d verschiedenen Kombinationen", r.Logins, r.CredsN)
+		} else if r.CredsN == r.Logins && r.Logins > 1 {
+			t = fmt.Sprintf("%d Login-Versuche, jeder mit einer anderen Kombination", r.Logins)
+		}
 		if r.Logins == 1 {
 			t = "1 Login-Versuch"
 		}

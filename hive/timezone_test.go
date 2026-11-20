@@ -22,7 +22,7 @@ func TestHiveZone(t *testing.T) {
 	if got := ts.In(hiveLoc()).Format("02.01. 15:04"); got != "21.11. 00:51" {
 		t.Fatalf("Berlin: %s", got)
 	}
-	for _, bad := range []string{"Local", "../../etc/passwd", "Mond/Krater", "Europe/Ber\nlin","/etc/localtime"} {
+	for _, bad := range []string{"Local", "../../etc/passwd", "Mond/Krater", "Europe/Ber\nlin", "/etc/localtime"} {
 		if _, err := loadZone(bad); err == nil {
 			t.Errorf("%q müsste abgelehnt werden", bad)
 		}
