@@ -293,7 +293,8 @@ type Report struct {
 	TarpitMs  int64        `json:"tarpit_ms"`
 	Severity  string       `json:"severity"` // niedrig | mittel | hoch
 	Summary   []string     `json:"summary"`
-	Truncated bool         `json:"truncated"` // es gab mehr Ereignisse als ausgewertet
+	Truncated bool         `json:"truncated"`           // es gab mehr Ereignisse als ausgewertet
+	Condensed int          `json:"condensed,omitempty"` // davon in Sammelzeilen verdichtet (bruteforce.go)
 }
 
 const (
@@ -407,6 +408,17 @@ func (c *counter) add(k string) {
 	c.n[k]++
 }
 
+// addN zählt k n-mal (Sammelzeilen, bruteforce.go).
+func (c *counter) addN(k string, n int) {
+	if n <= 0 {
+		return
+	}
+	c.add(k)
+	if c.n[k] > 0 {
+		c.n[k] += n - 1
+	}
+}
+
 // top liefert die häufigsten Einträge; bei Gleichstand in der Reihenfolge des ersten Auftretens.
 func (c *counter) top(max int) []Count {
 	out := make([]Count, 0, len(c.order))
@@ -441,6 +453,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	repeat := 0
 	tags := map[string]*TagHit{}
 	okSess := map[string]bool{} // Sitzungen mit angenommenem Login (einstufung.go)
+	condSess := 0               // Verbindungen in Sammelzeilen (bruteforce.go)
 	maxSev := 0
 	for _, e := range evs {
 		if r.First.IsZero() || e.TS.Before(r.First) {
@@ -457,6 +470,32 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 		}
 		sessions.add(e.Session)
 		r.TarpitMs += e.TarpitMs
+		if d, ok := readCondensed(e); ok { // Sammelzeile eines Dauer-Brute-Force (bruteforce.go)
+			if f := time.UnixMilli(d.From); d.From > 0 && f.Before(r.First) {
+				r.First = f
+			}
+			r.Events += d.N - 1
+			r.Condensed += d.N
+			condSess += d.Types["connect"]
+			r.Logins += d.Types["login"]
+			services.addN(fmt.Sprintf("%s:%d", e.Service, e.DstPort), d.Types["connect"])
+			for k, n := range d.Creds {
+				creds.addN(k, n)
+			}
+			for _, v := range d.Clients {
+				clients.add(clip(v, 120))
+			}
+			for _, v := range d.HASSH {
+				clients.add("HASSH " + v)
+			}
+			if len(r.Timeline) < reportMaxTimeline {
+				line := fmt.Sprintf("%s [%s:%d] %s (seit %s)", e.TS.In(loc).Format("15:04:05"), e.Service, e.DstPort, condensedLine(d),
+					time.UnixMilli(d.From).In(loc).Format("15:04:05"))
+				r.Timeline = append(r.Timeline, line)
+				lastBody, lastLine, repeat = "", line, 0
+			}
+			continue
+		}
 		text, on, revealed := analysisText(e)
 		for _, d := range revealed {
 			decoded.add(clip(d, reportMaxText*2))
@@ -565,7 +604,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			clients.add(f)
 		}
 	}
-	r.Sessions = len(sessions.order)
+	r.Sessions = len(sessions.order) + condSess
 	r.Services, r.Creds, r.Tools = services.top(20), creds.top(reportMaxList), tools.top(reportMaxList)
 	r.URLs, r.Hashes, r.Files = urls.keys(reportMaxList), hashes.keys(reportMaxList), files.keys(reportMaxList)
 	r.Commands, r.Requests, r.Clients = cmds.keys(80), reqs.top(reportMaxList), clients.keys(12)
@@ -639,6 +678,10 @@ func (r *Report) summarize() []string {
 			t += fmt.Sprintf("; %d davon hat der Honeypot als erfolgreich gewertet", r.LoginsOK)
 		}
 		s = append(s, t+".")
+	}
+	if r.Condensed > 0 {
+		s = append(s, fmt.Sprintf("Dauer-Brute-Force: %d Ereignisse (fehlgeschlagene Logins und Verbindungen) sind zu Sammelzeilen verdichtet; "+
+			"angenommene Logins und alles danach sind einzeln erhalten.", r.Condensed))
 	}
 	for _, t := range r.Tags {
 		s = append(s, fmt.Sprintf("%s (%d×): %s", t.Name, t.N, t.Desc))

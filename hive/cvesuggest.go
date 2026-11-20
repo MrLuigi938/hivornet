@@ -131,6 +131,10 @@ func (h *Hive) recountRuleFields() {
 		tx.Rollback()
 		return
 	}
+	if err := restoreCondensedTop(tx, []string{"cve", "tag"}); err != nil { // bruteforce.go
+		tx.Rollback()
+		return
+	}
 	// nach dem Löschen gelesen: Was der Schreiber danach einträgt, zählt er selbst (neue Regeln)
 	if err := tx.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID); err != nil {
 		tx.Rollback()

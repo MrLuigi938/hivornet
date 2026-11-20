@@ -549,6 +549,10 @@ func prepareRecount(st *Store) bool {
 		log.Printf("Top-Listen neu zählen: %v", err)
 		return false
 	}
+	// verdichtete Ereignisse (bruteforce.go) gibt es nicht mehr einzeln: ihre Zähler zurückholen
+	if err := restoreCondensedTop(st.db, recountFields); err != nil {
+		log.Printf("Top-Listen neu zählen: %v", err)
+	}
 	st.SetKV("patterns_backfilled", "1")
 	return true
 }

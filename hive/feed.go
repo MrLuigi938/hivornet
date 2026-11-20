@@ -264,6 +264,7 @@ func (h *Hive) feedSettings(w http.ResponseWriter, r *http.Request) {
 		h.feed.key = "" // neu berechnen
 		h.feed.mu.Unlock()
 		c = h.feedConfig()
+		h.syncBruteLimit() // "Nie sperren" gilt auch für die Drossel (bruteforce.go)
 	}
 	out := map[string]any{"config": c, "path": "/feed/blocklist.txt?token=" + c.Token, "untrusted": len(h.untrustedSensors())}
 	if c.Enabled {

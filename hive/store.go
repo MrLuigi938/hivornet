@@ -49,6 +49,8 @@ type Event struct {
 	Lon         float64         `json:"lon,omitempty"`
 	ASN         int             `json:"asn,omitempty"`
 	ASOrg       string          `json:"as_org,omitempty"`
+
+	condensed bool // in einer Sammelzeile verdichtet (bruteforce.go): nur zählen, nicht speichern
 }
 
 var validTypes = map[string]bool{
@@ -506,6 +508,10 @@ type Writer struct {
 	written atomic.Int64
 	lastErr atomic.Value // string
 	ins     [4]*sql.Stmt
+	// Dauer-Brute-Force verdichten (bruteforce.go); nil = aus
+	brute      *bruteTracker
+	condensedN atomic.Int64 // verdichtete Ereignisse seit dem Start
+	summaries  atomic.Int64 // geschriebene Sammelzeilen
 	// Interval: so oft wird geschrieben (HIVE_FLUSH_MS). Länger schont SD-Karten,
 	// verzögert aber den Live-Feed und verliert bei Stromausfall mehr.
 	Interval time.Duration
@@ -590,6 +596,9 @@ func (w *Writer) Run() {
 				batch = batch[:0]
 			}
 		case <-t.C:
+			if w.brute != nil { // fällige Sammelzeilen ruhiger IPs
+				batch = append(batch, w.brute.due(time.Now(), false)...)
+			}
 			if len(batch) > 0 {
 				w.flush(batch)
 				batch = batch[:0]
@@ -603,6 +612,10 @@ func (w *Writer) Run() {
 				default:
 				}
 				break
+			}
+			if w.brute != nil {
+				w.flush(batch)
+				batch = w.brute.due(time.Now(), true)
 			}
 			if len(batch) > 0 {
 				w.flush(batch)
@@ -623,11 +636,24 @@ func (w *Writer) Stop(timeout time.Duration) {
 }
 
 func (w *Writer) flush(batch []*Event) {
+	if len(batch) == 0 {
+		return
+	}
+	if w.brute != nil { // einmal vor dem Schreiben, nicht bei jeder Wiederholung
+		batch = append(batch[:len(batch):len(batch)], w.brute.process(batch)...) // nie in fremden Speicher schreiben
+	}
 	var err error
 	for attempt := 1; attempt <= 3; attempt++ {
 		if err = w.writeBatch(batch); err == nil {
 			w.written.Add(int64(len(batch)))
 			for _, e := range batch {
+				switch {
+				case e.condensed:
+					w.condensedN.Add(1)
+					continue // nur gezählt; die Sammelzeile erscheint im Live-Feed
+				case e.Type == "condensed":
+					w.summaries.Add(1)
+				}
 				w.pub(e)
 			}
 			return
@@ -658,17 +684,19 @@ func (w *Writer) writeBatch(batch []*Event) error {
 	ev, hr, at, top := tx.Stmt(w.ins[0]), tx.Stmt(w.ins[1]), tx.Stmt(w.ins[2]), tx.Stmt(w.ins[3])
 	for _, e := range batch {
 		ms := e.TS.UnixMilli()
-		var data any
-		if len(e.Data) > 0 {
-			data = string(e.Data)
+		if !e.condensed { // verdichtet: keine eigene Zeile, aber alle Zähler (bruteforce.go)
+			var data any
+			if len(e.Data) > 0 {
+				data = string(e.Data)
+			}
+			res, err := ev.Exec(ms, e.Sensor, e.Service, e.Type, e.SrcIP, e.SrcPort, e.DstPort, e.Session, e.Username, e.Password,
+				data, e.DurationMs, b2i(e.Tarpit), e.TarpitMs, e.Country, e.CountryName, e.City, e.Lat, e.Lon, e.ASN, e.ASOrg)
+			if err != nil {
+				return fmt.Errorf("events: %w", err)
+			}
+			e.ID, _ = res.LastInsertId()
 		}
-		res, err := ev.Exec(ms, e.Sensor, e.Service, e.Type, e.SrcIP, e.SrcPort, e.DstPort, e.Session, e.Username, e.Password,
-			data, e.DurationMs, b2i(e.Tarpit), e.TarpitMs, e.Country, e.CountryName, e.City, e.Lat, e.Lon, e.ASN, e.ASOrg)
-		if err != nil {
-			return fmt.Errorf("events: %w", err)
-		}
-		e.ID, _ = res.LastInsertId()
-		if ownHidden(e.SrcIP) { // eigener Test (ownnet.go): nur das Ereignis selbst
+		if ownHidden(e.SrcIP) || e.Type == "condensed" { // eigener Test (ownnet.go) bzw. Sammelzeile: schon gezählt
 			continue
 		}
 		if _, err := hr.Exec(ms/3600000, e.Service, e.Type, e.Country, e.TarpitMs); err != nil {
@@ -681,6 +709,11 @@ func (w *Writer) writeBatch(batch []*Event) error {
 		for _, k := range topKeys(e) {
 			if _, err := top.Exec(ms/3600000, k[0], k[1], k[2]); err != nil {
 				return fmt.Errorf("top: %w", err)
+			}
+			if e.condensed && condensedTopField[k[0]] { // für das Neuzählen (setup.go) aufheben
+				if _, err := top.Exec(ms/3600000, "bf:"+k[0], k[1], k[2]); err != nil {
+					return fmt.Errorf("top: %w", err)
+				}
 			}
 		}
 	}
