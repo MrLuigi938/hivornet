@@ -168,11 +168,24 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			break
 		}
 	}
+	// Geänderte Cowrie-Dienstdatei (z. B. neue Ordner unter StateDirectory=) wirkt erst nach
+	// einem Neustart; try-restart lässt einen ausgeschalteten Dienst aus.
+	cowrieRestart := false
+	for _, c := range changed {
+		if c == "etc/systemd/system/hivornet-cowrie.service" {
+			cowrieRestart = true
+		}
+	}
 	if ch, err := ensureCowrieAuth(cowrieCfgPath); err != nil {
 		fmt.Fprintf(w, "Cowrie-Anmelderegel: %v\n", err)
 	} else if ch {
-		run("systemctl", "try-restart", "hivornet-cowrie.service")
+		cowrieRestart = true
 		fmt.Fprintln(w, "Cowrie: Anmeldung erst nach 2 bis 5 Versuchen je IP eingestellt")
+	}
+	if cowrieRestart {
+		if err := run("systemctl", "try-restart", "hivornet-cowrie.service"); err != nil {
+			fmt.Fprintf(w, "Cowrie neu starten: %v\n", err)
+		}
 	}
 }
 

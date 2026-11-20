@@ -36,7 +36,15 @@ grep -q "enable --now hivornet-cowrie.service" /tmp/systemctl.log || fail "Diens
 
 echo "== Start wie hivornet-cowrie.service"
 useradd --system --no-create-home --shell /usr/sbin/nologin hivornet-cowrie
-mkdir -p /var/lib/hivornet-cowrie/log /var/lib/hivornet-cowrie/lib
+# Ordner wie StateDirectory= in der Dienstdatei (systemd legt sie vor dem Start an)
+dirs=$(sed -n 's/^StateDirectory=//p' "$UNIT")
+for d in tty downloads; do
+  case " $dirs " in
+    *" hivornet-cowrie/lib/$d "*) ;;
+    *) fail "StateDirectory= legt hivornet-cowrie/lib/$d nicht an (Cowrie braucht den Ordner)" ;;
+  esac
+done
+for d in $dirs; do mkdir -p "/var/lib/$d"; done
 chown -R hivornet-cowrie /var/lib/hivornet-cowrie
 workdir=$(sed -n 's/^WorkingDirectory=//p' "$UNIT")
 envs=$(sed -n 's/^Environment=//p' "$UNIT")
@@ -83,6 +91,7 @@ EOF
 banner 22 "SSH-2.0-" || fail "SSH auf Port 22 antwortet nicht"
 banner 23 "login:" || fail "Telnet auf Port 23 antwortet nicht"
 kill -0 "$pid" 2>/dev/null || fail "Cowrie läuft nicht mehr"
+if grep -q "Failed to open TTY log" /tmp/cowrie.out; then fail "Cowrie kann keine Mitschnitte schreiben"; fi
 
 log=/var/lib/hivornet-cowrie/log/cowrie.json
 for _ in $(seq 1 15); do

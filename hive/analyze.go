@@ -448,7 +448,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	r := &Report{Subject: subject, Events: len(evs), Truncated: truncated, Severity: "niedrig", Tags: []TagHit{}, AIReplies: []AIReply{}}
 	var services, creds, tools, urls, hashes, files, cmds, reqs, clients, sessions, decoded, cves counter
 	rules := ruleHits{}
-	loc, _ := time.LoadLocation("Local")
+	loc := hiveLoc()
 	var lastBody, lastLine string
 	repeat := 0
 	tags := map[string]*TagHit{}
@@ -659,7 +659,7 @@ func (r *Report) summarize() []string {
 	if r.Events == 0 {
 		return []string{"Keine Ereignisse gefunden."}
 	}
-	loc, _ := time.LoadLocation("Local")
+	loc := hiveLoc()
 	span := r.First.In(loc).Format("02.01.2006 15:04") + " bis " + r.Last.In(loc).Format("02.01.2006 15:04")
 	from := ""
 	if r.Origin != "" {

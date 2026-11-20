@@ -158,6 +158,6 @@ func (h *Hive) exportSTIX(w http.ResponseWriter, r *http.Request) {
 				time.UnixMilli(first), []string{"malicious-activity"})
 		}
 	}
-	w.Header().Set("Content-Disposition", `attachment; filename="hivornet-stix-`+time.Now().Format("20060102-1504")+`.json"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="hivornet-stix-`+hiveNow().Format("20060102-1504")+`.json"`)
 	writeJSON(w, map[string]any{"type": "bundle", "id": stixID("bundle"), "objects": objects})
 }

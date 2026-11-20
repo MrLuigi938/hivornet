@@ -20,7 +20,9 @@ ExecStartPre=/usr/local/sbin/hivornet-cowrie-keycheck /var/lib/hivornet-cowrie/l
 ExecStart=/opt/hivornet/cowrie-env/bin/twistd -n --umask=0022 --pidfile= --logger cowrie.python.logfile.stdoutLogger cowrie
 Restart=always
 RestartSec=10
-StateDirectory=hivornet-cowrie hivornet-cowrie/log hivornet-cowrie/lib
+# Cowrie legt die Unterordner von state_path nicht selbst an: ohne lib/tty fehlen die
+# Mitschnitte ("Failed to open TTY log"), ohne lib/downloads die nachgeladenen Dateien.
+StateDirectory=hivornet-cowrie hivornet-cowrie/log hivornet-cowrie/lib hivornet-cowrie/lib/tty hivornet-cowrie/lib/downloads
 StateDirectoryMode=0755
 MemoryMax=256M
 TasksMax=256

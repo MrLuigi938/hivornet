@@ -349,7 +349,7 @@ func (h *Hive) countryStats(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	from, err := strconv.ParseInt(r.URL.Query().Get("today_from"), 10, 64)
 	if err != nil || from <= 0 || from > time.Now().UnixMilli() {
-		now := time.Now()
+		now := hiveNow()
 		from = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()).UnixMilli()
 	}
 	rs, err := h.rows(ctx, `SELECT country, SUM(cnt) AS total, SUM(CASE WHEN hour >= ? THEN cnt ELSE 0 END) AS today
@@ -569,7 +569,7 @@ func (h *Hive) exportEvents(w http.ResponseWriter, r *http.Request) {
 	defer rs.Close()
 	cols, _ := rs.Columns()
 	format := r.URL.Query().Get("format")
-	stamp := time.Now().Format("20060102-1504")
+	stamp := hiveNow().Format("20060102-1504")
 	vals := make([]any, len(cols))
 	ptrs := make([]any, len(cols))
 	for i := range vals {
