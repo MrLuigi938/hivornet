@@ -21,6 +21,13 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Fremdprotokolle als ein Ereignis:** HTTP-Anfragen, TLS-Handshakes und Binärdaten an Redis, FTP, SMTP, Telnet, MySQL und PostgreSQL zählen nicht mehr als Befehle oder Zugangsdaten je Zeile, sondern als ein Abtast-Ereignis. Behebt überhöhte Redis-Zähler.
 - **Geräteprofil** zeigt vor dem Speichern, wie viele Verbindungen die abgeschalteten Dienste zuletzt pro Woche brachten.
 
+### Sicherheit
+- KI-Webantworten: Vom Modell gesetzte Cookies werden nur noch als „Name=Wert; Path=/; HttpOnly“ übernommen, ohne Domain-Angabe, ohne `__Host-`/`__Secure-`-Präfix und nie unter dem Namen des Sitzungs-Cookies der Web-UI. Läuft die Hive-UI auf demselben Host, konnte ein solches Cookie sonst die Anmeldung dort überdecken.
+- Weitergabe: Nachlade-Adressen, in denen die eigene öffentliche IP oder der Hostname eines Honeypots vorkommt, werden weder an URLhaus gemeldet noch geholt; Dateien mit diesen Angaben gehen nicht an MalwareBazaar.
+- DShield: Referer, Origin, Weiterleitungs-Köpfe und Cookies werden nicht mehr mitgesendet. Web-Anfragen gehen nur noch hinaus, wenn die eigene öffentliche Adresse bekannt ist (System → „Wie Shodan dich sieht“).
+- Dateien sammeln: Die Platzgrenze der Quarantäne gilt vor jedem Download, nicht nur bei der stündlichen Aufräumrunde. Der abgesicherte Download sperrt zusätzlich IPv4-kompatible und SIIT-IPv6-Adressen sowie 192.88.99.0/24.
+- Lückendetails: Nur Admins lösen NVD-Abfragen aus. Werte von NVD und EPSS werden auf gültige Bereiche und Längen begrenzt.
+
 ## [0.7.5-beta] – 2026-11-19
 
 **Update:** Raspberry Pi per Knopf (System → Updates, Kanal „Vorabversionen“), kein neues Image nötig. Docker: `sh update.sh`, danach **`sudo sh tools/firewall.sh`** (neue, ausfallsichere Netzsperre). Beim ersten Start zählt der Hive die Top-Listen einmal neu (Java4Shell). Empfehlung: unter Einstellungen → Auswertung und KI den Zwischenspeicher der Sprachmodell-Antworten einmal leeren.
