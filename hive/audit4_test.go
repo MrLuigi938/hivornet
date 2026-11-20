@@ -3,6 +3,9 @@ package main
 // Tests zu den Funden des vierten Sicherheitsaudits (Ende-zu-Ende-Prüfung).
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"math"
 	"net/http/httptest"
 	"strings"
@@ -57,5 +60,47 @@ func TestIngestRejectsTTY(t *testing.T) {
 	h.ingest(rec, httptest.NewRequest("POST", "/api/ingest", strings.NewReader(body)))
 	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"accepted":1`) {
 		t.Fatalf("Antwort %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// Lebenszeichen mit erfundenen Namen und riesigen Port-Listen füllen die Port-Tabelle nicht.
+func TestHeartbeatListenersBounded(t *testing.T) {
+	h := testHive(t)
+	var b strings.Builder
+	b.WriteString("[")
+	for p := 0; p < 30000; p++ {
+		if p > 0 {
+			b.WriteString(",")
+		}
+		fmt.Fprintf(&b, `{"port":%d,"running":true}`, p)
+	}
+	b.WriteString("]")
+	ls := json.RawMessage(b.String())
+	for i := 0; i < 150; i++ {
+		body, _ := json.Marshal(Heartbeat{Sensor: fmt.Sprintf("s%d", i), Listeners: ls})
+		req := httptest.NewRequest("POST", "/api/sensor/heartbeat", bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		h.heartbeat(rec, req)
+		if i > 3 {
+			break // zwei Bedingungen reichen: Ports je Sensor und Anzahl der Sensoren (unten)
+		}
+	}
+	h.ports.mu.Lock()
+	n := len(h.portSinceLocked())
+	h.ports.mu.Unlock()
+	if n == 0 || n > 5*maxTrackedPorts {
+		t.Fatalf("%d Port-Einträge", n)
+	}
+	// mehr als 100 Sensoren: keine neuen Einträge
+	for i := 0; i < 120; i++ {
+		h.sensors.Put(Heartbeat{Sensor: fmt.Sprintf("x%d", i)})
+	}
+	before := n
+	h.heartbeat(httptest.NewRecorder(), httptest.NewRequest("POST", "/", strings.NewReader(`{"sensor":"neu","listeners":[{"port":22,"running":true}]}`)))
+	h.ports.mu.Lock()
+	n = len(h.portSinceLocked())
+	h.ports.mu.Unlock()
+	if n != before {
+		t.Fatalf("unbekannter 101. Sensor trägt Ports ein: %d -> %d", before, n)
 	}
 }

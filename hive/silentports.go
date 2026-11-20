@@ -64,6 +64,8 @@ func (h *Hive) portSinceLocked() map[string]int64 {
 	return p.since
 }
 
+const maxTrackedPorts = 256
+
 // trackListeners merkt sich aus dem Lebenszeichen, welche Ports laufen und seit wann.
 func (h *Hive) trackListeners(hb Heartbeat, now time.Time) {
 	var ls []struct {
@@ -79,10 +81,14 @@ func (h *Hive) trackListeners(hb Heartbeat, now time.Time) {
 	prefix := hb.Sensor + "|"
 	running := map[string]bool{}
 	changed := false
+	// Audit 4: nur echte Ports und höchstens maxTrackedPorts je Sensor. Ein Sensor mit
+	// gültigem Token schrieb sonst mit jedem Lebenszeichen Zehntausende Einträge in die DB.
+	n := 0
 	for _, l := range ls {
-		if !l.Running {
+		if !l.Running || l.Port < 1 || l.Port > 65535 || n >= maxTrackedPorts {
 			continue
 		}
+		n++
 		k := prefix + strconv.Itoa(l.Port)
 		running[k] = true
 		if _, ok := since[k]; !ok {

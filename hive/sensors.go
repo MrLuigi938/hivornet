@@ -216,14 +216,17 @@ type Sensors struct {
 	last map[string]Heartbeat
 }
 
-func (s *Sensors) Put(hb Heartbeat) {
+// Put liefert false, wenn schon 100 andere Sensoren bekannt sind (Lebenszeichen verworfen).
+func (s *Sensors) Put(hb Heartbeat) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	hb.Seen = time.Now()
 	hb.Config = nil // nicht im Speicher halten, steht in der Datenbank
 	if len(s.last) < 100 || s.last[hb.Sensor].Sensor != "" {
 		s.last[hb.Sensor] = hb
+		return true
 	}
-	s.mu.Unlock()
+	return false
 }
 
 func (s *Sensors) All() []Heartbeat {

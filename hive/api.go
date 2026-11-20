@@ -211,8 +211,9 @@ func (h *Hive) heartbeat(w http.ResponseWriter, r *http.Request) {
 		b, _ := json.Marshal(hb.Config)
 		h.st.SetKV(configKey(""), string(b))
 	}
-	h.sensors.Put(hb)
-	h.trackListeners(hb, time.Now())
+	if h.sensors.Put(hb) { // Audit 4: sonst wüchse die Port-Tabelle mit jedem erfundenen Namen
+		h.trackListeners(hb, time.Now())
+	}
 	writeJSON(w, map[string]bool{"ok": true})
 }
 
