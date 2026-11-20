@@ -47,6 +47,7 @@ type attackSnap struct {
 	fullAt    time.Time
 	checkAt   time.Time
 	usedAt    time.Time // letzter Zugriff (attacksSince)
+	ver       int64     // zählt jede neue Fassung der Liste (related.go)
 	dirty     bool      // Einstellungen geändert: beim nächsten Mal voll neu aufbauen
 	gen       int64     // analysisGen beim vollen Aufbau (geänderte Regeln: neu aufbauen)
 }
@@ -152,6 +153,7 @@ func (h *Hive) refreshSnap(ctx context.Context) error {
 		}
 		s.mu.Lock()
 		s.list, s.since, s.maxID, s.truncated, s.fullAt, s.checkAt, s.dirty, s.gen = list, now.Add(-snapWindow), maxID, truncated, now, now, false, gen
+		s.ver++
 		s.mu.Unlock()
 		return nil
 	}
@@ -181,6 +183,7 @@ func (h *Hive) refreshSnap(ctx context.Context) error {
 	sort.SliceStable(list, func(i, j int) bool { return list[i].Last > list[j].Last })
 	s.mu.Lock()
 	s.list, s.maxID, s.checkAt = list, maxID, time.Now()
+	s.ver++
 	s.mu.Unlock()
 	return nil
 }

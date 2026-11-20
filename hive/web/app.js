@@ -4,7 +4,7 @@ import {
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
-import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, BRUTE_TITLE } from "./attacks.js";
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, BRUTE_TITLE } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
 import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
@@ -463,12 +463,13 @@ async function viewDashboard(el, ctx) {
   header("Dashboard", { range: true });
   const r = state.range;
   const q = (p) => api(p + (p.includes("?") ? "&" : "?") + "range=" + r);
+  const nb = bruteStatsParam(); // Zugangsdaten, Netzbetreiber, Befehle ohne Dauer-Brute-Force
   // "Gerade aktiv" ist die teuerste Abfrage: Das Dashboard wartet nicht darauf, die Liste folgt.
   const actP = api("attacks?active=1&limit=60").catch(() => null);
   const [ser, tl, mp, countries, ports, ips, asns, creds, cmds, sys] = await Promise.all([
     q("stats/series"), q("stats/timeline"), q("stats/map"),
-    q("stats/top?field=country&limit=100"), q("stats/top?field=port"), q("stats/top?field=ip"), q("stats/top?field=asn"),
-    q("stats/top?field=cred"), q("stats/top?field=command"),
+    q("stats/top?field=country&limit=100"), q("stats/top?field=port"), q("stats/top?field=ip"), q("stats/top?field=asn" + nb),
+    q("stats/top?field=cred" + nb), q("stats/top?field=command" + nb),
     api("system").catch(() => null),
   ]);
   const home = await homeLocation();
@@ -479,7 +480,8 @@ async function viewDashboard(el, ctx) {
   const KPIS = [
     ["connect", "Verbindungen", false, `#/attacks?range=${r}`],
     ["ips", "Angreifer-IPs", false, `#/attacks?range=${r}`],
-    ["login", "Login-Versuche", false, `#/feed?type=login`],
+    ["login", "Login-Versuche", false, `#/feed?type=login`,
+      ser.totals.login_brute ? `Davon ${fmtNum(ser.totals.login_brute)} verdichtete Versuche erkannter Dauer-Brute-Forcer.` : ""],
     ["request", "Web-Anfragen", false, `#/feed?type=request`],
     ["success", "Logins angenommen", true, `#/attacks?range=${r}&success=1`],
     ["fetch", "Nachladeversuche", true, `#/attacks?range=${r}&q=nachladen:ja`,
@@ -547,16 +549,17 @@ async function viewDashboard(el, ctx) {
     h("div", { class: "low" },
       card("Verbindungen nach Dienst", timeline(tl)),
       card("Länder", toplist(countries.slice(0, 7), { key: (x) => x.label || x.key, extra: (x) => cc(x.key) })),
-      card("Zugangsdaten", toplist(creds.slice(0, 7)))),
+      card("Zugangsdaten", toplist(creds.slice(0, 7)), bruteStatsNote(() => route({ quiet: true })))),
     h("div", { class: "more grid" },
       card("Ports", toplist(ports, { key: (x) => `${x.key} · ${svcName(x.label)}` })),
       card("Angreifer-IPs", toplist(ips, { link: (x) => "#/attacker/" + encodeURIComponent(x.key), extra: (x) => cc(x.label) })),
-      card("Netzbetreiber", toplist(asns, { key: (x) => `AS${x.key} ${x.label}` })),
-      card("Befehle", toplist(cmds)))));
+      card("Netzbetreiber", toplist(asns, { key: (x) => `AS${x.key} ${x.label}` }), bruteStatsNote(() => route({ quiet: true }))),
+      card("Befehle", toplist(cmds), bruteStatsNote(() => route({ quiet: true }))))));
   el.querySelector(".low .toplist")?.classList.add("heat");
   renderActive();
   actP.then((act) => {
     actLoaded = true;
+    noteBrute(act);
     if (act && el.isConnected) {
       map.seedActive(act.attacks); // Linien für Angreifer der letzten 10 Minuten
       for (const a of act.attacks) {
@@ -733,6 +736,8 @@ async function viewAttacker(el, ctx, ip) {
   header("Angreifer");
   const [d, at] = await Promise.all([api("attackers/" + encodeURIComponent(ip)), api(`attacks?range=7d&limit=50&own=1&ip=${encodeURIComponent(ip)}`).catch(() => null)]);
   const i = d.info;
+  noteBrute(at);
+  noteBrute(d);
   const attacks = at ? at.attacks : [];
   const top = attacks.reduce((m, a) => (a.stufe > m ? a.stufe : m), 0);
   const fact = (k, v) => h("div", null, h("div", { class: "k" }, k), h("div", { class: "v num" }, v));
@@ -758,6 +763,7 @@ async function viewAttacker(el, ctx, ip) {
         fact("Login-Versuche", fmtNum(i.logins)), fact("Befehle", fmtNum(i.commands)), fact("Tarpit-Zeit", fmtDur(i.tarpit_ms)),
         d.condensed ? fact("Davon verdichtet", fmtNum(d.condensed)) : null),
       d.condensed ? h("p", { class: "muted", style: { margin: "8px 0 0" } }, BRUTE_TITLE) : null),
+    relatedCard(d),
     card("Angriffe dieser IP", list),
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
@@ -775,6 +781,21 @@ async function viewAttacker(el, ctx, ip) {
     attacks.unshift(a);
     mount(list, attacks.map((x, k) => { x.seen = attacks.length - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === a.id }); }));
   });
+}
+
+// "Gehört vermutlich zu …": andere IPs derselben Gruppe mit Begründung (hive/related.go)
+const RELATED_RULES = "Zusammengefasst wird nur bei derselben Zugangsdatenliste (mindestens 10 Kombinationen), derselben Nachlade-Adresse oder Wallet, " +
+  "oder bei einem seltenen Fingerabdruck (HASSH, JA4, HTTP), derselben Befehlsfolge oder denselben ersten 20 Zugangsdaten in derselben Reihenfolge zusammen mit demselben Netz (/24) oder Netzbetreiber. " +
+  "Gleiches Netz, gleicher Netzbetreiber oder zeitliche Nähe allein genügen nie; Forschungsscanner und eigene Tests bleiben außen vor. Grundlage: die letzten 7 Tage.";
+function relatedCard(d) {
+  if (!d.group || !(d.related || []).length) return null;
+  return h("section", { class: "card", id: "gruppe" },
+    h("div", { class: "head" }, h("h2", null, `Gehört vermutlich zu ${d.related.length === 1 ? "einer weiteren IP" : d.related.length + " weiteren IPs"}`)),
+    h("p", { class: "sub" }, RELATED_RULES),
+    h("div", { class: "list" }, d.related.slice(0, 30).map((r) => h("div", { class: "related-row" },
+      h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(r.ip) }, r.ip),
+      h("span", { class: "muted" }, r.reasons.length ? r.reasons.join(" · ") : "über weitere IPs der Gruppe verbunden")))),
+    d.group.n_ips > 31 ? h("p", { class: "muted" }, `… und ${fmtNum(d.group.n_ips - 31)} weitere.`) : null);
 }
 
 // ---------- System ----------

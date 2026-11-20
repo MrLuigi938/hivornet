@@ -1,0 +1,10 @@
+[Unit]
+Description=Hivornet: Sperrliste der Drossel jede Minute aktualisieren
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

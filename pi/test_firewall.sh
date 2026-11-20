@@ -144,4 +144,35 @@ setup iptables 1
 run apply
 has "--uid-owner hivornet-pot -j HIVORNET-POT"
 [ "$(st brute)" = failed ] || fail "iptables: Drossel nicht als nicht möglich gemeldet"
+
+# Sperrliste für die Web-UI (bans): Ausgabe von "nft list set" wie auf dem Pi, dazu ein
+# Eintrag mit eingeschmuggelten Zeichen, der nicht in die Datei gelangen darf
+setup nft 1
+cat >"$t/bin/nft" <<'EOF'
+#!/bin/sh
+case "$*" in
+  "list table inet hivornet") exit 0 ;;
+  "list set inet hivornet brute_ban4")
+    printf 'table inet hivornet {\n\tset brute_ban4 {\n\t\ttype ipv4_addr\n\t\tsize 65535\n\t\tflags dynamic,timeout\n\t\ttimeout 1d\n'
+    printf '\t\telements = { 198.51.100.7 timeout 15m expires 12m3s, 203.0.113.9 timeout 15m\n\t\t\t     expires 3s400ms,\n\t\t\t     $(reboot) timeout 15m expires 1m }\n\t}\n}\n' ;;
+  "list set inet hivornet brute_ban6")
+    printf 'table inet hivornet {\n\tset brute_ban6 {\n\t\ttype ipv6_addr\n\t\telements = { 2001:db8::5 timeout 15m expires 1h2m }\n\t}\n}\n' ;;
+esac
+exit 0
+EOF
+chmod +x "$t/bin/nft"
+printf 'brute 6 20 15\n' >"$t/brute.conf"
+run bans
+b="$t/status/brute-bans"
+[ "$(head -n 1 "$b")" = ok ] || { cat "$b"; fail "bans: Zustand nicht ok"; }
+now=$(sed -n 2p "$b")
+grep -q "^198.51.100.7 $((now + 723))\$" "$b" || { cat "$b"; fail "bans: 198.51.100.7 mit 12m3s fehlt"; }
+grep -q "^203.0.113.9 $((now + 3))\$" "$b" || { cat "$b"; fail "bans: 203.0.113.9 fehlt"; }
+grep -q "^2001:db8::5 $((now + 3720))\$" "$b" || { cat "$b"; fail "bans: IPv6 fehlt"; }
+if grep -q "reboot" "$b"; then cat "$b"; fail "bans: fremde Zeichen in der Datei"; fi
+[ "$(wc -l <"$b")" -eq 6 ] || { cat "$b"; fail "bans: falsche Zeilenzahl"; }
+case "$(stat -c %a "$b" 2>/dev/null || echo 644)" in 644) ;; *) fail "bans: Datei nicht 644" ;; esac
+printf 'brute off\n' >"$t/brute.conf"
+run bans
+[ "$(head -n 1 "$b")" = off ] || fail "bans: Drossel aus nicht gemeldet"
 echo "hivornet-firewall: alle Prüfungen bestanden"

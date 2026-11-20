@@ -3,7 +3,10 @@ package main
 // Fehler aus dem Live-Check von 0.8.0-beta: Zählung im Angriffsbericht, Familien.
 
 import (
+	"encoding/json"
 	"fmt"
+	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -159,5 +162,142 @@ func TestShareSinceCatchesUp(t *testing.T) {
 	}
 	if !strings.Contains(got["tftp://198.51.100.41/x"], "nur http und https") || !strings.Contains(got["http://198.51.100.42/c"], "Forschungsscanner") {
 		t.Fatalf("Gründe: %v", got)
+	}
+}
+
+// Sperrliste der Drossel (hivornet-firewall bans) und Hinweise für die UI.
+func TestBruteBans(t *testing.T) {
+	dir := t.TempDir()
+	p := dir + "/brute-bans"
+	now := time.Now().Unix()
+	os.WriteFile(p, []byte(fmt.Sprintf("ok\n%d\nDrossel aktiv\n198.51.100.7 %d\n203.0.113.9 %d\n$(reboot) 5\n2001:db8::5 %d\nkaputt\n",
+		now, now+600, now-5, now+3600)), 0o644)
+	f := readBruteBans(p)
+	if f == nil || f.State != "ok" || len(f.Bans) != 3 || f.Bans["2001:db8::5"] != (now+3600)*1000 {
+		t.Fatalf("gelesen: %+v", f)
+	}
+	t.Setenv("HIVE_BRUTE_REQUEST", dir+"/brute-request")
+	t.Setenv("HIVE_BRUTE_BANS", p)
+	bruteBanCache.at = time.Time{}
+	h := testHive(t)
+	x := h.Extras()
+	x.Brute.Limit = true
+	h.extras.x = x
+	l := h.bruteLimit()
+	if l.Platform != "pi" || !l.Known || l.Rate != 6 {
+		t.Fatalf("Stand: %+v", l)
+	}
+	b := h.bruteBansFor([]string{"198.51.100.7", "203.0.113.9", "192.0.2.1"})
+	if len(b) != 1 || b["198.51.100.7"] != (now+600)*1000 {
+		t.Fatalf("Sperren: %v (abgelaufene und fremde IPs dürfen fehlen)", b)
+	}
+	// veraltete Datei: Status je IP unbekannt
+	os.WriteFile(p, []byte(fmt.Sprintf("ok\n%d\nDrossel aktiv\n", now-600)), 0o644)
+	bruteBanCache.at = time.Time{}
+	if l := h.bruteLimit(); l.Known || !strings.Contains(l.Note, "veraltet") {
+		t.Fatalf("veraltet: %+v", l)
+	}
+	if readBruteBans(dir+"/fehlt") != nil {
+		t.Fatal("fehlende Datei")
+	}
+}
+
+// Top-Listen ohne Dauer-Brute-Force: verdichtete Versuche ("bf:<feld>") werden abgezogen.
+func TestTopWithoutBrute(t *testing.T) {
+	h := testHive(t)
+	hr := time.Now().UnixMilli() / 3600000
+	for _, r := range []struct {
+		field, key string
+		n          int
+	}{{"cred", "root / 123456", 1300}, {"bf:cred", "root / 123456", 1250}, {"cred", "admin / admin", 80},
+		{"asn", "198364", 1400}, {"bf:asn", "198364", 1400}, {"asn", "64500", 30}} {
+		h.st.db.Exec(`INSERT INTO top_hourly(hour, field, key, label, n) VALUES(?,?,?,?,?)`, hr, r.field, r.key, "", r.n)
+	}
+	get := func(q string) []map[string]any {
+		rec := httptest.NewRecorder()
+		h.top(rec, httptest.NewRequest("GET", "/api/stats/top?range=24h&"+q, nil))
+		var out []map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		return out
+	}
+	if l := get("field=cred"); len(l) != 2 || l[0]["key"] != "root / 123456" {
+		t.Fatalf("mit: %v", l)
+	}
+	if l := get("field=cred&nobrute=1"); len(l) != 2 || l[0]["key"] != "admin / admin" || l[1]["n"].(float64) != 50 {
+		t.Fatalf("ohne: %v", l)
+	}
+	if l := get("field=asn&nobrute=1"); len(l) != 1 || l[0]["key"] != "64500" {
+		t.Fatalf("Netzbetreiber ohne: %v", l)
+	}
+}
+
+// Zusammengehörige IPs: der Fall aus dem Live-Check (Nachbaradressen, gleiche Liste) wird
+// gebündelt; gemeinsames Werkzeug, Netz oder Standardpasswörter allein bündeln nicht.
+func TestRelatedIPs(t *testing.T) {
+	creds := func(n int, prefix string) map[string]int {
+		m := map[string]int{}
+		for i := range n {
+			m[fmt.Sprintf("root / %s%04d", prefix, i)] = 1
+		}
+		return m
+	}
+	mk := func(ip string, asn int, c map[string]int, fps ...string) *Attack {
+		return &Attack{IP: ip, ASN: asn, creds: c, Fingerprints: fps, Clients: []string{"SSH-2.0-Go"}}
+	}
+	common := "HASSH 0a1b2c3d4e5f60718293a4b5c6d7e8f9" // Go-Standard, viele Fremde
+	list := []*Attack{
+		mk("198.51.100.161", 64500, creds(1286, "x"), common), // wie 109.160.32.161 / .140
+		mk("198.51.100.140", 64500, creds(1286, "x"), common),
+		mk("203.0.113.5", 64500, map[string]int{"root / root": 1, "admin / admin": 1, "root / 123456": 1}, common), // Mirai-Standard
+		mk("203.0.113.6", 64500, map[string]int{"root / root": 1, "admin / admin": 1, "root / 123456": 1}, common),
+	}
+	for i := range 12 { // dasselbe Werkzeug bei vielen
+		list = append(list, mk(fmt.Sprintf("192.0.2.%d", i+1), 64501, creds(20, fmt.Sprint(i)), common))
+	}
+	// seltener Fingerabdruck im selben Netz, sonst nichts gemeinsam
+	list = append(list, mk("192.0.2.200", 64502, nil, "JA4 t13d1516h2_8daaf6152771_rare"), mk("192.0.2.201", 64503, nil, "JA4 t13d1516h2_8daaf6152771_rare"))
+	// derselbe seltene Fingerabdruck in fremdem Netz und AS: nicht bündeln
+	list = append(list, mk("198.51.100.250", 64504, nil, "JA4 t13d_other_rare"), mk("203.0.113.250", 64505, nil, "JA4 t13d_other_rare"))
+	// dieselben ersten 20 Versuche in derselben Reihenfolge, aber unterschiedlich lang
+	// (ein Angriff läuft noch): im selben Netz gebündelt, in fremden Netzen nicht
+	var order []string
+	for i := range 20 {
+		order = append(order, fmt.Sprintf("admin / w%02d", i))
+	}
+	seq := func(ip string, asn, n int) *Attack {
+		a := mk(ip, asn, creds(n, "w"))
+		a.credOrder = order
+		return a
+	}
+	list = append(list, seq("198.51.100.30", 64510, 1286), seq("198.51.100.31", 64510, 700),
+		seq("192.0.2.30", 64511, 1100), seq("203.0.113.30", 64512, 900))
+	r := buildRelated(list)
+	if g, o := r.related("198.51.100.31"); g == nil || len(o) != 1 || o[0].IP != "198.51.100.30" || !strings.Contains(strings.Join(o[0].Reasons, ";"), "ersten 20 Zugangsdaten") {
+		t.Fatalf("Reihenfolge: %+v %+v", g, o)
+	}
+	if r.groups["192.0.2.30"] != nil || r.groups["203.0.113.30"] != nil {
+		t.Error("gleiche Reihenfolge ohne gemeinsames Netz oder AS gebündelt")
+	}
+	g, others := r.related("198.51.100.161")
+	if g == nil || g.NIPs != 2 || len(others) != 1 || others[0].IP != "198.51.100.140" || !strings.Contains(strings.Join(others[0].Reasons, ";"), "dieselbe Zugangsdatenliste (1286 Kombinationen)") {
+		t.Fatalf("Live-Fall: %+v %+v", g, others)
+	}
+	for _, ip := range []string{"203.0.113.5", "192.0.2.1", "198.51.100.250"} {
+		if g := r.groups[ip]; g != nil {
+			t.Errorf("%s fälschlich gebündelt: %+v", ip, g)
+		}
+	}
+	if g := r.groups["192.0.2.200"]; g == nil || !strings.Contains(strings.Join(g.Reasons, ";"), "aus demselben Netz 192.0.2.0/24") {
+		t.Errorf("seltener Fingerabdruck im selben Netz: %+v", g)
+	}
+}
+
+// Updater: der neue Zeitgeber für die Sperrliste wird auf laufenden Geräten eingeschaltet.
+func TestApplySystemBruteBansTimer(t *testing.T) {
+	var calls []string
+	applySystem([]string{"etc/systemd/system/hivornet-brute-bans.timer", "etc/systemd/system/hivornet-brute-bans.service"},
+		func(n string, a ...string) error { calls = append(calls, n+" "+strings.Join(a, " ")); return nil }, os.Stderr)
+	if j := strings.Join(calls, "\n"); !strings.Contains(j, "systemctl enable --now hivornet-brute-bans.timer") {
+		t.Fatalf("Zeitgeber nicht eingeschaltet:\n%s", j)
 	}
 }

@@ -42,8 +42,8 @@ systemctl restart avahi-daemon.service 2>/dev/null || true
 
 systemctl daemon-reload
 systemctl enable hivornet-firstboot.service hivornet-firewall.service hivornet-hive.service \
-  hivornet-honeypot.service hivornet-update.path hivornet-cowrie-config.path hivornet-cowrie-install.service hivornet-cowrie-install.timer
-systemctl start hivornet-firewall.service hivornet-hive.service hivornet-update.path hivornet-cowrie-config.path
+  hivornet-honeypot.service hivornet-update.path hivornet-cowrie-config.path hivornet-cowrie-install.service hivornet-cowrie-install.timer hivornet-brute-bans.timer
+systemctl start hivornet-firewall.service hivornet-hive.service hivornet-update.path hivornet-cowrie-config.path hivornet-brute-bans.timer
 # Einstellung für den Verwaltungsanschluss (USB-Adapter) laden; ein schon verbundener
 # Adapter übernimmt sie beim erneuten Verbinden (sonst erst nach dem nächsten Neustart)
 if command -v nmcli >/dev/null 2>&1; then

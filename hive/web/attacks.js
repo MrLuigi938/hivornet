@@ -14,6 +14,57 @@ const TYPCOL = { connect: "var(--other)", client_version: "var(--other)", tls: "
   condensed: "var(--sev1)" };
 // Dauer-Brute-Force (hive/bruteforce.go): Erklärung für Merkmal und Filter
 export const BRUTE_TITLE = "Dauer-Brute-Force: sehr viele Logins über lange Zeit, meist mit demselben Client. Ab der Erkennung speichert der Hive fehlgeschlagene Logins und Verbindungen nur noch gesammelt; Zähler je Kombination, angenommene Logins und alles danach bleiben vollständig (Einstellungen → Honeypot → Dauer-Brute-Force).";
+// Drossel und Sperren der Firewall (hive/brutebans.go); jede Antwort von /api/attacks bringt
+// den Stand mit, noteBrute merkt ihn sich für die Hinweise an aktiven Dauer-Brute-Forcern.
+const bruteState = { limit: null, bans: {} };
+export function noteBrute(d) {
+  if (!d) return;
+  // zusammengehörige IPs (hive/related.go) an die Angriffe hängen
+  if (d.groups && d.attacks) for (const a of d.attacks) a.group = d.groups[a.ip] || null;
+  if (d.brute_limit) bruteState.limit = d.brute_limit;
+  if (d.brute_bans) Object.assign(bruteState.bans, d.brute_bans);
+}
+// Dezentes Merkmal: gehört vermutlich mit anderen IPs zusammen (Einzelheiten auf der Angreiferseite)
+export function groupBadge(a) {
+  const g = a.group;
+  if (!g || g.n_ips < 2) return null;
+  return h("a", { class: "badge group", href: "#/attacker/" + encodeURIComponent(a.ip),
+    title: `Gehört vermutlich mit ${g.n_ips - 1} weiteren IP${g.n_ips > 2 ? "s" : ""} zusammen: ${(g.reasons || []).join("; ")}` }, `Gruppe · ${g.n_ips} IPs`);
+}
+
+// Hinweis für einen gerade aktiven Dauer-Brute-Forcer, z. B.
+// "Dauer-Brute-Force · wird gedrosselt (6/min) · gesperrt bis 14:05"
+export function bruteHint(a) {
+  if (!a.brute || Date.now() - a.last > 15 * 60e3) return null;
+  const l = bruteState.limit, until = bruteState.bans[a.ip];
+  const parts = ["Dauer-Brute-Force"];
+  let title = BRUTE_TITLE;
+  if (!l || !l.enabled) {
+    parts.push("keine Drossel eingestellt");
+    title = "Die Drossel lässt sich unter Einstellungen → Honeypot → Dauer-Brute-Force einschalten.";
+  } else if (l.platform !== "pi") {
+    parts.push(`Drossel eingestellt (${l.rate}/min, Firewall des Hosts)`, "Status je IP unbekannt");
+    title = l.note || title;
+  } else {
+    parts.push(`wird gedrosselt (${l.rate}/min, Spitze ${l.burst})`);
+    if (until && until > Date.now()) parts.push(`gesperrt bis ${fmtTime(until).slice(0, 5)}`);
+    else if (l.known) parts.push(l.ban_minutes ? "zurzeit nicht gesperrt" : "ohne Sperre");
+    else parts.push("Status je IP unbekannt");
+    title = l.known ? "Stand der Sperrliste der Firewall, höchstens eine Minute alt." : (l.note || "Ob diese IP gerade gesperrt ist, sieht der Hive nicht.");
+  }
+  return h("div", { class: "brute-hint" + (until && until > Date.now() ? " banned" : ""), title }, parts.join(" · "));
+}
+
+// Top-Listen ohne Dauer-Brute-Force (hive/api.go, nobrute=1): Standard, im Browser umschaltbar.
+// Abgezogen werden die verdichteten Versuche; je Brute-Forcer bleiben die bis zur Erkennung.
+export const bruteStatsParam = () => (store("statsBrute") === "1" ? "" : "&nobrute=1");
+export function bruteStatsNote(onChange) {
+  const hidden = store("statsBrute") !== "1";
+  return h("p", { class: "muted brute-stats", title: "Die Rohdaten bleiben vollständig. Ausgeblendet werden die verdichteten Versuche erkannter Dauer-Brute-Forcer (Einstellungen → Honeypot → Dauer-Brute-Force); was sie bis zur Erkennung versuchten, zählt weiter mit." },
+    hidden ? "Ohne Dauer-Brute-Force · " : "Mit Dauer-Brute-Force · ",
+    h("button", { class: "linklike", onclick: () => { store("statsBrute", hidden ? "1" : "0"); onChange(); } }, hidden ? "einblenden" : "ausblenden"));
+}
+
 const RANGES = [["1h", "1 Std"], ["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"], ["90d", "90 Tage"], ["all", "Alles"]];
 
 // Kurzfassung in einer Zeile
@@ -248,6 +299,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
       h("div", { class: "right" },
         a.own ? h("span", { class: "badge", title: "Adresse aus einem eigenen Netz (Einstellungen → Eigene Netze)" }, "eigener Test") : null,
         a.brute ? h("span", { class: "badge", title: BRUTE_TITLE }, "Dauer-Brute-Force" + (a.condensed ? ` · ${fmtNum(a.condensed)} verdichtet` : "")) : null,
+        groupBadge(a),
         a.scanner ? h("span", { class: "badge", title: "Bekannter Forschungs- oder Vermessungsdienst bzw. per DNS geprüfter Suchmaschinen-Bot" }, "Scanner: " + a.scanner) : null,
         a.bot && !a.scanner ? h("span", { class: "badge" + (a.bot.includes("gefälscht") ? " err" : ""), title: "Prüfung per Rückwärts- und Vorwärtsauflösung" }, a.bot) : null,
         a.ai_replies && a.ai_replies.length ? h("span", { class: "badge ai", title: "Das Sprachmodell hat diesem Angreifer geantwortet (Einstellungen → Antworten mit Sprachmodell)" }, "beantwortet durch KI") : null,
@@ -261,6 +313,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
       svcBadges(a),
       h("span", { class: "muted" }, summary(a)),
       a.tarpit_ms > 1000 ? h("span", { class: "badge tarpit" }, `festgehalten ${fmtDur(a.tarpit_ms)}`) : null),
+    bruteHint(a),
     a.strip && a.strip.length > 1 ? h("div", { class: "strip", title: "Jeder Strich ist ein Ereignis; Farbe = Art" },
       a.strip.map((e) => h("i", { style: { left: `calc(${((e.t - a.first) / span) * 100}% - 1px)`, background: TYPCOL[e.type] || "var(--other)" } })),
       h("span", { class: "t", style: { left: 0 } }, fmtTime(a.first)), h("span", { class: "t", style: { right: 0 } }, fmtTime(a.last))) : null,
@@ -288,8 +341,9 @@ export function attackRow(a, { fresh = false, open = null } = {}) {
       h("div", { class: "ip" }, flag(a.country), h("span", { class: "mono" }, a.ip)),
       h("div", { class: "where" }, where(a))),
     h("div", { class: "when" }, h("span", { "data-rel": a.last }, relTime(a.last)), h("span", { class: "badge stufe" }, STUFE_KURZ[a.stufe])),
-    h("div", { class: "sum" }, h("b", null, a.profile), " – ", summary(a)),
+    h("div", { class: "sum" }, h("b", null, a.profile), " – ", summary(a), bruteHint(a)),
     h("div", { class: "chips" }, a.services.map((sv) => h("span", { class: "badge svc", style: { background: svcColor(sv) } }, svcName(sv))),
+      groupBadge(a),
       counted(a.creds || [], 3).map((c) => h("span", { class: "chip mono", title: c }, c)),
       !a.creds?.length ? counted(a.paths || [], 2).map((c) => h("span", { class: "chip mono", title: c }, c)) : null),
     detail);
@@ -328,6 +382,7 @@ export function liveAttacks(ctx, onUpdate) {
     ips.forEach((ip) => dirty.delete(ip));
     try {
       const d = await api("attacks?range=24h&limit=200&own=1&ip=" + ips.map(encodeURIComponent).join(","));
+      noteBrute(d);
       // je IP nur der neueste Angriff hat sich geändert
       const seen = new Set(), latest = [];
       for (const a of d.attacks) if (!seen.has(a.ip)) { seen.add(a.ip); latest.push(a); }
@@ -466,6 +521,7 @@ export async function viewAttacks(el, ctx, query = "") {
   };
   async function load(older = false) {
     const d = await api("attacks?" + qs(older && list.length ? list[list.length - 1].last : 0));
+    noteBrute(d);
     if (!ctx.current()) return;
     list = older ? [...list, ...d.attacks] : d.attacks;
     matched = d.matched; stufen = d.stufen; truncated = d.truncated; nOwn = d.own || 0; nBrute = d.brute || 0;

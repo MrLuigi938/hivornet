@@ -154,6 +154,14 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			run("systemctl", "restart", path.Base(c))
 		}
 	}
+	// Neue Zeitgeber, die schon laufende Geräte brauchen (Sperrliste der Drossel für die Web-UI)
+	for _, c := range changed {
+		if c == "etc/systemd/system/hivornet-brute-bans.timer" {
+			if err := run("systemctl", "enable", "--now", "hivornet-brute-bans.timer"); err != nil {
+				fmt.Fprintf(w, "Einschalten von hivornet-brute-bans.timer: %v\n", err)
+			}
+		}
+	}
 	// Geänderte Netzsperre sofort anwenden, nicht erst nach dem nächsten Neustart (M8 des
 	// dritten Audits). Direkt "apply" statt "systemctl restart": restart ruft vorher ExecStop
 	// (remove) auf, der Honeypot liefe kurz ohne Sperre; apply ersetzt die Regeln in einem
