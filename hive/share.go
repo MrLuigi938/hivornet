@@ -452,7 +452,7 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 }
 
 // shareHTTP: Verbindungen zu den Diensten selbst (URLhaus, MalwareBazaar, DShield).
-var shareHTTP = &http.Client{Timeout: 60 * time.Second}
+var shareHTTP = &http.Client{Timeout: 60 * time.Second, CheckRedirect: keyRedirect}
 
 // ---- Stand für die Einstellungen ----
 

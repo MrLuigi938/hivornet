@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -125,7 +126,7 @@ Je mehr der Angreifer getan hat, desto ausführlicher: bei reinen Scans genügen
 bei Einbrüchen mit Befehlen bis etwa 900 Wörter. Erfinde nichts; wenn die Daten für eine Aussage nicht reichen, sage das.`
 
 // aiHTTP ist der Client für KI-Anfragen; lokale Modelle brauchen teils Minuten.
-var aiHTTP = &http.Client{Timeout: 5 * time.Minute}
+var aiHTTP = &http.Client{Timeout: 5 * time.Minute, CheckRedirect: keyRedirect}
 
 // askAI schickt den Berichtstext an das eingestellte Modell und liefert die Antwort.
 func askAI(ctx context.Context, c AIConfig, text string) (string, error) {
@@ -357,7 +358,26 @@ func (h *Hive) reportAI(w http.ResponseWriter, r *http.Request) {
 // abuseBase ist die Adresse der AbuseIPDB-API; in Tests überschrieben.
 var abuseBase = "https://api.abuseipdb.com"
 
-var intelHTTP = &http.Client{Timeout: 15 * time.Second}
+var intelHTTP = &http.Client{Timeout: 15 * time.Second, CheckRedirect: keyRedirect}
+
+// keyHeaders: Kopfzeilen mit API-Schlüsseln (AbuseIPDB, abuse.ch, GreyNoise, NVD).
+var keyHeaders = []string{"Key", "Auth-Key", "Apikey", "Authorization", "X-Api-Key"}
+
+// keyRedirect (Audit 4): Go entfernt bei einer Weiterleitung auf einen anderen Host nur
+// Authorization und Cookie, nicht eigene Schlüssel-Kopfzeilen. Wechseln Host oder Schema
+// (auch https -> http), gehen die Schlüssel nicht mit.
+func keyRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 5 {
+		return errors.New("zu viele Weiterleitungen")
+	}
+	first := via[0].URL
+	if !strings.EqualFold(req.URL.Host, first.Host) || req.URL.Scheme != first.Scheme {
+		for _, k := range keyHeaders {
+			req.Header.Del(k)
+		}
+	}
+	return nil
+}
 
 // intel fragt AbuseIPDB nach einer IP. Das Ergebnis wird 24 h gespeichert, damit
 // das Tageskontingent (kostenlos: 1.000 Abfragen) nicht durch Neuladen verbraucht wird.

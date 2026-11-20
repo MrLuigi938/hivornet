@@ -44,7 +44,7 @@ var (
 	kevURL   = "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json"
 	nvdBase  = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 	epssBase = "https://api.first.org/data/v1/epss"
-	cveHTTP  = &http.Client{Timeout: 60 * time.Second}
+	cveHTTP  = &http.Client{Timeout: 60 * time.Second, CheckRedirect: keyRedirect}
 )
 
 const (

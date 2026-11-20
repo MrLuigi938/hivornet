@@ -298,7 +298,7 @@ func (r *abuseReporter) sentSince(t time.Time, dry bool) int {
 	return n
 }
 
-var abuseReportHTTP = &http.Client{Timeout: 20 * time.Second}
+var abuseReportHTTP = &http.Client{Timeout: 20 * time.Second, CheckRedirect: keyRedirect}
 
 // honeypotNames: Hostnamen der Sensoren und des Hive, die nie in Kommentaren stehen dürfen.
 func (h *Hive) honeypotNames() []string {

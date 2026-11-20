@@ -243,3 +243,49 @@ func TestReportAIGuarded(t *testing.T) {
 		t.Fatalf("manipulierte Antwort angenommen: %d", rec.Code)
 	}
 }
+
+// API-Schlüssel in eigenen Kopfzeilen gehen bei einer Weiterleitung auf einen fremden Host
+// nicht mit.
+func TestKeyHeadersNotForwarded(t *testing.T) {
+	var got http.Header
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = r.Header.Clone() }))
+	defer other.Close()
+	same := ""
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/fremd" {
+			http.Redirect(w, r, other.URL+"/x", http.StatusFound)
+			return
+		}
+		if r.URL.Path == "/selbst" {
+			http.Redirect(w, r, "/ziel", http.StatusFound)
+			return
+		}
+		same = r.Header.Get("Key")
+	}))
+	defer first.Close()
+	for _, c := range []*http.Client{intelHTTP, shareHTTP, cveHTTP, abuseReportHTTP} {
+		got = nil
+		req, _ := http.NewRequest("GET", first.URL+"/fremd", nil)
+		req.Header.Set("Key", "k1")
+		req.Header.Set("Auth-Key", "k2")
+		req.Header.Set("apiKey", "k3")
+		resp, err := c.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		if got == nil || got.Get("Key") != "" || got.Get("Auth-Key") != "" || got.Get("apiKey") != "" {
+			t.Fatalf("Schlüssel an fremden Host: %v", got)
+		}
+	}
+	req, _ := http.NewRequest("GET", first.URL+"/selbst", nil)
+	req.Header.Set("Key", "k1")
+	resp, err := intelHTTP.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if same != "k1" {
+		t.Fatal("Weiterleitung auf denselben Host verliert den Schlüssel")
+	}
+}
