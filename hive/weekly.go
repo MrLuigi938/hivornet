@@ -202,7 +202,7 @@ func (h *Hive) runWeekly(stop <-chan struct{}) {
 		to := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
 		d := h.weeklyStats(ctx, to)
 		cancel()
-		h.notifier.Report("Hivornet: Wochenbericht", d.Text())
+		h.notifier.Report("Hivornet: Wochenbericht", d.Text()+h.weeklyAISection(to))
 	}
 }
 

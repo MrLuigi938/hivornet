@@ -7,6 +7,7 @@ import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag }
 import { worldMap, toplist, svcName, countryName } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME } from "./app.js";
 import { aiReplies, exploitHits } from "./attacks.js";
+import { renderMd, explainSlot, briefsForIP } from "./ai.js";
 
 // ---------- Standort des Honeypots (Ziel der Angriffslinien) ----------
 
@@ -133,6 +134,7 @@ function sampleBtn(hash) {
       ].filter(Boolean);
       mount(out, h("div", { class: "facts-row" }, facts.map(([k, v]) => [h("div", { class: "k" }, k), h("div", { class: "v mono" }, v)])),
         d.hash_mismatch ? h("div", { class: "msg warn" }, "Der Inhalt passt nicht zum Hash im Dateinamen.") : null,
+        d.type === "Skript" || d.type === "Text" ? explainSlot({ hash }) : null,
         h("p", { class: "muted aw-small" }, "Nur gelesen, nie ausgeführt. Die Datei liegt weiter im Cowrie-Ordner und ist echte Schadsoftware."));
     } catch (e) { mount(out, h("span", { class: "muted" }, e.message)); }
     b.disabled = false;
@@ -446,45 +448,7 @@ const SEV = { hoch: "Einstufung: hoch", mittel: "Einstufung: mittel", niedrig: "
 const monoList = (items) => h("ul", { class: "mono-list" }, items.map((x) => h("li", null, x)));
 const sha256 = /^[0-9a-f]{64}$/;
 
-// Antwort der KI als einfaches Markdown darstellen: Überschriften, Listen, **fett**, `Code`,
-// Code-Blöcke. Alles als Textknoten (h()), nie als HTML: die Antwort kann Angreifertext enthalten.
-function inlineMd(line) {
-  const out = [];
-  const re = /(\*\*[^*]+\*\*|`[^`]+`)/g;
-  let last = 0, m;
-  while ((m = re.exec(line))) {
-    if (m.index > last) out.push(line.slice(last, m.index));
-    const t = m[0];
-    out.push(t.startsWith("**") ? h("strong", null, t.slice(2, -2)) : h("code", null, t.slice(1, -1)));
-    last = m.index + t.length;
-  }
-  if (last < line.length) out.push(line.slice(last));
-  return out;
-}
-function renderMd(text) {
-  const out = [];
-  let list = null, code = null;
-  for (const raw of String(text).split("\n")) {
-    const line = raw.replace(/\s+$/, "");
-    if (line.trim().startsWith("```")) {
-      if (code) { out.push(h("pre", { class: "plain mono" }, code.join("\n"))); code = null; } else { code = []; list = null; }
-      continue;
-    }
-    if (code) { code.push(raw); continue; }
-    const hd = line.match(/^#{1,4}\s+(.*)$/);
-    const li = line.match(/^\s*(?:[-*•]|\d+[.)])\s+(.*)$/);
-    if (hd) { list = null; out.push(h("h4", { class: "md-h" }, inlineMd(hd[1]))); continue; }
-    if (li) {
-      if (!list) { list = h("ul", { class: "plain" }); out.push(list); }
-      list.append(h("li", null, inlineMd(li[1])));
-      continue;
-    }
-    list = null;
-    if (line.trim()) out.push(h("p", { class: "md-p" }, inlineMd(line)));
-  }
-  if (code) out.push(h("pre", { class: "plain mono" }, code.join("\n")));
-  return h("div", { class: "md" }, out);
-}
+// Antwort der KI als einfaches Markdown: renderMd aus ai.js (nur Textknoten, nie HTML).
 
 // reportCard lädt den Bericht nach, damit die Seite sofort erscheint.
 export function reportCard({ ip, session }) {
@@ -515,6 +479,7 @@ export function reportCard({ ip, session }) {
     mount(body,
       h("p", null, h("span", { class: "badge sev-" + r.severity }, SEV[r.severity] || r.severity)),
       h("ul", { class: "plain" }, r.summary.map((l) => h("li", null, l))),
+      ip ? briefsForIP(ip) : null,
       r.tags.length ? [h("h3", null, "Erkannte Muster"), h("ul", { class: "taglist" }, r.tags.map((t) => h("li", null,
         h("strong", null, t.name), " ", h("span", { class: "badge" }, fmtNum(t.n) + "×"),
         (t.mitre || []).map((m) => [" ", h("a", { class: "badge", href: mitreURL(m), target: "_blank", rel: "noopener noreferrer", title: "MITRE ATT&CK" }, m)]),
@@ -537,7 +502,8 @@ export function reportCard({ ip, session }) {
         ? [x, " ", h("a", { href: "https://www.virustotal.com/gui/file/" + x, target: "_blank", rel: "noopener noreferrer" }, "bei VirusTotal nachschlagen"), " ",
           lookupBtn("MalwareBazaar", "lookup/malwarebazaar?hash=" + x, bazaarText), " ", sampleBtn(x)] : x)))] : null,
       r.clients.length ? [h("h3", null, "Clients"), monoList(r.clients)] : null,
-      r.commands.length ? [h("h3", null, "Befehle in Reihenfolge"), h("div", { class: "term" }, r.commands.map((c) => h("div", null, h("span", { class: "cmd" }, c))))] : null,
+      r.commands.length ? [h("h3", null, "Befehle in Reihenfolge"), h("div", { class: "term" }, r.commands.map((c) => h("div", null, h("span", { class: "cmd" }, c)))),
+        explainSlot(ip ? { ip } : { session })] : null,
       r.ai_replies && r.ai_replies.length ? [h("h3", null, "Antworten der KI (" + fmtNum(r.ai_replies.length) + ")"),
         h("p", { class: "muted", style: { margin: "0 0 6px" } }, "Für diese Eingaben kannte der Honeypot keine feste Antwort; das Sprachmodell hat einen passenden Text erzeugt, der Honeypot hat ihn ausgeliefert. Ausgeführt wurde nichts."),
         aiReplies(r.ai_replies, { max: 5 })] : null,

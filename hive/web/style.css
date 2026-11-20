@@ -682,3 +682,14 @@ a.aw-pat:hover { background: var(--surface-3); text-decoration: none; }
 .xp-expr { overflow-wrap: anywhere; }
 .xp-sugg p { margin: 4px 0; }
 .xp-sugg .row + .row { margin-top: 6px; }
+/* Weitere KI-Funktionen (ai.js, hive/aiplus.go) */
+.ai-brief { margin-top: 10px; padding: 8px 12px; border-left: 3px solid var(--s7); background: color-mix(in srgb, var(--s7) 7%, transparent); border-radius: 6px; }
+.ai-brief .k { font-size: 12.5px; }
+.ai-brief p { margin: 4px 0 0; line-height: 1.5; }
+.ai-explain { margin-top: 8px; }
+.md li.ai-danger { color: var(--text); background: color-mix(in srgb, var(--sev4) 12%, transparent); border-radius: 4px; padding: 2px 6px; }
+.md ol.plain { padding-left: 22px; }
+.md ol.plain li { margin: 3px 0; }
+.ai-search .filters { align-items: center; }
+.ai-search-res { margin-top: 6px; padding: 8px 12px; background: var(--surface-2); border-radius: 8px; }
+.ai-search-res p { margin: 0 0 6px; }
