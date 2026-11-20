@@ -11,5 +11,7 @@ ExecStart=/usr/bin/find /var/lib/hivornet-cowrie/lib/tty /var/lib/hivornet-cowri
 SuccessExitStatus=1
 NoNewPrivileges=yes
 ProtectSystem=strict
+# Daten und Status des Hives bleiben unsichtbar, auch nach einer Codeausführung (Audit 4)
+InaccessiblePaths=-/var/lib/hivornet -/etc/hivornet/env
 ReadWritePaths=/var/lib/hivornet-cowrie
 PrivateNetwork=yes

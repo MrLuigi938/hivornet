@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"os"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -116,5 +117,56 @@ func TestHeartbeatFieldsClipped(t *testing.T) {
 	hb := h.sensors.All()[0]
 	if len(hb.LastError) > 512 || len(hb.HeldTarpits) > 300 {
 		t.Fatalf("nicht gekürzt: %d %d", len(hb.LastError), len(hb.HeldTarpits))
+	}
+}
+
+// Ersteinrichtung nur aus dem Heimnetz: Ein offen erreichbarer Hive darf nicht von Fremden
+// eingerichtet werden.
+func TestSetupOnlyFromHomeNet(t *testing.T) {
+	h := testHive(t)
+	h.auth = NewAuth(h.st, "", false)
+	try := func(ip string) int {
+		req := httptest.NewRequest("POST", "/api/setup", strings.NewReader(`{"password":"einlangespasswort"}`))
+		req.Header.Set("X-Requested-With", "hivornet")
+		req.RemoteAddr = ip + ":40000"
+		rec := httptest.NewRecorder()
+		h.setupRun(rec, req)
+		return rec.Code
+	}
+	for _, ip := range []string{"198.51.100.4", "[2001:db8::5]"} {
+		if c := try(ip); c != 403 {
+			t.Fatalf("%s: %d", ip, c)
+		}
+	}
+	if !h.auth.NeedsSetup() {
+		t.Fatal("Fremder hat eingerichtet")
+	}
+	for _, ip := range []string{"192.168.1.20", "127.0.0.1", "100.100.1.1", "[fd00::1]"} {
+		if !setupAllowed(strings.Trim(ip, "[]")) {
+			t.Fatalf("%s abgelehnt", ip)
+		}
+	}
+	if c := try("192.168.1.20"); c != 200 {
+		t.Fatalf("Heimnetz: %d", c)
+	}
+}
+
+// Pi: Die Hive-Datenbank ist für Honeypot und Cowrie unsichtbar.
+func TestPiUnitsHideHiveData(t *testing.T) {
+	read := func(n string) string {
+		b, err := os.ReadFile("../pi/rootfs/etc/systemd/system/" + n)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(b)
+	}
+	hv := read("hivornet-hive.service")
+	if !strings.Contains(hv, "StateDirectoryMode=0700") || !strings.Contains(hv, "UMask=0077") {
+		t.Error("Hive-Dienst: Datenordner nicht auf 0700/UMask 0077")
+	}
+	for _, n := range []string{"hivornet-honeypot.service", "hivornet-cowrie.service", "hivornet-cowrie-clean.service"} {
+		if !strings.Contains(read(n), "InaccessiblePaths=-/var/lib/hivornet ") {
+			t.Errorf("%s: /var/lib/hivornet nicht gesperrt", n)
+		}
 	}
 }

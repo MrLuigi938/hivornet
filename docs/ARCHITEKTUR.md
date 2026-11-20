@@ -224,7 +224,7 @@ Regeln für die UI:
 
 In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, Update-Kanal, **Zusatzfunktionen** (`extras`: Standort, Benachrichtigungen, KI, Schlüssel für AbuseIPDB und GreyNoise), sowie die Merker `config_level` (Port-Anpassung lief) und `patterns_backfilled` (Muster nachgezählt). Geheimnisse darin liefert die API nie zurück.
 
-**Ersteinrichtung:** Ist kein Admin-Konto vorhanden und keines per `HIVE_ADMIN_PASSWORD` vorgegeben, legt `EnsureAdmin` keins an; die UI zeigt den Assistenten (`GET/POST /api/setup`, `setup.go`). Wer ihn zuerst ausfüllt, setzt das Passwort – darum gehört die UI nie ins Internet.
+**Ersteinrichtung:** Ist kein Admin-Konto vorhanden und keines per `HIVE_ADMIN_PASSWORD` vorgegeben, legt `EnsureAdmin` keins an; die UI zeigt den Assistenten (`GET/POST /api/setup`, `setup.go`). Wer ihn zuerst ausfüllt, setzt das Passwort – darum gehört die UI nie ins Internet. Der Hive nimmt die Ersteinrichtung deshalb nur aus privaten, Loopback-, Link-local- und CGNAT-Adressen an (`HIVE_SETUP_ANY_ADDR=1` hebt das auf).
 
 ### Honeypot
 

@@ -530,6 +530,7 @@ func TestSetupOnlyOnce(t *testing.T) {
 	}
 	post := func(body string, header bool) *httptest.ResponseRecorder {
 		req := httptest.NewRequest("POST", "/api/setup", strings.NewReader(body))
+		req.RemoteAddr = "192.168.178.20:50000" // Heimnetz (Audit 4: nur von dort)
 		if header {
 			req.Header.Set("X-Requested-With", "hivornet")
 		}

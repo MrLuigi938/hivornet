@@ -23,6 +23,8 @@ AmbientCapabilities=CAP_NET_BIND_SERVICE
 CapabilityBoundingSet=CAP_NET_BIND_SERVICE
 NoNewPrivileges=yes
 ProtectSystem=strict
+# Daten und Status des Hives bleiben unsichtbar, auch nach einer Codeausführung (Audit 4)
+InaccessiblePaths=-/var/lib/hivornet -/etc/hivornet/env
 ProtectHome=yes
 PrivateTmp=yes
 PrivateDevices=yes

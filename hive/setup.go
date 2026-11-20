@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/netip"
 	"os"
 	"strconv"
 	"strings"
@@ -41,6 +42,19 @@ func (h *Hive) setupStatus(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, out)
 }
 
+// setupAllowed (Audit 4): Solange kein Konto existiert, vergibt POST /api/setup das
+// Admin-Passwort. Steht der Hive versehentlich offen im Internet (Pi als „Exposed Host“,
+// globale IPv6-Adresse, DMZ), käme ein Fremder sonst dem Betreiber zuvor. Erlaubt sind
+// Heimnetz, Loopback, Link-local und CGNAT (100.64.0.0/10, z. B. Tailscale). Ein
+// Reverse-Proxy auf demselben Rechner zählt als Loopback.
+func setupAllowed(ip string) bool {
+	if os.Getenv("HIVE_SETUP_ANY_ADDR") == "1" || localClient(ip) {
+		return true
+	}
+	a, err := netip.ParseAddr(ip)
+	return err == nil && netip.MustParsePrefix("100.64.0.0/10").Contains(a.Unmap())
+}
+
 func (h *Hive) setupRun(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("X-Requested-With") != "hivornet" { // wie bei allen schreibenden Aufrufen
 		httpErr(w, 403, "fehlender Header")
@@ -56,6 +70,10 @@ func (h *Hive) setupRun(w http.ResponseWriter, r *http.Request) {
 	}
 	if readJSON(w, r, &req) != nil {
 		httpErr(w, 400, "ungültige Anfrage")
+		return
+	}
+	if !setupAllowed(clientIP(r)) {
+		httpErr(w, 403, "Die Ersteinrichtung geht nur aus dem Heimnetz (oder mit HIVE_SETUP_ANY_ADDR=1).")
 		return
 	}
 	if !h.auth.attempt(clientIP(r)) {

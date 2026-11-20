@@ -28,6 +28,11 @@ ExecStart=/opt/hivornet/hive
 Restart=always
 RestartSec=5
 StateDirectory=hivornet
+# Datenbank (Passwort-Hash, API-Schlüssel) nur für den Hive lesbar (Audit 4): ohne Modus
+# legte systemd den Ordner mit 0755 an und SQLite die Dateien mit 0644, lesbar für die
+# Benutzer von Honeypot und Cowrie. Beim Start setzt systemd den Modus auch bei alten Ordnern.
+StateDirectoryMode=0700
+UMask=0077
 MemoryMax=384M
 TasksMax=256
 # Härtung: keine Rechte, Dateisystem nur lesbar bis auf den eigenen Datenordner
