@@ -289,3 +289,33 @@ func TestKeyHeadersNotForwarded(t *testing.T) {
 		t.Fatal("Weiterleitung auf denselben Host verliert den Schlüssel")
 	}
 }
+
+// Die Leserolle sieht den KI-Fehlertext (Adresse und Antwort des Anbieters) nicht.
+func TestAIStatusErrorAdminOnly(t *testing.T) {
+	h := testHive(t)
+	h.auth = NewAuth(h.st, "tok", false)
+	h.auth.EnsureAdmin("admin", "adminpasswort1")
+	if err := h.auth.CreateUser("gast", "gastpasswort1", "viewer"); err != nil {
+		t.Fatal(err)
+	}
+	aiPlusSt.Lock()
+	old := aiPlusSt.lastErr
+	aiPlusSt.lastErr = `KI antwortet 401: {"error":"invalid key sk-geheim"} https://llm.example/v1`
+	aiPlusSt.Unlock()
+	t.Cleanup(func() { aiPlusSt.Lock(); aiPlusSt.lastErr = old; aiPlusSt.Unlock() })
+	get := func(user string) string {
+		rec := httptest.NewRecorder()
+		h.auth.startSession(rec, httptest.NewRequest("GET", "/", nil), user)
+		req := httptest.NewRequest("GET", "/api/ai/status", nil)
+		req.AddCookie(rec.Result().Cookies()[0])
+		out := httptest.NewRecorder()
+		h.aiStatus(out, req)
+		return out.Body.String()
+	}
+	if strings.Contains(get("gast"), "sk-geheim") {
+		t.Fatal("Leser sieht den Fehlertext")
+	}
+	if !strings.Contains(get("admin"), "sk-geheim") {
+		t.Fatal("Admin sieht den Fehlertext nicht")
+	}
+}

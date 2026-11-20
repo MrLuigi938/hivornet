@@ -833,11 +833,19 @@ func (h *Hive) aiStatus(w http.ResponseWriter, r *http.Request) {
 	b := h.aiBudgetNow()
 	aiPlusSt.Lock()
 	defer aiPlusSt.Unlock()
+	lastErr := aiPlusSt.lastErr
+	if h.auth != nil {
+		// Audit 4: Der Fehlertext enthält die Adresse des Anbieters und einen Teil seiner Antwort
+		// (manche wiederholen den Schlüssel). Die Leserolle sieht nur, dass es einen Fehler gab.
+		if _, role := h.auth.Who(r); role != "admin" && lastErr != "" {
+			lastErr = "Fehler (Details nur für Admins)"
+		}
+	}
 	writeJSON(w, map[string]any{
 		"ai_enabled": x.AI.Enabled && x.AI.BaseURL != "" && x.AI.Model != "",
 		"weekly":     x.AIPlus.Weekly, "brief": x.AIPlus.Brief, "search": x.AIPlus.Search, "explain": x.AIPlus.Explain,
 		"used_today": b.Total, "briefs_today": b.Brief, "max_per_day": x.AIPlus.MaxPerDay, "brief_per_day": x.AIPlus.BriefPerDay,
-		"calls": aiPlusSt.calls, "failed": aiPlusSt.failed, "rejected": aiPlusSt.rejected, "cleaned": aiPlusSt.cleaned, "last_error": aiPlusSt.lastErr,
+		"calls": aiPlusSt.calls, "failed": aiPlusSt.failed, "rejected": aiPlusSt.rejected, "cleaned": aiPlusSt.cleaned, "last_error": lastErr,
 	})
 }
 
