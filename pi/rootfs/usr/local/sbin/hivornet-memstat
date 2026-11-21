@@ -1,0 +1,54 @@
+#!/bin/sh
+# Schreibt jede Minute den Arbeitsspeicher der Hivornet-Dienste nach
+# /var/lib/hivornet-status/memory (hivornet-memstat.timer). Die Web-UI zeigt ihn im
+# Hardware-Monitor unter "Arbeitsspeicher je Dienst".
+#
+# Warum ein eigenes Skript: Der Hive sieht die Prozesse der anderen Dienste nicht
+# (ProtectProc=invisible), und auf dem Raspberry Pi ist die Speicherverwaltung der cgroups
+# ab Werk abgeschaltet (cgroup_disable=memory), sodass es memory.current nicht gibt. Dann
+# greift auch MemoryMax= in den Dienstdateien nicht; das meldet die Datei ebenfalls.
+#
+# Format (wie die übrigen Statusdateien): Zustand (ok), Unix-Zeit, Text, danach
+#   memcg 0|1                      Speicherverwaltung der cgroups an (1) oder aus (0)
+#   DIENST RSS GRENZE              je Dienst: Summe VmRSS in Bytes, MemoryMax in Bytes (0 = keine)
+# Nur Ziffern und die festen Dienstnamen gelangen in die Datei.
+set -eu
+STATUS_DIR=${HIVORNET_STATUS_DIR:-/var/lib/hivornet-status}
+CG=${HIVORNET_CGROUP_ROOT:-/sys/fs/cgroup}
+PROC=${HIVORNET_PROC_ROOT:-/proc}
+
+memcg=0
+if grep -qw memory "$CG/cgroup.controllers" 2>/dev/null; then memcg=1; fi
+
+# rss DIENST: Summe der VmRSS aller Prozesse des Dienstes in Bytes
+rss() {
+  procs="$CG/system.slice/$1.service/cgroup.procs"
+  [ -r "$procs" ] || { echo 0; return 0; }
+  total=0
+  while read -r pid; do
+    case "$pid" in '' | *[!0-9]*) continue ;; esac
+    kb=$(awk '/^VmRSS:/ { print $2; exit }' "$PROC/$pid/status" 2>/dev/null || true)
+    case "$kb" in '' | *[!0-9]*) kb=0 ;; esac
+    total=$((total + kb))
+  done <"$procs"
+  echo $((total * 1024))
+}
+
+# limit DIENST: MemoryMax in Bytes, 0 ohne Grenze
+limit() {
+  v=$(systemctl show -p MemoryMax --value "$1.service" 2>/dev/null || true)
+  case "$v" in '' | *[!0-9]*) echo 0 ;; *) echo "$v" ;; esac
+}
+
+mkdir -p "$STATUS_DIR"
+f="$STATUS_DIR/memory"
+{
+  printf 'ok\n%s\nArbeitsspeicher der Dienste\n' "$(date +%s)"
+  printf 'memcg %s\n' "$memcg"
+  for u in hivornet-hive hivornet-honeypot hivornet-cowrie; do
+    [ -d "$CG/system.slice/$u.service" ] || continue
+    printf '%s %s %s\n' "$u" "$(rss "$u")" "$(limit "$u")"
+  done
+} >"$f.neu"
+chmod 644 "$f.neu"
+mv "$f.neu" "$f"

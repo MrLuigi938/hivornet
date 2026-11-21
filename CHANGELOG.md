@@ -2,6 +2,14 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+**Update:** Raspberry Pi per Knopf; der Updater schaltet den neuen Zeitgeber `hivornet-memstat.timer` ein.
+
+### Behoben
+- **Hardware-Monitor auf dem Raspberry Pi (z. B. Pi 3): Speicher je Dienst und Stromversorgung fehlten.** Raspberry Pi OS schaltet die Speicherverwaltung der cgroups ab Werk ab, `memory.current` gibt es dann nicht; die Firmware-Bits zur Drosselung sind auf älteren Modellen nicht lesbar. Jetzt schreibt `hivornet-memstat` (root, jede Minute, nur lesend) den Speicher von Hive, Honeypot und Cowrie in eine Statusdatei, die der Hive liest – ohne neue Rechte. Unterspannung kommt ersatzweise vom Treiber `rpi_volt`.
+- **Hinweis, wenn die Speichergrenzen der Dienste nicht greifen:** Ist die Speicherverwaltung aus, stehen die Grenzen (MemoryMax) nur in den Dienstdateien. Der Hardware-Monitor sagt das jetzt und nennt die Abhilfe (`cgroup_enable=memory` in `/boot/firmware/cmdline.txt`).
+
 ## [0.9.3-beta] – 2026-11-21
 
 **Update:** Raspberry Pi per Knopf (System → Updates); der Updater trägt die Cowrie-Anpassungen und das Token für die KI-Antworten nach und startet Cowrie neu. Docker: `sh update.sh`. Die KI-Antworten in der SSH-Shell wirken erst, wenn unter Einstellungen die KI-Antworten eingerichtet und für die Shell eingeschaltet sind.

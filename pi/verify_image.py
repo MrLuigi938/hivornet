@@ -87,6 +87,8 @@ with tarfile.open(fileobj=io.BytesIO(pl), mode="r:gz") as t:
         "etc/systemd/system/hivornet-cowrie-install.timer": 0o644, "etc/systemd/system/hivornet-cowrie-clean.service": 0o644,
         "etc/systemd/system/hivornet-cowrie-clean.timer": 0o644,
         "etc/systemd/system/hivornet-brute-bans.service": 0o644, "etc/systemd/system/hivornet-brute-bans.timer": 0o644,
+        "etc/systemd/system/hivornet-memstat.service": 0o644, "etc/systemd/system/hivornet-memstat.timer": 0o644,
+        "usr/local/sbin/hivornet-memstat": 0o755,
         "etc/NetworkManager/conf.d/hivornet-mgmt.conf": 0o644,
     }
     for n, mode in expect.items():

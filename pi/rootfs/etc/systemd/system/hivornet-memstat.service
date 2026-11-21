@@ -1,0 +1,22 @@
+# Schreibt jede Minute den Arbeitsspeicher der Hivornet-Dienste nach
+# /var/lib/hivornet-status/memory (hivornet-memstat). Der Hive liest nur die Datei; die Prozesse
+# der anderen Dienste bleiben ihm verborgen.
+[Unit]
+Description=Hivornet: Arbeitsspeicher der Dienste für die Web-UI
+ConditionPathExists=/etc/hivornet
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/hivornet-memstat
+# Nur lesen (/proc, cgroups, systemctl show) und eine Statusdatei schreiben
+CapabilityBoundingSet=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=-/var/lib/hivornet-status
+InaccessiblePaths=-/var/lib/hivornet -/etc/hivornet/env
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateNetwork=yes
+RestrictAddressFamilies=AF_UNIX
+SystemCallArchitectures=native

@@ -154,11 +154,12 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			run("systemctl", "restart", path.Base(c))
 		}
 	}
-	// Neue Zeitgeber, die schon laufende Geräte brauchen (Sperrliste der Drossel für die Web-UI)
+	// Neue Zeitgeber, die schon laufende Geräte brauchen (Sperrliste der Drossel, Arbeitsspeicher
+	// der Dienste für die Web-UI)
 	for _, c := range changed {
-		if c == "etc/systemd/system/hivornet-brute-bans.timer" {
-			if err := run("systemctl", "enable", "--now", "hivornet-brute-bans.timer"); err != nil {
-				fmt.Fprintf(w, "Einschalten von hivornet-brute-bans.timer: %v\n", err)
+		if t := path.Base(c); c == "etc/systemd/system/"+t && (t == "hivornet-brute-bans.timer" || t == "hivornet-memstat.timer") {
+			if err := run("systemctl", "enable", "--now", t); err != nil {
+				fmt.Fprintf(w, "Einschalten von %s: %v\n", t, err)
 			}
 		}
 	}

@@ -126,5 +126,9 @@ export function hardwareCard(d) {
       (d.services || []).length ? h("div", { class: "hw-side" },
         h("div", { class: "hw-side-t" }, "Arbeitsspeicher je Dienst"),
         serviceBars(d.services, d.mem_total),
-        h("p", { class: "muted hw-note" }, "Hive selbst: ", fmtBytes(d.hive_rss), " im Speicher")) : null));
+        h("p", { class: "muted hw-note" }, "Hive selbst: ", fmtBytes(d.hive_rss), " im Speicher"),
+        d.mem_limits_off ? h("div", { class: "msg warn hw-note" },
+          h("b", null, "Speichergrenzen wirken nicht. "),
+          "Auf diesem Raspberry Pi ist die Speicherverwaltung der Dienste (memory cgroup) ab Werk abgeschaltet. Die Grenzen oben stehen in den Dienstdateien, werden aber nicht durchgesetzt; ein Dienst könnte den ganzen Arbeitsspeicher belegen. ",
+          "Abhilfe: in /boot/firmware/cmdline.txt am Ende der einen Zeile „cgroup_enable=memory“ ergänzen und den Pi neu starten.") : null) : null));
 }

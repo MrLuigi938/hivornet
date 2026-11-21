@@ -32,6 +32,8 @@ var (
 	hwSys  = "/sys"
 	// Drosselungs-Bits der Pi-Firmware (relativ zu hwSys; der Doppelpunkt geht unter Windows nicht)
 	hwThrottled = "devices/platform/soc/soc:firmware/get_throttled"
+	// Statusdatei von hivornet-memstat (Pi, root, jede Minute): Speicher je Dienst
+	hwMemStatus = "/var/lib/hivornet-status/memory"
 )
 
 type hwPoint struct {
@@ -49,27 +51,29 @@ type hwService struct {
 }
 
 type hwSnapshot struct {
-	Available  bool         `json:"available"`
-	Model      string       `json:"model,omitempty"`
-	Cores      int          `json:"cores"`
-	CPU        float64      `json:"cpu"`
-	Load       [3]float64   `json:"load"`
-	MemTotal   int64        `json:"mem_total"`
-	MemUsed    int64        `json:"mem_used"`
-	MemCache   int64        `json:"mem_cache"`
-	SwapTotal  int64        `json:"swap_total"`
-	SwapUsed   int64        `json:"swap_used"`
-	Temp       float64      `json:"temp,omitempty"`
-	TempMax    float64      `json:"temp_max,omitempty"` // höchster Wert der letzten Stunde
-	Throttled  string       `json:"throttled,omitempty"`
-	UptimeS    int64        `json:"uptime_s"`
-	HiveRSS    int64        `json:"hive_rss"`
-	Services   []hwService  `json:"services,omitempty"`
-	DiskTotal  int64        `json:"disk_total,omitempty"`
-	DiskFree   int64        `json:"disk_free,omitempty"`
-	DB         *dbLimitInfo `json:"db,omitempty"` // Datenbank auf diesem Datenträger (dblimit.go)
-	History    []hwPoint    `json:"history"`
-	IntervalMs int64        `json:"interval_ms"`
+	Available bool        `json:"available"`
+	Model     string      `json:"model,omitempty"`
+	Cores     int         `json:"cores"`
+	CPU       float64     `json:"cpu"`
+	Load      [3]float64  `json:"load"`
+	MemTotal  int64       `json:"mem_total"`
+	MemUsed   int64       `json:"mem_used"`
+	MemCache  int64       `json:"mem_cache"`
+	SwapTotal int64       `json:"swap_total"`
+	SwapUsed  int64       `json:"swap_used"`
+	Temp      float64     `json:"temp,omitempty"`
+	TempMax   float64     `json:"temp_max,omitempty"` // höchster Wert der letzten Stunde
+	Throttled string      `json:"throttled,omitempty"`
+	UptimeS   int64       `json:"uptime_s"`
+	HiveRSS   int64       `json:"hive_rss"`
+	Services  []hwService `json:"services,omitempty"`
+	// Speichergrenzen der Dienste (MemoryMax=) greifen nicht: Speicherverwaltung der cgroups aus
+	MemLimitsOff bool         `json:"mem_limits_off,omitempty"`
+	DiskTotal    int64        `json:"disk_total,omitempty"`
+	DiskFree     int64        `json:"disk_free,omitempty"`
+	DB           *dbLimitInfo `json:"db,omitempty"` // Datenbank auf diesem Datenträger (dblimit.go)
+	History      []hwPoint    `json:"history"`
+	IntervalMs   int64        `json:"interval_ms"`
 }
 
 type hwMonitor struct {
@@ -175,7 +179,7 @@ func cpuTemp() float64 {
 func throttled() string {
 	s := readTrim(filepath.Join(hwSys, hwThrottled))
 	if s == "" {
-		return ""
+		return rpiVolt()
 	}
 	v, err := strconv.ParseUint(strings.TrimPrefix(s, "0x"), 16, 32)
 	if err != nil {
@@ -203,10 +207,13 @@ func throttled() string {
 }
 
 // services: Speicher je Hivornet-Dienst (Pi: systemd-cgroups) bzw. des eigenen Containers.
-func hwServices() []hwService {
+var hwUnits = [][2]string{{"hivornet-hive", "Hive (Web-UI)"}, {"hivornet-honeypot", "Honeypot"}, {"hivornet-cowrie", "Cowrie (SSH/Telnet)"}}
+
+// hwServices: Speicher je Dienst und ob die Speichergrenzen der Dienste wirkungslos sind.
+func hwServices() ([]hwService, bool) {
 	var out []hwService
 	base := filepath.Join(hwSys, "fs/cgroup/system.slice")
-	for _, s := range [][2]string{{"hivornet-hive", "Hive (Web-UI)"}, {"hivornet-honeypot", "Honeypot"}, {"hivornet-cowrie", "Cowrie (SSH/Telnet)"}} {
+	for _, s := range hwUnits {
 		dir := filepath.Join(base, s[0]+".service")
 		n, ok := readInt(filepath.Join(dir, "memory.current"))
 		if !ok {
@@ -215,13 +222,61 @@ func hwServices() []hwService {
 		lim, _ := readInt(filepath.Join(dir, "memory.max"))
 		out = append(out, hwService{Name: s[0], Label: s[1], Bytes: n, Limit: lim})
 	}
+	if len(out) == 0 {
+		// Raspberry Pi: Speicherverwaltung der cgroups ab Werk aus, memory.current fehlt. Dann
+		// schreibt hivornet-memstat (root) die Werte in eine Statusdatei (Pi 3 im Live-Check 0.9.3).
+		if l, off, ok := readMemStatus(hwMemStatus); ok {
+			return l, off
+		}
+	}
 	if len(out) == 0 && os.Getenv("HIVE_JOURNAL") != "1" { // Docker: eigener Container
 		if n, ok := readInt(filepath.Join(hwSys, "fs/cgroup/memory.current")); ok {
 			lim, _ := readInt(filepath.Join(hwSys, "fs/cgroup/memory.max"))
 			out = append(out, hwService{Name: "container", Label: "Hive-Container", Bytes: n, Limit: lim})
 		}
 	}
-	return out
+	return out, false
+}
+
+// readMemStatus liest die Statusdatei von hivornet-memstat (höchstens 5 Minuten alt).
+// Format: "ok", Unix-Zeit, Text, "memcg 0|1", je Dienst "NAME RSS GRENZE".
+func readMemStatus(p string) (list []hwService, limitsOff, ok bool) {
+	b, err := os.ReadFile(p)
+	if err != nil || len(b) > 4096 {
+		return nil, false, false
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) < 4 || strings.TrimSpace(lines[0]) != "ok" {
+		return nil, false, false
+	}
+	if at, err := strconv.ParseInt(strings.TrimSpace(lines[1]), 10, 64); err != nil || time.Since(time.Unix(at, 0)) > 5*time.Minute {
+		return nil, false, false
+	}
+	memcg := true
+	anyLimit := false
+	for _, l := range lines[3:] {
+		fs := strings.Fields(l)
+		if len(fs) == 2 && fs[0] == "memcg" {
+			memcg = fs[1] == "1"
+			continue
+		}
+		if len(fs) != 3 {
+			continue
+		}
+		for _, u := range hwUnits {
+			if fs[0] != u[0] {
+				continue
+			}
+			rss, err1 := strconv.ParseInt(fs[1], 10, 64)
+			lim, err2 := strconv.ParseInt(fs[2], 10, 64)
+			if err1 != nil || err2 != nil || rss < 0 || lim < 0 {
+				break
+			}
+			list = append(list, hwService{Name: u[0], Label: u[1], Bytes: rss, Limit: lim})
+			anyLimit = anyLimit || lim > 0
+		}
+	}
+	return list, !memcg && anyLimit, len(list) > 0
 }
 
 func selfRSS() int64 {
@@ -275,7 +330,7 @@ func (m *hwMonitor) sample(now time.Time) {
 	s.Temp = cpuTemp()
 	s.Throttled = throttled()
 	s.HiveRSS = selfRSS()
-	s.Services = hwServices()
+	s.Services, s.MemLimitsOff = hwServices()
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -350,4 +405,22 @@ func (h *Hive) hardwareAPI(w http.ResponseWriter, r *http.Request) {
 		s.DB = &dl
 	}
 	writeJSON(w, s)
+}
+
+// rpiVolt: Unterspannung über den Treiber rpi_volt (hwmon), wo die Firmware-Bits nicht lesbar
+// sind (z. B. Raspberry Pi 3). in0_lcrit_alarm ist 1, solange die Spannung zu niedrig ist.
+func rpiVolt() string {
+	dirs, _ := filepath.Glob(filepath.Join(hwSys, "class/hwmon/hwmon*"))
+	for _, d := range dirs {
+		if readTrim(filepath.Join(d, "name")) != "rpi_volt" {
+			continue
+		}
+		switch readTrim(filepath.Join(d, "in0_lcrit_alarm")) {
+		case "1":
+			return "Unterspannung"
+		case "0":
+			return "ok"
+		}
+	}
+	return ""
 }

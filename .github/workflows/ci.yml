@@ -59,7 +59,7 @@ jobs:
         with:
           persist-credentials: false
       - name: shellcheck
-        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/test_firewall_nft.sh pi/test_cowrie_install.sh pi/test_cowrie_config.sh pi/test_update.sh pi/rootfs/usr/local/sbin/*
+        run: shellcheck -x install.sh update.sh uninstall.sh tools/*.sh pi/install.sh pi/test_firewall.sh pi/test_firewall_nft.sh pi/test_cowrie_install.sh pi/test_cowrie_config.sh pi/test_update.sh pi/test_memstat.sh pi/rootfs/usr/local/sbin/*
       - name: Web-UI ohne HTML-Senken
         # Angreiferdaten nur als Text (dom.js); innerHTML, outerHTML, insertAdjacentHTML und document.write sind verboten
         run: "! grep -nE 'innerHTML|outerHTML|insertAdjacentHTML|document\\.write' hive/web/*.js"
@@ -73,6 +73,8 @@ jobs:
         run: sh pi/test_cowrie_config.sh
       - name: Pi-Updater (Anfrage, Versionsprüfung, keine älteren Versionen)
         run: sh pi/test_update.sh
+      - name: Arbeitsspeicher der Dienste (hivornet-memstat)
+        run: sh pi/test_memstat.sh
       - name: Netzsperre des Pi-Images (echtes nftables, Verwaltungsanschluss)
         run: docker run --rm --privileged -v "$PWD:/src:ro" debian:trixie sh /src/pi/test_firewall_nft.sh
       - name: hadolint
