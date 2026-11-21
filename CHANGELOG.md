@@ -2,9 +2,16 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.9.3-beta] – 2026-11-21
+
+**Update:** Raspberry Pi per Knopf (System → Updates); der Updater trägt die Cowrie-Anpassungen und das Token für die KI-Antworten nach und startet Cowrie neu. Docker: `sh update.sh`. Die KI-Antworten in der SSH-Shell wirken erst, wenn unter Einstellungen die KI-Antworten eingerichtet und für die Shell eingeschaltet sind.
 
 ### Neu
+- **Verweildauer nach dem Login** (Erkenntnisse): Kennzahlen je Dienst, wie lange Angreifer nach einem angenommenen Login bleiben, wie viele Befehle sie schicken und wie oft sie ohne Befehl gehen; Grundlage für einen Vorher/Nachher-Vergleich.
+- **Cowrie besteht die Prüfreihe der Bots:** `/proc/self/stat` und `/proc/self/status` liefern echte Werte. Daran scheiterte Cowrie bisher, und die Bots gingen nach der Prüfung.
+- **Feste Persona je Angreifer** in Cowrie: gleicher Rechnername, Kernel, Laufzeit und Prozessliste bei jedem Besuch derselben IP, nach 7 Tagen ein neues Gerät.
+- **Glaubwürdige Zeiten in der Telnet-Shell:** gestreute Wartezeiten je Befehl, Mindestdauer für Modellantworten, `wget`-Fehler wie bei BusyBox.
+- **Sprachmodell für unbekannte Befehle in der SSH-Shell:** Cowrie fragt über den Hive (Verlauf der letzten 10 Befehle, fester Systemzustand je Sitzung, höchstens 8 Fragen je Sitzung, Mindestdauer 0,9–2,8 s); es gelten die Kosten- und Mengengrenzen der KI-Antworten. Cowrie darf dafür nur 127.0.0.1:8089 erreichen, mit einem eigenen Token, das ausschließlich die KI-Antworten öffnet.
 - **SSH 22 und Telnet 23 fest in der Port-Liste** (Einstellungen → Honeypot → Ports und Modi): Die Cowrie-Ports stehen oben als feste, nicht änderbare Zeilen mit dem Hinweis „Im Router freigeben“; darüber erklärt ein Kasten, dass alle aktiven Ports der Liste weitergeleitet werden müssen, auch 22 und 23. In Docker stehen dort die Cowrie-Ports der NAS aus der .env. Anlass: Nach der Liste freigegeben, fehlten 22 und 23, und SSH blieb einen halben Tag still.
 - **Größe der Datenbank einstellbar** (Einstellungen → Daten → „Speicherplatz der Datenbank“, nur Admins): Grenze in GB mit Vorschlag (ein Viertel des Datenträgers, höchstens 10 GB) und Obergrenze aus dem Datenträger: höchstens die Hälfte und nur so viel, dass bei voller Datenbank mindestens 2 GB bzw. 15 % (höchstens 20 GB) frei bleiben, für Cowrie-Logs, Updates, System und Sicherungen. In Docker zählt das Volume des Hosts; die neue Variable `HIVE_MAX_DB_CAP_MB` setzt dort bei Bedarf eine harte Obergrenze. `HIVE_MAX_DB_MB` bleibt die Vorgabe, die Einstellung hat Vorrang.
 - **Automatisch erweitern** (abschaltbar, Standard aus): Ist die Datenbank zu 90 % voll, hebt der Hive die Grenze um ein Viertel an (mindestens 512 MB), bis zur Obergrenze; danach löscht er wie bisher die ältesten Ereignisse. Jede Erweiterung wird protokolliert und auf der System-Seite angezeigt, an der Obergrenze erscheint eine Warnung.

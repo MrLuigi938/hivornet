@@ -195,7 +195,27 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			fmt.Fprintf(w, "Cowrie neu starten: %v\n", err)
 		}
 	}
+	// Geändertes Installationsskript (Anpassungen an Cowrie, Token für die KI-Antworten): Auf
+	// einem Gerät mit fertigem Cowrie startet hivornet-cowrie-install.service nie wieder
+	// (ConditionPathExists=!…/.hivornet-ok). Das Skript trägt im installierten Zustand nur
+	// fehlende Anpassungen und das Token nach, ohne Internet, und startet Cowrie selbst neu.
+	for _, c := range changed {
+		if c == "usr/local/sbin/hivornet-cowrie-install" {
+			if _, err := os.Stat(cowrieInstalledMark); err != nil {
+				break // noch nicht installiert: das erledigt der Installationsdienst
+			}
+			if err := run("/usr/local/sbin/hivornet-cowrie-install"); err != nil {
+				fmt.Fprintf(w, "Cowrie-Anpassungen nachtragen: %v\n", err)
+			} else {
+				fmt.Fprintln(w, "Cowrie-Anpassungen nachgetragen")
+			}
+			break
+		}
+	}
 }
+
+// cowrieInstalledMark: Merker der fertigen Cowrie-Installation (hivornet-cowrie-install); in Tests überschreibbar.
+var cowrieInstalledMark = "/opt/hivornet/cowrie-env/.hivornet-ok"
 
 func runCmd(name string, args ...string) error {
 	out, err := exec.Command(name, args...).CombinedOutput()

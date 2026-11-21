@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -376,5 +377,27 @@ func TestTopWithoutBruteRaw(t *testing.T) {
 	}
 	if l := get("field=client&nobrute=1"); len(l) != 0 {
 		t.Fatalf("Clients ohne: %v", l)
+	}
+}
+
+// Update: ein geändertes Cowrie-Installationsskript läuft auf einem Gerät mit fertigem Cowrie
+// einmal nach (der Installationsdienst startet dort nie wieder), sonst nicht.
+func TestApplySystemCowrieInstall(t *testing.T) {
+	mark := filepath.Join(t.TempDir(), ".hivornet-ok")
+	old := cowrieInstalledMark
+	cowrieInstalledMark = mark
+	t.Cleanup(func() { cowrieInstalledMark = old })
+	runs := func() []string {
+		var calls []string
+		applySystem([]string{"usr/local/sbin/hivornet-cowrie-install"},
+			func(n string, a ...string) error { calls = append(calls, n); return nil }, os.Stderr)
+		return calls
+	}
+	if c := strings.Join(runs(), "\n"); strings.Contains(c, "hivornet-cowrie-install") {
+		t.Fatalf("ohne fertige Installation gestartet:\n%s", c)
+	}
+	os.WriteFile(mark, nil, 0o644)
+	if c := strings.Join(runs(), "\n"); !strings.Contains(c, "/usr/local/sbin/hivornet-cowrie-install") {
+		t.Fatalf("Anpassungen nicht nachgetragen:\n%s", c)
 	}
 }
