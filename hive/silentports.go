@@ -17,6 +17,7 @@ package main
 //                                     seit wann aktiv, Hinweis bei stillen Ports
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -312,7 +313,50 @@ func (h *Hive) silentWarnings(now time.Time) []warning {
 			}
 		}
 	}
+	if w := h.cowrieSilentWarning(now); w != nil {
+		out = append(out, *w)
+	}
 	return out
+}
+
+// cowrieSilentAfter: so lange darf der SSH-Port von Cowrie (22) still sein, während andere Ports
+// Verbindungen bekommen. Port 22 wird sonst laufend abgetastet (Dutzende Verbindungen je Tag).
+const cowrieSilentAfter = 6 * time.Hour
+
+// cowrieSilentWarning: Cowrie lauscht (die Hinweise zu den Sensorports erfassen nur den Honeypot),
+// aber auf Port 22 kommt seit Stunden nichts mehr an, obwohl andere Ports noch Verbindungen sehen.
+// Dann liegt es am Port selbst: Weiterleitung im Router, Sperre des Anbieters oder die Drossel
+// der Firewall. Nur wenn Port 22 vorher lebhaft war (neue Installation: kein Hinweis).
+func (h *Hive) cowrieSilentWarning(now time.Time) *warning {
+	if h.cowrie == nil {
+		return nil
+	}
+	counts, err := h.portCounts(now)
+	if err != nil {
+		return nil
+	}
+	s := counts[22]
+	if s == nil || s.Conns7d < 50 {
+		return nil
+	}
+	nowMs := now.UnixMilli()
+	quiet := time.Duration(nowMs-(s.LastConn+3600000)) * time.Millisecond
+	if quiet < cowrieSilentAfter {
+		return nil
+	}
+	others := false
+	for port, o := range counts {
+		if port != 22 && port != 23 && nowMs-(o.LastConn+3600000) < cowrieSilentAfter.Milliseconds() {
+			others = true
+		}
+	}
+	if !others {
+		return nil // es kommt überall nichts an: kein Fehler von Port 22
+	}
+	return &warning{"warn", fmt.Sprintf("SSH (Cowrie, Port 22): seit %s keine Verbindung mehr, obwohl auf anderen Ports "+
+		"Verbindungen ankommen. Mögliche Ursachen: Port 22 im Router nicht (mehr) weitergeleitet, vom Internetanbieter "+
+		"gesperrt oder die Drossel gegen Dauer-Brute-Force. Zum Prüfen die Drossel kurz ausschalten (Einstellungen → "+
+		"Dauer-Brute-Force) und Port 22 von außen (Mobilfunk) testen.", sinceDays(quiet))}
 }
 
 func (h *Hive) portActivityAPI(w http.ResponseWriter, r *http.Request) {
@@ -322,4 +366,21 @@ func (h *Hive) portActivityAPI(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, map[string]any{"ports": stats, "silent_after_h": int(silentAfter.Hours()), "direct_ports": os.Getenv("HIVE_DIRECT_PORTS") == "1"})
+}
+
+// cowrieLast: Zeitpunkt des letzten Cowrie-Ereignisses. Der Zähler im Speicher ist nach jedem
+// Neustart des Hive leer (Null); dann gilt die letzte SSH-Verbindung der letzten 30 Tage aus der
+// Datenbank. Ohne das fehlten die Hinweise "kein Cowrie-Ereignis" und die Anzeige nach einem
+// Neustart.
+func (h *Hive) cowrieLast() (bool, time.Time) {
+	found, last := h.cowrie.Status()
+	if last.IsZero() {
+		var ms sql.NullInt64
+		h.st.db.QueryRow(`SELECT ts FROM events WHERE service = 'ssh' AND ts >= ? ORDER BY ts DESC LIMIT 1`,
+			time.Now().Add(-30*24*time.Hour).UnixMilli()).Scan(&ms)
+		if ms.Valid {
+			last = time.UnixMilli(ms.Int64)
+		}
+	}
+	return found, last
 }
