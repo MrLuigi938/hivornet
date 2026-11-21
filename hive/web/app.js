@@ -880,6 +880,19 @@ function updateCard(u) {
     h("p", { class: "muted" }, "Vorabversionen bringen neue Funktionen früher, können aber Fehler enthalten. Automatisch geprüft wird zweimal täglich."));
 }
 
+// Zeilen zur Größengrenze der Datenbank (dblimit.go) für die Karte „Hive“.
+function dbLimitRows(d) {
+  if (!d) return [];
+  const last = (d.grow_log || [])[0];
+  const full = d.auto_grow && d.at_ceiling ? h("span", { class: "warn-text" }, `Obergrenze ${fmtBytes(d.ceiling)} erreicht`)
+    : d.auto_grow ? `automatisch bis ${fmtBytes(d.ceiling)}` : `aus (möglich bis ${fmtBytes(d.ceiling)})`;
+  return [
+    ["Grenze", h("span", { title: d.ceiling_reason }, d.source === "setting" ? "eingestellt" : "Vorgabe HIVE_MAX_DB_MB", " · Erweiterung ", full)],
+    last ? ["Zuletzt erweitert", `Grenze automatisch auf ${fmtBytes(last.to)} erhöht am ${fmtDateTime(last.at)}`] : null,
+    ["Wenn sie voll ist", "Der Hive löscht die ältesten Ereignisse; Statistiken ohne IPs bleiben. Ändern unter Einstellungen → Daten."],
+  ];
+}
+
 async function viewSystem(el, ctx) {
   header("System");
   const [d, hw] = await Promise.all([api("system"), api("hardware").catch(() => null)]);
@@ -898,6 +911,7 @@ async function viewSystem(el, ctx) {
       card("Hive", kv([
         ["Version", hv.version], ["Läuft seit", fmtDur(hv.uptime_s * 1000)], ["Arbeitsspeicher", fmtBytes(hv.mem_bytes)],
         ["Datenbank", `${fmtBytes(hv.db_used_bytes)} belegt, Grenze ${fmtBytes(hv.max_db_bytes)}`],
+        ...dbLimitRows(hv.db_limit),
         ["Freier Speicher", hv.disk_free >= 0 ? fmtBytes(hv.disk_free) : "–"],
         ["Gespeicherte Ereignisse", fmtNum(hv.events_stored)], ["Bekannte Angreifer-IPs", fmtNum(hv.attackers)],
         ["Seit Start geschrieben", fmtNum(hv.written)], ["Duplikate verworfen", fmtNum(hv.duplicates)],

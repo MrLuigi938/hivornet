@@ -732,6 +732,7 @@ func (h *Hive) getSettings(w http.ResponseWriter, r *http.Request) {
 		"default_ports": defaultPorts, "reserved_ports": reservedPorts(), "profiles": knownProfiles,
 		"cowrie":        map[string]string{"ssh": os.Getenv("PORT_SSH"), "telnet": os.Getenv("PORT_TELNET")},
 		"allowed_hosts": nonNil(h.uiAllowedHosts()), "allowed_hosts_env": nonNil(h.hosts.env),
+		"db_limit": h.dbLimitInfo(),
 	})
 }
 
@@ -742,6 +743,8 @@ func (h *Hive) putSettings(w http.ResponseWriter, r *http.Request) {
 		ResetOwn      bool          `json:"reset_own"`
 		RetentionDays int           `json:"retention_days"`
 		AllowedHosts  *[]string     `json:"allowed_hosts"`
+		DBLimitMB     *int64        `json:"db_limit_mb"` // 0 = Vorgabe (dblimit.go)
+		DBAutoGrow    *bool         `json:"db_autogrow"`
 	}
 	if err := readJSON(w, r, &req); err != nil {
 		httpErr(w, 400, "ungültige Anfrage")
@@ -757,6 +760,15 @@ func (h *Hive) putSettings(w http.ResponseWriter, r *http.Request) {
 		h.st.SetKV(kvAllowedHosts, strings.Join(hosts, "\n"))
 		h.reloadHosts()
 		writeJSON(w, map[string]any{"ok": true, "allowed_hosts": nonNil(hosts)})
+		return
+	}
+	if req.DBLimitMB != nil || req.DBAutoGrow != nil {
+		in, err := h.setDBLimit(req.DBLimitMB, req.DBAutoGrow)
+		if err != nil {
+			httpErr(w, 400, err.Error())
+			return
+		}
+		writeJSON(w, map[string]any{"ok": true, "db_limit": in})
 		return
 	}
 	switch {
@@ -854,6 +866,7 @@ func (h *Hive) warnings() []warning {
 	if p := h.retention().Pressure; p != "" {
 		add("warn", "Speicher knapp (%s): älteste Ereignisse wurden vorzeitig gelöscht.", p)
 	}
+	out = append(out, h.dbWarnings()...)
 	if free := diskFree(h.dbPath); free >= 0 && free < 1<<30 {
 		add("warn", "Nur noch %d MB frei auf dem Datenträger.", free>>20)
 	}
@@ -915,6 +928,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 	var ms runtime.MemStats
 	runtime.ReadMemStats(&ms)
 	file, used := h.st.Size()
+	dl := h.dbLimitInfo()
 	var evMax, evMin sql.NullInt64
 	h.st.db.QueryRowContext(ctx, `SELECT MIN(id), MAX(id) FROM events`).Scan(&evMin, &evMax)
 	var attackers int64
@@ -938,7 +952,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 			"version": version, "uptime_s": int64(time.Since(h.started).Seconds()), "mem_bytes": ms.Sys,
 			"goroutines": runtime.NumGoroutine(), "db_bytes": file, "db_used_bytes": used, "disk_free": diskFree(h.dbPath),
 			"events_stored": evStored, "attackers": attackers, "queue": h.writer.QueueLen(), "retention_days": h.retentionDays(),
-			"max_db_bytes": h.policy().MaxDBBytes, "written": h.writer.written.Load(), "dropped": h.writer.dropped.Load(),
+			"max_db_bytes": dl.Limit, "db_limit": dl, "written": h.writer.written.Load(), "dropped": h.writer.dropped.Load(),
 			"duplicates": h.writer.dupes.Load(), "retention": h.retention(),
 		},
 		"geoip":   map[string]any{"status": geoStatus, "updated": geoUpdated},
@@ -987,7 +1001,7 @@ func (h *Hive) retentionDays() int {
 }
 
 func (h *Hive) policy() RetentionPolicy {
-	return RetentionPolicy{Days: h.retentionDays(), MaxDBBytes: h.maxDBBytes, MinFreeBytes: h.minFreeBytes}
+	return RetentionPolicy{Days: h.retentionDays(), MaxDBBytes: h.dbLimit(), MinFreeBytes: h.minFreeBytes}
 }
 
 // cowrieVolumes zählt den Platz in den Cowrie-Volumes (zwischengespeichert, alle 10 Minuten neu).

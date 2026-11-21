@@ -4,6 +4,11 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unveröffentlicht]
 
+### Neu
+- **Größe der Datenbank einstellbar** (Einstellungen → Daten → „Speicherplatz der Datenbank“, nur Admins): Grenze in GB mit Vorschlag (ein Viertel des Datenträgers, höchstens 10 GB) und Obergrenze aus dem Datenträger: höchstens die Hälfte und nur so viel, dass bei voller Datenbank mindestens 2 GB bzw. 15 % (höchstens 20 GB) frei bleiben, für Cowrie-Logs, Updates, System und Sicherungen. In Docker zählt das Volume des Hosts; die neue Variable `HIVE_MAX_DB_CAP_MB` setzt dort bei Bedarf eine harte Obergrenze. `HIVE_MAX_DB_MB` bleibt die Vorgabe, die Einstellung hat Vorrang.
+- **Automatisch erweitern** (abschaltbar, Standard aus): Ist die Datenbank zu 90 % voll, hebt der Hive die Grenze um ein Viertel an (mindestens 512 MB), bis zur Obergrenze; danach löscht er wie bisher die ältesten Ereignisse. Jede Erweiterung wird protokolliert und auf der System-Seite angezeigt, an der Obergrenze erscheint eine Warnung.
+- System-Seite und Hardware-Monitor zeigen Grenze, Obergrenze und was passiert, wenn die Datenbank voll ist. Ohne automatische Erweiterung warnt die System-Seite ab 90 %, solange sich die Grenze noch anheben ließe.
+
 ### Behoben
 - **Dashboard: „Gerade aktiv“ zeigte nach zwei Minuten nur noch „Lade …“.** Die stille Aktualisierung baute die Liste leer neu auf, bis die Abfrage zurück war; die Abfrage wartete auf dem Pi zudem mehrere Sekunden hinter dem Neuberechnen der Top-Listen „ohne Dauer-Brute-Force“. Jetzt übernimmt die Liste ihren bisherigen Stand, und die Top-Listen liefern sofort den letzten Stand und rechnen im Hintergrund neu.
 
