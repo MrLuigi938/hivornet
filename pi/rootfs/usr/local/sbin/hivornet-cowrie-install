@@ -42,37 +42,62 @@ finish() {
 }
 trap finish EXIT
 
-# Anpassung an Cowrie: /proc/self/stat und /proc/self/status liefern echte Werte. Bots, die nach
-# dem Login prüfen, ob sie in einem Honeypot sind, lesen beide Dateien und vergleichen die
-# Prozessnummer mit $$ (Prüfreihe, siehe Konzept KI-Honeypot); in Cowrie sind sie leer, und die
-# Prüfung fiel dort durch. Der Quelltext ist auf $VER festgelegt, darum genügt ein genauer Ersatz
-# der Stellen; passt eine nicht mehr, bricht das Skript ab, statt Cowrie halb angepasst zu starten.
-# Läuft auch bei schon fertiger Installation (siehe unten). Test: pi/test_cowrie_proc_self.py.
-PATCH_MARK="Hivornet: /proc/self"
+# Anpassungen an Cowrie (Quelltext ist auf $VER festgelegt; jede Stelle wird genau ersetzt, passt
+# eine nicht mehr, bricht das Skript ab, statt Cowrie halb angepasst zu starten):
+#  1. /proc/self/stat und /proc/self/status liefern echte Werte. Bots, die nach dem Login prüfen,
+#     ob sie in einem Honeypot sind, lesen beide Dateien und vergleichen die Prozessnummer mit $$
+#     (Prüfreihe, siehe Konzept KI-Honeypot); in Cowrie waren sie leer, die Prüfung fiel durch.
+#  2. Persona: jede Angreifer-IP sieht ein festes Gerät (Name, Kernel, Laufzeit, Dienste in ps),
+#     bei jeder Verbindung dasselbe, nach 7 Tagen ein neues. Ohne das hat Cowrie ein Gerät für alle,
+#     dessen Laufzeit sich bei jedem Neustart ändert und dessen ps eine VirtualBox-VM zeigt.
+# Läuft auch bei schon fertiger Installation (siehe unten). Tests: pi/test_cowrie_proc_self.py,
+# pi/test_cowrie_persona.py.
+patches_missing() {
+  grep -q "Hivornet: /proc/self" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null &&
+    grep -q "Hivornet: Persona" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null && return 1
+  return 0
+}
 apply_patches() {
-  f="$DEST/src/cowrie/shell/protocol.py"
-  [ -f "$f" ] || { echo "$f fehlt" >&2; return 1; }
-  if grep -q "$PATCH_MARK" "$f"; then return 0; fi
-  "$VENV/bin/python3" - "$f" <<'PYEOF'
+  [ -f "$DEST/src/cowrie/shell/protocol.py" ] || { echo "$DEST/src/cowrie/shell/protocol.py fehlt" >&2; return 1; }
+  if ! patches_missing; then return 0; fi
+  "$VENV/bin/python3" - "$DEST" <<'PYEOF'
+import re
 import sys
 
-p = sys.argv[1]
-s = open(p, encoding="utf-8", newline="").read()
+root = sys.argv[1]
 
-old1 = '''        self.fs.generated_files["/proc/uptime"] = self.proc_uptime
+
+def load(rel):
+    return open(root + "/" + rel, encoding="utf-8", newline="").read()
+
+
+def save(rel, s):
+    open(root + "/" + rel, "w", encoding="utf-8", newline="").write(s)
+
+
+def once(s, old, new, what):
+    if s.count(old) != 1:
+        sys.exit("Cowrie-Anpassung: Stelle nicht gefunden: " + what)
+    return s.replace(old, new, 1)
+
+
+proto = "src/cowrie/shell/protocol.py"
+uname = "src/cowrie/commands/uname.py"
+s = load(proto)
+
+# ---- 1. /proc/self/* (Prüfreihe der Bots) ----
+if "Hivornet: /proc/self" not in s:
+    old1 = '''        self.fs.generated_files["/proc/uptime"] = self.proc_uptime
 '''
-new1 = old1 + r'''        # Hivornet: /proc/self/* wie auf einem echten System (die Prüfreihen der Bots lesen sie)
+    new1 = old1 + r'''        # Hivornet: /proc/self/* wie auf einem echten System (die Prüfreihen der Bots lesen sie)
         self.fs.generated_files["/proc/self/stat"] = self.proc_self_stat
         self.fs.generated_files["/proc/self/status"] = self.proc_self_status
         self.fs.generated_files["/proc/self/comm"] = lambda: b"bash\n"
         self.fs.generated_files["/proc/self/cmdline"] = lambda: b"-bash\x00"
 '''
-if s.count(old1) != 1:
-    sys.exit("Cowrie-Anpassung: Stelle für generated_files nicht gefunden")
-s = s.replace(old1, new1, 1)
-
-old2 = "    def proc_uptime(self) -> bytes:"
-new2 = r'''    def _proc_self_pids(self) -> tuple[int, int]:
+    s = once(s, old1, new1, "generated_files")
+    old2 = "    def proc_uptime(self) -> bytes:"
+    new2 = r'''    def _proc_self_pids(self) -> tuple[int, int]:
         """(pid, ppid) der Shell, die gerade läuft: dasselbe wie $$ und $PPID."""
         shell = self.cmdstack[-1] if self.cmdstack else None
         pid = int(getattr(shell, "pid", 0) or self.last_pid)
@@ -109,17 +134,186 @@ new2 = r'''    def _proc_self_pids(self) -> tuple[int, int]:
         ).encode()
 
     def proc_uptime(self) -> bytes:'''
-if s.count(old2) != 1:
-    sys.exit("Cowrie-Anpassung: Stelle für proc_uptime nicht gefunden")
-s = s.replace(old2, new2, 1)
-open(p, "w", encoding="utf-8", newline="").write(s)
+    s = once(s, old2, new2, "proc_uptime")
+
+# ---- 2. Persona je Angreifer-IP ----
+if "Hivornet: Persona" not in s:
+    s = once(s, "import functools\n", "import functools\nimport hashlib\n", "import functools")
+    s = once(
+        s,
+        "class HoneyPotBaseProtocol(insults.TerminalProtocol, TimeoutMixin):",
+        r'''# Hivornet: Persona. Jede Angreifer-IP sieht ein festes Gerät (Name, Kernel, Laufzeit, Dienste),
+# bei jeder Verbindung dasselbe, ohne dass etwas gespeichert wird: Alles folgt aus IP und Woche.
+# Nach 7 Tagen (Wochengrenze) wechselt es, wie ein neu aufgesetztes System. Test: pi/test_cowrie_persona.py.
+HV_WEEK = 7 * 86400
+HV_ROLES = (
+    "nas-backup", "web-prod", "db-main", "mail-gw", "file-srv",
+    "git-int", "app-node", "vpn-edge", "ci-runner", "media-box",
+)
+HV_KERNELS = (
+    ("6.1.0-18-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.76-1 (2024-02-01)"),
+    ("6.1.0-20-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.85-1 (2024-04-11)"),
+    ("6.1.0-21-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.90-1 (2024-05-03)"),
+    ("6.1.0-22-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.94-1 (2024-06-21)"),
+    ("6.1.0-23-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.99-1 (2024-07-15)"),
+    ("6.1.0-25-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.106-3 (2024-08-26)"),
+    ("6.1.0-26-amd64", "#1 SMP PREEMPT_DYNAMIC Debian 6.1.112-1 (2024-09-30)"),
+)
+# (Benutzer, Befehlszeile, VSZ, RSS, STAT, Anteil %MEM)
+HV_DAEMONS = (
+    ("root", "/usr/sbin/nginx -g daemon on; master_process on;", 55320, 5340, "Ss", 0.1),
+    ("www-data", "nginx: worker process", 56240, 4180, "S", 0.1),
+    ("mysql", "/usr/sbin/mariadbd", 1331256, 98240, "Ssl", 2.4),
+    ("root", "/usr/sbin/smbd --foreground --no-process-group", 87864, 11292, "Ss", 0.3),
+    ("root", "/usr/sbin/apache2 -k start", 213456, 9216, "Ss", 0.2),
+    ("postfix", "qmgr -l -t unix -u", 41532, 6876, "S", 0.2),
+    ("root", "/usr/bin/containerd", 1289412, 52480, "Ssl", 1.3),
+    ("root", "/usr/sbin/cron -f", 8480, 2740, "Ss", 0.1),
+    ("root", "/usr/lib/policykit-1/polkitd --no-debug", 235192, 7744, "Ssl", 0.2),
+    ("root", "/usr/sbin/cups-browsed", 163484, 6408, "Ssl", 0.2),
+)
+
+
+def hivornet_persona(ip: str, now: float | None = None) -> dict:
+    """Festes Gerät für diese IP in der laufenden Woche (siehe oben)."""
+    now = time.time() if now is None else now
+    week = int(now // HV_WEEK)
+    d = hashlib.sha256(f"hivornet-persona|{week}|{ip}".encode()).digest()
+    n = int.from_bytes(d[:8], "big")
+    release, build = HV_KERNELS[(n >> 8) % len(HV_KERNELS)]
+    boot = week * HV_WEEK - (2 + n % 120) * 86400 - (n >> 20) % 86400
+    pick = [i for i in range(len(HV_DAEMONS)) if d[8 + i] % 3 == 0][:4] or [0]
+    return {
+        "hostname": f"{HV_ROLES[(n >> 40) % len(HV_ROLES)]}{1 + (n >> 48) % 9:02d}",
+        "kernel": release,
+        "build": build,
+        "boot": float(boot),
+        "daemons": [HV_DAEMONS[i] for i in pick],
+        "pidbase": 520 + (n >> 16) % 400,
+    }
+
+
+def hivornet_processes(base: list | None, p: dict) -> list | None:
+    """Prozessliste des Geräts: Startdatum = Boot, keine VM-Treiber, dazu die Dienste der Persona."""
+    if not base:
+        return base
+    start = time.strftime("%b%d", time.gmtime(p["boot"]))
+    out = []
+    for e in base:
+        cmd = str(e.get("COMMAND", ""))
+        if "VBox" in cmd or "iprt" in cmd or "ttm_swap" in cmd:
+            continue
+        e = dict(e)
+        e["START"] = start
+        # Cowrie liefert VSZ und RSS in Byte und TIME als Zahl; ps zeigt KiB und m:ss
+        e["VSZ"], e["RSS"] = int(e["VSZ"]) // 1024, int(e["RSS"]) // 1024
+        secs = int(float(e["TIME"]) * 60)
+        e["TIME"] = f"{secs // 60}:{secs % 60:02d}"
+        out.append(e)
+    pid = p["pidbase"]
+    for user, cmd, vsz, rss, stat, mem in p["daemons"]:
+        pid += 7 + len(cmd) % 23
+        out.append({
+            "USER": user, "PID": pid, "CPU": 0.0, "MEM": mem, "VSZ": vsz, "RSS": rss,
+            "TTY": "?", "STAT": stat, "START": start, "TIME": "0:01", "COMMAND": cmd,
+        })
+    return sorted(out, key=lambda e: int(e["PID"]))
+
+
+class HoneyPotBaseProtocol(insults.TerminalProtocol, TimeoutMixin):''',
+        "class HoneyPotBaseProtocol",
+    )
+    s = once(
+        s,
+        '''        self.fs.generated_files["/proc/self/cmdline"] = lambda: b"-bash\\x00"
+''',
+        '''        self.fs.generated_files["/proc/self/cmdline"] = lambda: b"-bash\\x00"
+        # Hivornet: Persona (fester Gerätezustand je Angreifer-IP)
+        self.hv_persona = hivornet_persona(self.realClientIP)
+        self.hostname = self.hv_persona["hostname"]
+        self.hv_sshd_pid = self.next_pid()
+        self.user.server.process = hivornet_processes(self.user.server.process, self.hv_persona)
+        self.fs.generated_files["/etc/hostname"] = lambda: (self.hostname + "\\n").encode()
+        self.fs.generated_files["/proc/version"] = lambda: (
+            f"Linux version {self.hv_persona['kernel']} (debian-kernel@lists.debian.org) "
+            f"(gcc-12 (Debian 12.2.0-14) 12.2.0, GNU ld (GNU Binutils for Debian) 2.40) {self.hv_persona['build']}\\n"
+        ).encode()
+''',
+        "cmdline",
+    )
+    s = once(
+        s,
+        "        return float(self.getProtoTransport().factory.starttime) - boot_offset()",
+        '''        persona = getattr(self, "hv_persona", None)
+        if persona:  # Hivornet: Persona, fester Startzeitpunkt je Angreifer und Woche
+            return persona["boot"]
+        return float(self.getProtoTransport().factory.starttime) - boot_offset()''',
+        "boot_time",
+    )
+    save(proto, s)
+
+    u = load(uname)
+    u = once(
+        u,
+        '''def kernel_version() -> str:
+    return CowrieConfig.get("shell", "kernel_version", fallback="3.2.0-4-amd64")
+
+
+def kernel_build_string() -> str:
+    return CowrieConfig.get(''',
+        '''def kernel_version(protocol=None) -> str:
+    persona = getattr(protocol, "hv_persona", None)  # Hivornet: Persona
+    if persona:
+        return persona["kernel"]
+    return CowrieConfig.get("shell", "kernel_version", fallback="3.2.0-4-amd64")
+
+
+def kernel_build_string(protocol=None) -> str:
+    persona = getattr(protocol, "hv_persona", None)  # Hivornet: Persona
+    if persona:
+        return persona["build"]
+    return CowrieConfig.get(''',
+        "uname-Funktionen",
+    )
+    for name in ("kernel_version", "kernel_build_string"):
+        calls = len(re.findall(r"(?<!def )\b" + name + r"\(\)", u))
+        if calls != 2:
+            sys.exit(f"Cowrie-Anpassung: {name}() kommt {calls}-mal vor, erwartet 2")
+        u = re.sub(r"(?<!def )\b" + name + r"\(\)", name + "(self.protocol)", u)
+    save(uname, u)
+
+    # ps: eigene Prozesse der Sitzung (sshd, bash, ps) mit Startzeit der Sitzung und stabilen PIDs
+    base = "src/cowrie/commands/base.py"
+    b = load(base)
+    b = once(
+        b,
+        "            process = random.randint(4000, 8000)\n",
+        '            process = getattr(self.protocol, "hv_sshd_pid", None) or random.randint(4000, 8000)\n'
+        '            hv_login = time.strftime("%H:%M", time.localtime(getattr(self.protocol, "logintime", time.time())))\n',
+        "ps: PID",
+    )
+    b = once(b, '"%s".ljust(8 - len("Jul22")) % "Jul22"', '"%s".ljust(8 - len(hv_login)) % hv_login', "ps: Jul22")
+    if b.count('"%s".ljust(8 - len("06:30")) % "06:30"') != 2:
+        sys.exit("Cowrie-Anpassung: ps: 06:30 nicht zweimal gefunden")
+    b = b.replace('"%s".ljust(8 - len("06:30")) % "06:30"', '"%s".ljust(8 - len(hv_login)) % hv_login')
+    b = once(
+        b,
+        "            process = process + 2\n",
+        "            process = self.protocol.next_pid()  # Hivornet: jeder ps-Aufruf ist ein neuer Prozess\n",
+        "ps: process + 2",
+    )
+    save(base, b)
+else:
+    save(proto, s)
 PYEOF
-  "$VENV/bin/python3" -m compileall -q -f "$f" || true
+  for f in shell/protocol.py commands/uname.py commands/base.py; do
+    "$VENV/bin/python3" -m compileall -q -f "$DEST/src/cowrie/$f" || true
+  done
 }
 
 if [ -f "$MARK" ]; then
   # Schon installiert (ältere Version des Skripts): fehlende Anpassung nachtragen
-  if ! grep -q "$PATCH_MARK" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null; then
+  if patches_missing; then
     step "Cowrie anpassen"
     apply_patches
     command -v systemctl >/dev/null 2>&1 && { systemctl try-restart hivornet-cowrie.service || true; }

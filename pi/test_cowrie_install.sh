@@ -37,8 +37,10 @@ grep -q "enable --now hivornet-cowrie.service" /tmp/systemctl.log || fail "Diens
 echo "== Prüfreihe der Bots (Cowrie-Anpassung)"
 # Die Reihe, mit der Bots die Echtheit der Shell prüfen, muss wie in /bin/sh beantwortet werden
 # (Rechnen, $$, Subshell, Quoting, /proc/self/stat). Vergleich mit der echten sh dieses Containers.
-cp "$SRC/pi/test_cowrie_proc_self.py" /tmp/
+cp "$SRC/pi/test_cowrie_proc_self.py" "$SRC/pi/test_cowrie_persona.py" /tmp/
 (cd /opt/hivornet/cowrie && PYTHONPATH=src:/tmp /opt/hivornet/cowrie-env/bin/python3 -m unittest -v test_cowrie_proc_self >/tmp/proc_self.out 2>&1)   || fail "Prüfreihe: $(tail -30 /tmp/proc_self.out)"
+echo "== Persona je Angreifer-IP (Cowrie-Anpassung)"
+(cd /opt/hivornet/cowrie && PYTHONPATH=src:/tmp /opt/hivornet/cowrie-env/bin/python3 -m unittest -v test_cowrie_persona >/tmp/persona.out 2>&1)   || fail "Persona: $(tail -30 /tmp/persona.out)"
 
 echo "== Start wie hivornet-cowrie.service"
 useradd --system --no-create-home --shell /usr/sbin/nologin hivornet-cowrie
