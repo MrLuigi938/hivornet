@@ -6,6 +6,8 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ### Behoben
 - **Dashboard: „Gerade aktiv“ zeigte nach zwei Minuten nur noch „Lade …“.** Die stille Aktualisierung baute die Liste leer neu auf, bis die Abfrage zurück war; die Abfrage wartete auf dem Pi zudem mehrere Sekunden hinter dem Neuberechnen der Top-Listen „ohne Dauer-Brute-Force“. Jetzt übernimmt die Liste ihren bisherigen Stand, und die Top-Listen liefern sofort den letzten Stand und rechnen im Hintergrund neu.
+- **Stiller SSH-Port wurde nicht gemeldet.** Die Hinweise zu stillen Ports erfassen nur die Ports des Honeypots, nicht Cowrie (SSH 22). Jetzt warnt die Seite System, wenn Port 22 vorher lebhaft war (mindestens 50 Verbindungen in 7 Tagen), seit sechs Stunden still ist und andere Ports noch Verbindungen sehen; der Hinweis nennt Router-Weiterleitung, Sperre des Anbieters und die Drossel als Ursachen und wie man sie prüft.
+- **„Letztes Ereignis“ von Cowrie stand nach jedem Neustart des Hive auf 0001.** Der Zähler lag nur im Speicher; dadurch fehlte auch der Hinweis „Seit … kein Cowrie-Ereignis“. Jetzt gilt nach dem Neustart die letzte SSH-Verbindung aus der Datenbank.
 
 ## [0.9.2-beta] – 2026-11-20
 

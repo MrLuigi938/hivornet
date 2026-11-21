@@ -103,3 +103,53 @@ func TestSilentAllPorts(t *testing.T) {
 		t.Fatalf("%+v", ws)
 	}
 }
+
+// Cowrie: Port 22 war lebhaft, ist seit Stunden still, andere Ports bekommen weiter Verbindungen:
+// Hinweis. Ohne Verbindungen auf allen Ports oder bei kurzer Stille keiner.
+func TestCowrieSilentWarning(t *testing.T) {
+	h := testHive(t)
+	now := time.Now()
+	h.cowrie = NewCowrieTail("", "pi", h.st, nil)
+	hourOf := func(ago time.Duration) int64 { return now.Add(-ago).UnixMilli() / 3600000 }
+	// 22: bis vor 10 Stunden 5 je Stunde (zusammen mehr als 50), danach nichts
+	for i := 10; i < 40; i++ {
+		for k := 0; k < 5; k++ {
+			h.st.db.Exec(topUpsert, hourOf(time.Duration(i)*time.Hour), "port", "22", "ssh")
+		}
+	}
+	if w := h.cowrieSilentWarning(now); w != nil {
+		t.Fatalf("Hinweis, obwohl nirgends etwas ankommt: %+v", w)
+	}
+	h.st.db.Exec(topUpsert, hourOf(time.Hour), "port", "3306", "mysql")
+	w := h.cowrieSilentWarning(now)
+	if w == nil || !strings.Contains(w.Text, "Port 22): seit 9 Stunden keine Verbindung") {
+		t.Fatalf("erwartet Hinweis, bekam %+v", w)
+	}
+	if ws := h.silentWarnings(now); len(ws) != 1 || ws[0].Text != w.Text {
+		t.Fatalf("silentWarnings: %+v", ws)
+	}
+	// Verbindung vor drei Stunden: noch kein Hinweis
+	h.st.db.Exec(topUpsert, hourOf(3*time.Hour), "port", "22", "ssh")
+	if w := h.cowrieSilentWarning(now); w != nil {
+		t.Fatalf("Hinweis nach nur drei Stunden: %+v", w)
+	}
+	// ohne Cowrie (Docker ohne Profil) nie
+	h.cowrie = nil
+	if w := h.cowrieSilentWarning(now.Add(24 * time.Hour)); w != nil {
+		t.Fatal("Hinweis ohne Cowrie")
+	}
+}
+
+// Nach einem Neustart ist der Zähler im Speicher leer: das letzte Ereignis kommt aus der Datenbank.
+func TestCowrieLastFromDB(t *testing.T) {
+	h := testHive(t)
+	h.cowrie = NewCowrieTail("", "pi", h.st, nil)
+	if _, last := h.cowrieLast(); !last.IsZero() {
+		t.Fatalf("ohne Ereignisse: %v", last)
+	}
+	ts := time.Now().Add(-5 * time.Hour).UnixMilli()
+	h.st.db.Exec(`INSERT INTO events (ts, sensor, service, type, src_ip) VALUES (?, 'pi', 'ssh', 'connect', '203.0.113.7')`, ts)
+	if _, last := h.cowrieLast(); last.UnixMilli() != ts {
+		t.Fatalf("letztes Ereignis %v, erwartet %d", last, ts)
+	}
+}

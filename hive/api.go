@@ -864,7 +864,7 @@ func (h *Hive) warnings() []warning {
 		add("warn", "GeoIP: %s", st)
 	}
 	if h.cowrie != nil {
-		found, last := h.cowrie.Status()
+		found, last := h.cowrieLast()
 		ci := cowrieInstallStatus()
 		switch {
 		case found:
@@ -922,7 +922,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 	geoStatus, geoUpdated := h.geo.Status()
 	cow := map[string]any{"enabled": h.cowrie != nil}
 	if h.cowrie != nil {
-		found, last := h.cowrie.Status()
+		found, last := h.cowrieLast()
 		cow["found"], cow["last_event"] = found, last
 		cow["volumes"] = h.cowrieVolumes()
 		cow["install"] = cowrieInstallStatus()
