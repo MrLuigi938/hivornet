@@ -146,14 +146,18 @@ func telnetUnknown(out string) bool {
 // mimicShell liefert die Antwort für eine Befehlszeile: statisch, und wenn dort etwas
 // unbekannt war, vom Sprachmodell (Zeilenenden für Telnet als \r\n).
 func (s *Session) mimicShell(host, line string) string {
+	start := time.Now()
 	out := telnetReply(s.m.prof(), host, line)
 	if !telnetUnknown(out) {
+		time.Sleep(shellDelay(line)) // je Befehl gestreute Dauer wie bei einem echten Gerät (timing.go)
 		return out
 	}
 	a, ok := s.askMimic("shell", line)
 	if !ok {
+		time.Sleep(shellDelay(line))
 		return out
 	}
+	mimicPad("shell", start) // Mindestdauer, auch bei Antworten aus dem Zwischenspeicher
 	s.emitAIReply("shell", line, a.Out, 0, a.Cached)
 	t := strings.ReplaceAll(strings.ReplaceAll(a.Out, "\r\n", "\n"), "\n", "\r\n")
 	return printableKeepNL(t)
@@ -191,11 +195,13 @@ func (s *Session) mimicWeb(req *http.Request) (int, string, string, map[string]s
 	// IP des Anschlusses, die sonst an den Dienst des Sprachmodells ginge. Ohne User-Agent greift
 	// der Zwischenspeicher auch, wenn verschiedene Scanner denselben Pfad abfragen.
 	in := req.Method + " " + req.URL.RequestURI() + " HTTP/1.1\nHost: " + s.m.Hostname()
+	start := time.Now()
 	a, ok := s.askMimic("web", in)
 	// 404 (auch gespeichert): die eigene Seite im Stil des Profil-Webservers, nie die des Modells
 	if !ok || a.Out == "" || a.Status == 404 || a.Status == 410 {
 		return 0, "", "", nil, false
 	}
+	mimicPad("web", start) // Mindestdauer, auch bei Antworten aus dem Zwischenspeicher
 	if a.Status == 0 {
 		a.Status = 200
 	}
