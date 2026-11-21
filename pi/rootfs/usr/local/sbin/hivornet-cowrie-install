@@ -42,7 +42,88 @@ finish() {
 }
 trap finish EXIT
 
+# Anpassung an Cowrie: /proc/self/stat und /proc/self/status liefern echte Werte. Bots, die nach
+# dem Login prüfen, ob sie in einem Honeypot sind, lesen beide Dateien und vergleichen die
+# Prozessnummer mit $$ (Prüfreihe, siehe Konzept KI-Honeypot); in Cowrie sind sie leer, und die
+# Prüfung fiel dort durch. Der Quelltext ist auf $VER festgelegt, darum genügt ein genauer Ersatz
+# der Stellen; passt eine nicht mehr, bricht das Skript ab, statt Cowrie halb angepasst zu starten.
+# Läuft auch bei schon fertiger Installation (siehe unten). Test: pi/test_cowrie_proc_self.py.
+PATCH_MARK="Hivornet: /proc/self"
+apply_patches() {
+  f="$DEST/src/cowrie/shell/protocol.py"
+  [ -f "$f" ] || { echo "$f fehlt" >&2; return 1; }
+  if grep -q "$PATCH_MARK" "$f"; then return 0; fi
+  "$VENV/bin/python3" - "$f" <<'PYEOF'
+import sys
+
+p = sys.argv[1]
+s = open(p, encoding="utf-8", newline="").read()
+
+old1 = '''        self.fs.generated_files["/proc/uptime"] = self.proc_uptime
+'''
+new1 = old1 + r'''        # Hivornet: /proc/self/* wie auf einem echten System (die Prüfreihen der Bots lesen sie)
+        self.fs.generated_files["/proc/self/stat"] = self.proc_self_stat
+        self.fs.generated_files["/proc/self/status"] = self.proc_self_status
+        self.fs.generated_files["/proc/self/comm"] = lambda: b"bash\n"
+        self.fs.generated_files["/proc/self/cmdline"] = lambda: b"-bash\x00"
+'''
+if s.count(old1) != 1:
+    sys.exit("Cowrie-Anpassung: Stelle für generated_files nicht gefunden")
+s = s.replace(old1, new1, 1)
+
+old2 = "    def proc_uptime(self) -> bytes:"
+new2 = r'''    def _proc_self_pids(self) -> tuple[int, int]:
+        """(pid, ppid) der Shell, die gerade läuft: dasselbe wie $$ und $PPID."""
+        shell = self.cmdstack[-1] if self.cmdstack else None
+        pid = int(getattr(shell, "pid", 0) or self.last_pid)
+        return pid, max(1, pid - 1 - pid % 3)
+
+    def proc_self_stat(self) -> bytes:
+        """/proc/self/stat einer schlafenden bash (52 Felder, Feld 1 ist $$)."""
+        pid, ppid = self._proc_self_pids()
+        start = int(self.uptime() * 100) + 12
+        return (
+            f"{pid} (bash) S {ppid} {pid} {pid} 34816 {pid} 4194304 1840 21433 0 3 "
+            f"2 1 14 11 20 0 1 0 {start} 7512064 1411 18446744073709551615 "
+            "94205342257152 94205343139085 140726051536000 0 0 0 65536 3670020 "
+            "1266777851 1 0 0 17 1 0 0 0 0 0 94205343409296 94205343461216 "
+            "94205374423040 140726051544018 140726051544028 140726051544028 "
+            "140726051545070 0\n"
+        ).encode()
+
+    def proc_self_status(self) -> bytes:
+        """/proc/self/status einer bash ohne eigenen PID-Namensraum (NSpid = Pid)."""
+        pid, ppid = self._proc_self_pids()
+        uid = int(getattr(self.user, "uid", 0) or 0)
+        return (
+            "Name:\tbash\nUmask:\t0022\nState:\tS (sleeping)\n"
+            f"Tgid:\t{pid}\nNgid:\t0\nPid:\t{pid}\nPPid:\t{ppid}\nTracerPid:\t0\n"
+            f"Uid:\t{uid}\t{uid}\t{uid}\t{uid}\nGid:\t{uid}\t{uid}\t{uid}\t{uid}\n"
+            f"FDSize:\t256\nGroups:\t{uid} \n"
+            f"NStgid:\t{pid}\nNSpid:\t{pid}\nNSpgid:\t{pid}\nNSsid:\t{pid}\n"
+            "VmPeak:\t    7336 kB\nVmSize:\t    7336 kB\nVmLck:\t       0 kB\n"
+            "VmPin:\t       0 kB\nVmHWM:\t    5644 kB\nVmRSS:\t    5644 kB\n"
+            "Threads:\t1\nSigQ:\t0/15393\nSigPnd:\t0000000000000000\n"
+            "Cpus_allowed_list:\t0-3\nvoluntary_ctxt_switches:\t3\n"
+            "nonvoluntary_ctxt_switches:\t1\n"
+        ).encode()
+
+    def proc_uptime(self) -> bytes:'''
+if s.count(old2) != 1:
+    sys.exit("Cowrie-Anpassung: Stelle für proc_uptime nicht gefunden")
+s = s.replace(old2, new2, 1)
+open(p, "w", encoding="utf-8", newline="").write(s)
+PYEOF
+  "$VENV/bin/python3" -m compileall -q -f "$f" || true
+}
+
 if [ -f "$MARK" ]; then
+  # Schon installiert (ältere Version des Skripts): fehlende Anpassung nachtragen
+  if ! grep -q "$PATCH_MARK" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null; then
+    step "Cowrie anpassen"
+    apply_patches
+    command -v systemctl >/dev/null 2>&1 && { systemctl try-restart hivornet-cowrie.service || true; }
+  fi
   status ok "Cowrie $VER installiert"
   done_ok=1
   exit 0
@@ -73,6 +154,9 @@ python3 -m venv "$VENV"
 # bricht "import cowrie" ab, und twistd kennt den Befehl "cowrie" nicht. Der Quelltext von
 # GitHub hat kein .git, darum die Versionsnummer für setuptools_scm vorgeben.
 SETUPTOOLS_SCM_PRETEND_VERSION_FOR_COWRIE="$VER" "$VENV/bin/pip" install -q --no-deps -e "$DEST"
+
+step "Cowrie anpassen"
+apply_patches
 
 # Einstellungen von Hivornet (Pfade, Ports 22/23, Download-Grenze). Cowrie liest ./cowrie.cfg
 # im Arbeitsverzeichnis des Dienstes.
