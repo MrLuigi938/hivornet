@@ -50,16 +50,225 @@ trap finish EXIT
 #  2. Persona: jede Angreifer-IP sieht ein festes Gerät (Name, Kernel, Laufzeit, Dienste in ps),
 #     bei jeder Verbindung dasselbe, nach 7 Tagen ein neues. Ohne das hat Cowrie ein Gerät für alle,
 #     dessen Laufzeit sich bei jedem Neustart ändert und dessen ps eine VirtualBox-VM zeigt.
+#  3. Modell für Unbekanntes: Cowrie fragt bei einem unbekannten Befehl den Hive (nur Loopback,
+#     Port 8089, eigenes Token in $TOKFILE; die Firewall erlaubt Cowrie nichts anderes). Neue Datei
+#     shell/hivornet_ai.py, dazu drei kleine Einhängestellen.
 # Läuft auch bei schon fertiger Installation (siehe unten). Tests: pi/test_cowrie_proc_self.py,
-# pi/test_cowrie_persona.py.
+# pi/test_cowrie_persona.py, pi/test_cowrie_hiveai.py.
+TOKFILE=/etc/hivornet/cowrie-mimic.token
+ensure_token() {
+  [ -s "$TOKFILE" ] && return 0
+  mkdir -p "$(dirname "$TOKFILE")"
+  t=$(head -c 32 /dev/urandom | od -An -tx1 | tr -d ' \n')
+  [ "${#t}" -eq 64 ] || return 1
+  # Lesbar für Cowrie und Hive; das Token öffnet nur POST /api/sensor/mimic (Grenzen des Hive gelten)
+  printf '%s\n' "$t" >"$TOKFILE.neu"
+  chmod 644 "$TOKFILE.neu"
+  mv "$TOKFILE.neu" "$TOKFILE"
+}
 patches_missing() {
-  grep -q "Hivornet: /proc/self" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null &&
-    grep -q "Hivornet: Persona" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null && return 1
-  return 0
+  for m in "Hivornet: /proc/self" "Hivornet: Persona" "Hivornet: Modell"; do
+    grep -q "$m" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null || return 0
+  done
+  return 1
 }
 apply_patches() {
   [ -f "$DEST/src/cowrie/shell/protocol.py" ] || { echo "$DEST/src/cowrie/shell/protocol.py fehlt" >&2; return 1; }
+  ensure_token
   if ! patches_missing; then return 0; fi
+  cat >"$DEST/src/cowrie/shell/hivornet_ai.py" <<'AIEOF'
+# Hivornet: Modell für Unbekanntes in der Shell (Konzept KI-Honeypot, Vorschlag 4).
+#
+# Kennt Cowrie einen Befehl nicht, fragt es den Hive (nur Loopback, Port 8089, eigenes Token; die
+# Firewall lässt Cowrie sonst nichts nach draußen). Der Hive hat das Modell, den Zwischenspeicher,
+# die Grenzen und den Wächter gegen Prompt-Injektion. Mit jeder Frage gehen die letzten 10 Befehle
+# und das Zustandsregister mit (was Modell-Antworten am Gerät geändert haben, wie bei HoneyGPT);
+# das Modell meldet Änderungen zurück, Cowrie führt das Register fort. Nichts wird ausgeführt: die
+# Antwort wird nur als Text an den Angreifer geschrieben. Ohne Token, bei Fehler, Zeitüberschreitung
+# oder erreichter Grenze antwortet Cowrie wie bisher ("command not found").
+from __future__ import annotations
+
+import json
+import random
+import re
+import time
+from collections import deque
+from typing import Any
+
+from twisted.internet import reactor, task
+from twisted.logger import Logger
+
+from cowrie.core.config import CowrieConfig
+from cowrie.shell.command import HoneyPotCommand
+
+_log = Logger()
+
+HIST_MAX = 10  # Befehle im Verlauf
+HIST_OUT = 200  # Zeichen Ausgabe je Verlaufseintrag
+REG_ITEMS = 12  # Einträge je Liste im Register
+REG_ITEM = 120  # Zeichen je Eintrag
+CTRL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
+NAME = re.compile(r"^[A-Za-z0-9_.+-]{1,64}$")
+
+# Zeitgeber der Mindestdauer; Tests ersetzen ihn durch task.Clock
+clock: Any = reactor
+
+
+def pause(lo: float, hi: float) -> float:
+    """Zufallswert zwischen lo und hi, zu den kleinen Werten hin verschoben (wie honeypot/timing.go)."""
+    u = random.random()
+    return lo + u * u * (hi - lo)
+
+
+def clean_text(s: str, limit: int) -> str:
+    return CTRL.sub("", s)[:limit]
+
+
+def add_unique(lst: list[str], items: list[str]) -> None:
+    for it in items:
+        it = clean_text(str(it), REG_ITEM).strip()
+        if it and it not in lst:
+            lst.append(it)
+    del lst[: max(0, len(lst) - REG_ITEMS)]
+
+
+class HiveAI:
+    """Verlauf, Register und Anfragen einer Sitzung."""
+
+    def __init__(self, protocol: Any) -> None:
+        self.protocol = protocol
+        self.url = CowrieConfig.get("hivornet", "mimic_url", fallback="http://127.0.0.1:8089/api/sensor/mimic")
+        self.token_file = CowrieConfig.get("hivornet", "mimic_token_file", fallback="/etc/hivornet/cowrie-mimic.token")
+        self.max_calls = CowrieConfig.getint("hivornet", "mimic_max_session", fallback=8)
+        self.timeout = CowrieConfig.getint("hivornet", "mimic_timeout", fallback=8)
+        self.calls = 0
+        self.history: deque[dict[str, Any]] = deque(maxlen=HIST_MAX + 1)  # dazu der gefragte Befehl
+        self.reg: dict[str, list[str]] = {"files": [], "gone": [], "pkgs": [], "services": [], "users": [], "vars": []}
+
+    # -- Verlauf und Register --
+    def note(self, cmd: str, args: list[str]) -> dict[str, Any]:
+        """Befehl in den Verlauf (die Ausgabe trägt nur ein, wer vom Modell antwortet)."""
+        entry = {"cmd": clean_text(" ".join([cmd, *args]), 2048), "out": "", "impact": 0}
+        self.history.append(entry)
+        return entry
+
+    def apply_delta(self, d: dict[str, Any], entry: dict[str, Any]) -> None:
+        if not isinstance(d, dict):
+            return
+        add_unique(self.reg["files"], list(d.get("files_add") or []))
+        gone = [clean_text(str(x), REG_ITEM).strip() for x in d.get("files_del") or []]
+        self.reg["files"] = [f for f in self.reg["files"] if f not in gone]
+        add_unique(self.reg["gone"], gone)
+        add_unique(self.reg["pkgs"], list(d.get("pkgs_add") or []))
+        add_unique(self.reg["users"], list(d.get("users_add") or []))
+        add_unique(self.reg["vars"], list(d.get("vars") or []))
+        for s in d.get("services") or []:  # "name:Zustand" ersetzt den älteren Eintrag desselben Dienstes
+            s = clean_text(str(s), REG_ITEM).strip()
+            name = s.split(":", 1)[0]
+            self.reg["services"] = [x for x in self.reg["services"] if x.split(":", 1)[0] != name]
+            add_unique(self.reg["services"], [s])
+        try:
+            entry["impact"] = min(max(int(d.get("impact", 0)), 0), 4)
+        except (TypeError, ValueError):
+            pass
+
+    def payload(self, line: str, shell: Any) -> dict[str, Any]:
+        p = self.protocol
+        persona = getattr(p, "hv_persona", None) or {}
+        hist = list(self.history)[:-1]  # der gefragte Befehl steht in "input"
+        reg = {"cwd": getattr(shell, "cwd", "/"), "user": str(p.user.username)}
+        reg.update({k: v for k, v in self.reg.items() if v})
+        return {
+            "kind": "shell", "input": line[:2048], "ip": p.realClientIP, "service": "ssh", "host": p.hostname,
+            "shell": "bash", "kernel": persona.get("kernel", ""), "arch": "x86_64", "os": "Debian GNU/Linux 12 (bookworm)",
+            "history": [{"cmd": h["cmd"], "out": h["out"][:HIST_OUT], "impact": h["impact"]} for h in hist],
+            "reg": reg,
+        }
+
+    # -- Anfrage --
+    def token(self) -> str:
+        try:
+            with open(self.token_file, encoding="utf-8") as f:
+                t = f.read().strip()
+            return t if len(t) >= 32 else ""
+        except OSError:
+            return ""
+
+    def wants(self, cmd: str) -> bool:
+        """Nur einfache Befehlsnamen (kein Pfad: dafür kennt Cowrie die Fehlermeldung), mit Token und
+        höchstens max_calls Fragen je Sitzung."""
+        return bool(NAME.match(cmd)) and self.calls < self.max_calls and bool(self.token())
+
+    def post(self, body: dict[str, Any], token: str) -> Any:
+        import treq
+
+        d = treq.post(
+            self.url, data=json.dumps(body).encode(), timeout=self.timeout,
+            headers={"Authorization": [f"Bearer {token}"], "Content-Type": ["application/json"], "X-Sensor": ["cowrie"]},
+        )
+
+        def read(resp: Any) -> Any:
+            if resp.code != 200:
+                return None
+            return treq.json_content(resp)
+
+        return d.addCallback(read)
+
+    def ask(self, line: str, shell: Any) -> Any:
+        """Deferred mit der Antwort des Hive (dict) oder None; frühestens nach der Mindestdauer."""
+        token = self.token()
+        start = time.monotonic()
+        self.calls += 1
+        try:
+            d = self.post(self.payload(line, shell), token)
+        except Exception:  # noqa: BLE001
+            return task.deferLater(clock, 0, lambda: None)
+
+        def pad(res: Any) -> Any:
+            if not isinstance(res, dict) or "out" not in res:  # leere Ausgabe ist {"out": ""}
+                return None
+            wait = pause(0.9, 2.8) - (time.monotonic() - start)  # Mindestdauer, auch bei Treffern im Speicher
+            return task.deferLater(clock, max(0.0, wait), lambda: res)
+
+        def failed(_f: Any) -> None:
+            return None
+
+        return d.addCallbacks(pad, failed)
+
+
+def model_command(protocol: Any, cmd: str, args: list[str]) -> Any:
+    """Befehlsklasse für einen unbekannten Befehl, oder None (dann meldet Cowrie "command not found")."""
+    ai = getattr(protocol, "hv_ai", None)
+    if ai is None or not ai.wants(cmd):
+        return None
+    line = " ".join([cmd, *args])
+    entry = ai.history[-1] if ai.history else ai.note(cmd, args)
+
+    class Command_hvmodel(HoneyPotCommand):
+        def start(self) -> None:
+            d = ai.ask(line, self.shell)
+            d.addCallbacks(self._answer, self._fail)
+
+        def _not_found(self) -> None:
+            self.errorWrite(f"{self.shell.error_prefix()}{cmd}: command not found\n")
+            self.exit(127)
+
+        def _fail(self, _f: Any) -> None:
+            self._not_found()
+
+        def _answer(self, res: Any) -> None:
+            if not isinstance(res, dict) or "out" not in res:
+                self._not_found()
+                return
+            out = clean_text(str(res.get("out") or ""), 4096).replace("\r\n", "\n")
+            entry["out"] = out[:HIST_OUT]
+            ai.apply_delta(res.get("delta") or {}, entry)
+            if out:
+                self.write(out if out.endswith("\n") else out + "\n")
+            self.exit(127 if "command not found" in out else 0)
+
+    return Command_hvmodel
+AIEOF
   "$VENV/bin/python3" - "$DEST" <<'PYEOF'
 import re
 import sys
@@ -305,14 +514,54 @@ def kernel_build_string(protocol=None) -> str:
     save(base, b)
 else:
     save(proto, s)
+
+# ---- 3. Modell für Unbekanntes (über den Hive); die Datei shell/hivornet_ai.py legt das Skript vorher ab ----
+s = load(proto)
+if "Hivornet: Modell" not in s:
+    if "Hivornet: Persona" not in s:
+        sys.exit("Cowrie-Anpassung: Persona fehlt")
+    s = once(
+        s,
+        "from cowrie.shell import command, fs, honeypot\n",
+        "from cowrie.shell import command, fs, honeypot\nfrom cowrie.shell.hivornet_ai import HiveAI  # Hivornet: Modell\n",
+        "import honeypot",
+    )
+    s = once(
+        s,
+        "        self.hv_sshd_pid = self.next_pid()\n",
+        "        self.hv_sshd_pid = self.next_pid()\n        self.hv_ai = HiveAI(self)  # Hivornet: Modell\n",
+        "hv_sshd_pid",
+    )
+    save(proto, s)
+    hp = "src/cowrie/shell/honeypot.py"
+    h = load(hp)
+    h = once(
+        h,
+        '''        if not cmdclass:
+            self.protocol.events.dispatch(
+                "cowrie.command.failed",''',
+        '''        hv_ai = getattr(self.protocol, "hv_ai", None)  # Hivornet: Modell
+        if hv_ai is not None:
+            from cowrie.shell.hivornet_ai import model_command
+
+            hv_ai.note(cmd, args)
+            if not cmdclass and not exec_seen:
+                cmdclass = model_command(self.protocol, cmd, args)
+        if not cmdclass:
+            self.protocol.events.dispatch(
+                "cowrie.command.failed",''',
+        "honeypot: not cmdclass",
+    )
+    save(hp, h)
 PYEOF
-  for f in shell/protocol.py commands/uname.py commands/base.py; do
+  for f in shell/protocol.py shell/honeypot.py shell/hivornet_ai.py commands/uname.py commands/base.py; do
     "$VENV/bin/python3" -m compileall -q -f "$DEST/src/cowrie/$f" || true
   done
 }
 
 if [ -f "$MARK" ]; then
-  # Schon installiert (ältere Version des Skripts): fehlende Anpassung nachtragen
+  # Schon installiert (ältere Version des Skripts): Token und fehlende Anpassungen nachtragen
+  ensure_token
   if patches_missing; then
     step "Cowrie anpassen"
     apply_patches

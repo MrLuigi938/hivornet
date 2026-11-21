@@ -163,7 +163,7 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 		m.HandleFunc("POST /api/ingest", a.RequireSensor(h.ingest))
 		m.HandleFunc("POST /api/sensor/heartbeat", a.RequireSensor(h.heartbeat))
 		m.HandleFunc("GET /api/sensor/config", a.RequireSensor(h.sensorConfig))
-		m.HandleFunc("POST /api/sensor/mimic", a.RequireSensor(h.mimic))
+		m.HandleFunc("POST /api/sensor/mimic", a.requireMimic(h.mimic))
 	}
 	sensor = http.NewServeMux()
 	sensorRoutes(sensor)

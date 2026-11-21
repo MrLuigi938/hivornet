@@ -97,6 +97,10 @@ type mimicReq struct {
 	Arch       string `json:"arch"` // uname -m (seit Geräteprofilen mit Architektur)
 	OS         string `json:"os"`
 	HTTPServer string `json:"http_server"`
+
+	// Nur von Cowrie (mimicssh.go): letzte Befehle der Sitzung und Zustandsregister des Geräts
+	History []mimicHist `json:"history,omitempty"`
+	Reg     *mimicReg   `json:"reg,omitempty"`
 }
 
 type mimicResp struct {
@@ -105,6 +109,7 @@ type mimicResp struct {
 	ContentType string            `json:"content_type,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"` // nur erlaubte Kopfzeilen (safeWebHeaders)
 	Cached      bool              `json:"cached"`
+	Delta       *mimicDelta       `json:"delta,omitempty"` // Änderung des Zustandsregisters (nur Shell, mimicssh.go)
 }
 
 // mimicState: Zähler für die Grenzen und für die Anzeige in den Einstellungen.
@@ -149,7 +154,7 @@ func (s *mimicState) allow(ip string, c MimicConfig) bool {
 }
 
 func mimicKey(r mimicReq) string {
-	sum := sha256.Sum256([]byte(strings.Join([]string{r.Kind, r.Host, r.Shell, r.Kernel, r.Arch, r.OS, r.HTTPServer, r.Input}, "\x00")))
+	sum := sha256.Sum256([]byte(strings.Join([]string{r.Kind, r.Host, r.Shell, r.Kernel, r.Arch, r.OS, r.HTTPServer, r.Input, r.Reg.keyPart()}, "\x00")))
 	return hex.EncodeToString(sum[:])
 }
 
@@ -204,6 +209,10 @@ func mimicMessages(r mimicReq, nonce string) []map[string]string {
 		}
 		return []map[string]string{{"role": "system", "content": fmt.Sprintf(mimicWebPrompt, nonEmptyFirst(r.HTTPServer, "nginx"), r.Host, nonEmptyFirst(r.OS, "Linux"), nonce, hint)},
 			{"role": "user", "content": user}}
+	}
+	if hasSSHContext(r) {
+		return []map[string]string{{"role": "system", "content": fmt.Sprintf(mimicSSHPrompt, r.Host, nonEmptyFirst(r.Shell, r.OS, "Linux"), mimicKernel(r), nonce, nonce)},
+			{"role": "user", "content": sshUserMessage(r, nonce)}}
 	}
 	return []map[string]string{{"role": "system", "content": fmt.Sprintf(mimicShellPrompt, r.Host, nonEmptyFirst(r.Shell, r.OS, "Linux"), mimicKernel(r), nonce, nonce)},
 		{"role": "user", "content": user}}
@@ -395,6 +404,18 @@ func (h *Hive) mimic(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	if req.Kind == "shell" {
+		if why := sshContext(&req); why != "" { // Anweisung an eine KI im Verlauf oder Register: nie ans Modell
+			h.mimicSt.mu.Lock()
+			h.mimicSt.blocked++
+			h.mimicSt.mu.Unlock()
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		req.History = scrubHistory(req.History, h.ownPublicIPs())
+	} else {
+		req.History, req.Reg = nil, nil
+	}
 	key := mimicKey(req)
 	reply := func(out mimicResp) {
 		out.Out = restoreIPs(out.Out, back)
@@ -478,12 +499,16 @@ func (h *Hive) mimicStart(key string, req mimicReq, ai AIConfig) *mimicJob {
 					err = fmt.Errorf("Antwort des Modells ist kein gültiges JSON")
 				}
 			} else {
-				j.out = mimicResp{Out: cleanShellOut(txt)}
+				out, delta := splitState(txt)
+				j.out = mimicResp{Out: cleanShellOut(out), Delta: delta}
 			}
 		}
 		leaked := false
 		if err == nil {
 			check := j.out.Out
+			if d := j.out.Delta; d != nil { // Register-Änderung prüfen wie die Ausgabe
+				check += "\n" + strings.Join(append(append(append(append([]string{d.Cwd}, d.FilesAdd...), d.PkgsAdd...), d.Services...), d.Vars...), "\n")
+			}
 			for k, v := range j.out.Headers { // Kopfzeilen prüfen wie den Inhalt
 				check += "\n" + k + ": " + v
 			}

@@ -49,6 +49,8 @@ for cow in 1 0; do
   has "meta skuid 990 drop"
   has "tcp dport 8089 accept"
   if [ "$cow" = 1 ]; then has "meta skuid 991 drop"; else hasnt "skuid 991"; fi
+  # Cowrie darf nur den Hive auf Loopback fragen (Modell für Unbekanntes, mimicssh.go), sonst nichts
+  if [ "$cow" = 1 ]; then has 'meta skuid 991 oifname "lo" ip daddr 127.0.0.1 tcp dport 8089 accept'; fi
   # Verwaltungsanschluss: Sprünge für USB-Adapter, aber nie für den eingebauten eth0
   has 'iifname "eth1" jump mgmt_in'
   has 'oifname "enx*" jump mgmt_out'
@@ -77,6 +79,7 @@ for cow in 1 0; do
   run apply
   has "--uid-owner hivornet-pot -j HIVORNET-POT"
   if [ "$cow" = 1 ]; then has "--uid-owner hivornet-cowrie -j HIVORNET-COW"; else hasnt "-N HIVORNET-COW"; fi
+  if [ "$cow" = 1 ]; then has "iptables -A HIVORNET-COW -o lo -d 127.0.0.1 -p tcp --dport 8089 -j RETURN"; fi
   has "iptables -I INPUT 1 -i eth1 -j HIVORNET-MGMT-IN"
   has "ip6tables -I OUTPUT 1 -o enx+ -j HIVORNET-MGMT-OUT"
   has "iptables -A HIVORNET-MGMT-IN -p tcp --dport 8088 -j ACCEPT"
