@@ -212,8 +212,29 @@ function portsCard(s, saved, saveCfg, byPort = new Map()) {
     refreshHints();
   }
 
+  // SSH und Telnet gehören Cowrie: feste Zeilen oben in der Liste, nicht änderbar. Sie stehen
+  // hier, damit sie bei den Freigaben im Router nicht vergessen werden (Live-Check 0.9.2: nach
+  // der Liste freigegeben, 22 und 23 fehlten, SSH blieb einen halben Tag still).
+  const cowrieRows = () => {
+    const ports = s.direct_ports ? [["SSH", 22], ["Telnet", 23]]
+      : [["SSH", Number(s.cowrie && s.cowrie.ssh) || 0], ["Telnet", Number(s.cowrie && s.cowrie.telnet) || 0]].filter(([, p]) => p > 0);
+    return ports.map(([name, port]) => {
+      const a = byPort.get(port);
+      return h("tr", { class: "fixed", title: "Gehört Cowrie und lässt sich hier nicht ändern" },
+        h("td", { class: "on", "data-label": "Aktiv" }, h("input", { type: "checkbox", checked: true, disabled: true, "aria-label": "aktiv (fest)" })),
+        h("td", { class: "svc", "data-label": "Dienst" }, `${name} (Cowrie)`),
+        h("td", { class: "port num", "data-label": "Port" }, String(port)),
+        h("td", { class: "mode", "data-label": "Modus" }, "Aufzeichnen"),
+        h("td", { class: "hint", "data-label": "Hinweis" },
+          a && a.silent ? h("div", null, h("span", { class: "warn-text" }, a.text)) : null,
+          h("span", { class: "fixed-note" }, "Im Router freigeben – meistangegriffener Port"),
+          a && a.active_since ? h("div", { class: "muted" }, `7 Tage: ${fmtNum(a.conns_7d)} Verbindung${a.conns_7d === 1 ? "" : "en"}`) : null),
+        h("td", { class: "act" }, h("span", { class: "badge" }, "fest")));
+    });
+  };
+
   function renderRows() {
-    listBody.replaceChildren(...ls.map((l, i) => {
+    listBody.replaceChildren(...cowrieRows(), ...ls.map((l, i) => {
       const m = meta.get(l);
       m.hint = h("td", { class: "hint", "data-label": "Hinweis" });
       m.portIn = h("input", { type: "number", "aria-label": "Port", min: 1, max: 65535, value: l.port || "", placeholder: "Port", class: "port-in",
@@ -262,6 +283,10 @@ function portsCard(s, saved, saveCfg, byPort = new Map()) {
       return r;
     },
   },
+  h("div", { class: "msg info router-ports" },
+    h("b", null, "Im Router freigeben: "),
+    s.direct_ports ? "alle aktiven Ports dieser Liste auf dieses Gerät weiterleiten, auch SSH 22 und Telnet 23 (Cowrie). Ohne sie fehlen die meisten Angriffe."
+      : "alle aktiven Ports dieser Liste auf die NAS weiterleiten (Spalte „Hinweis“), auch die Cowrie-Ports für SSH und Telnet. Ohne sie fehlen die meisten Angriffe."),
   h("div", { class: "tablewrap" }, h("table", { class: "ports" },
     h("thead", null, h("tr", null, ["Aktiv", "Dienst", "Port", "Modus", "Hinweis", ""].map((t) => h("th", null, t)))), listBody)),
   h("div", { class: "btnrow" }, h("button", { class: "btn", onclick: add }, "Port hinzufügen")),

@@ -4,6 +4,9 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unveröffentlicht]
 
+### Neu
+- **SSH 22 und Telnet 23 fest in der Port-Liste** (Einstellungen → Honeypot → Ports und Modi): Die Cowrie-Ports stehen oben als feste, nicht änderbare Zeilen mit dem Hinweis „Im Router freigeben“; darüber erklärt ein Kasten, dass alle aktiven Ports der Liste weitergeleitet werden müssen, auch 22 und 23. In Docker stehen dort die Cowrie-Ports der NAS aus der .env. Anlass: Nach der Liste freigegeben, fehlten 22 und 23, und SSH blieb einen halben Tag still.
+
 ### Behoben
 - **Dashboard: „Gerade aktiv“ zeigte nach zwei Minuten nur noch „Lade …“.** Die stille Aktualisierung baute die Liste leer neu auf, bis die Abfrage zurück war; die Abfrage wartete auf dem Pi zudem mehrere Sekunden hinter dem Neuberechnen der Top-Listen „ohne Dauer-Brute-Force“. Jetzt übernimmt die Liste ihren bisherigen Stand, und die Top-Listen liefern sofort den letzten Stand und rechnen im Hintergrund neu.
 - **Stiller SSH-Port wurde nicht gemeldet.** Die Hinweise zu stillen Ports erfassen nur die Ports des Honeypots, nicht Cowrie (SSH 22). Jetzt warnt die Seite System, wenn Port 22 vorher lebhaft war (mindestens 50 Verbindungen in 7 Tagen), seit sechs Stunden still ist und andere Ports noch Verbindungen sehen; der Hinweis nennt Router-Weiterleitung, Sperre des Anbieters und die Drossel als Ursachen und wie man sie prüft.

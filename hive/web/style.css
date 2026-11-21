@@ -771,3 +771,10 @@ a.aw-pat:hover { background: var(--surface-3); text-decoration: none; }
 .hw-bar { height: 8px; border-radius: 5px; background: var(--surface-3); overflow: hidden; }
 .hw-bar i { display: block; height: 100%; border-radius: 5px; transition: width .6s ease; }
 .hw-note { font-size: 12px; margin: 12px 0 0; }
+
+/* Ports: Hinweis zu den Router-Freigaben und feste Cowrie-Zeilen (settings.js) */
+.msg.info { border-color: color-mix(in srgb, var(--accent) 55%, transparent); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); }
+table.ports tr.fixed td { background: color-mix(in srgb, var(--accent) 6%, transparent); }
+table.ports tr.fixed td.svc { font-weight: 600; }
+table.ports tr.fixed td.port { padding-left: 12px; }
+table.ports .fixed-note { color: var(--accent); font-weight: 500; }
