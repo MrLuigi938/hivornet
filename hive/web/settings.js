@@ -19,7 +19,7 @@ const TABS = [
   ["auswertung", "Auswertung und KI", "Sprachmodelle für Berichte und Antworten sowie Nachschlagen bei Dritten."],
   ["weitergabe", "Weitergabe und Meldungen", "Benachrichtigungen, Meldungen an AbuseIPDB, URLhaus, MalwareBazaar und DShield sowie die Blockliste für die eigene Firewall."],
   ["zugang", "Zugang und Sicherheit", "Konten, weitere Sensoren, eigene Netze und der Zugriff über einen Reverse-Proxy."],
-  ["daten", "Daten und Wartung", "Wie lange Rohdaten bleiben und die verschlüsselte Sicherung."],
+  ["daten", "Daten und Wartung", "Wie lange Rohdaten bleiben, wie groß die Datenbank werden darf, und die verschlüsselte Sicherung."],
 ];
 const ADMIN_ONLY = new Set(["auswertung", "weitergabe"]); // brauchen /api/extras (nur Admin)
 
@@ -1251,8 +1251,72 @@ async function tabDaten() {
   },
   row("Rohdaten aufbewahren (Tage)", h("input", { type: "number", min: 1, max: 3650, value: retention, style: { width: "110px" }, onchange: (e) => { retention = Number(e.target.value); } }),
     "1 bis 3650 Tage. Wird der Speicher knapp, löscht der Hive die ältesten Ereignisse auch früher.")).el];
+  if (s.db_limit) out.push(dbLimitCard(s.db_limit));
   if (isAdmin()) out.push(backupCard()); // Import auch auf einem frisch installierten Gerät
   return out;
+}
+
+// Größengrenze der Datenbank (dblimit.go): Grenze in GB, Obergrenze aus dem Datenträger,
+// automatische Erweiterung. Werte kommen als Bytes, gespeichert wird in MB.
+const GB = 1024 * 1024 * 1024;
+const gbText = (b) => (b / GB).toFixed(b % (GB / 2) === 0 ? 1 : 2).replace(/\.?0+$/, "").replace(".", ",") + " GB";
+
+function dbLimitCard(d0) {
+  let d = d0;
+  let touched = false, useDefault = false;
+  const input = h("input", { type: "number", min: 0.25, step: 0.25, style: { width: "110px" },
+    oninput: () => { touched = true; useDefault = false; } });
+  const auto = h("input", { type: "checkbox" });
+  const status = h("div", { class: "dblimit" });
+  const help = h("div", { class: "help" });
+  const log = h("div");
+  const fill = () => {
+    input.max = String(d.ceiling / GB);
+    input.value = String(Math.round((d.limit / GB) * 100) / 100);
+    auto.checked = !!d.auto_grow;
+    const p = d.limit > 0 ? Math.min(100, (d.used / d.limit) * 100) : 0;
+    mount(status,
+      h("div", { class: "hw-bar", title: `${Math.round(p)} % der Grenze belegt` },
+        h("i", { style: { width: `${p}%`, background: p >= 90 ? "var(--critical)" : p >= 75 ? "var(--warning)" : "var(--s1)" } })),
+      h("p", null, `Belegt ${fmtBytes(d.used)} von ${gbText(d.limit)}`,
+        d.source === "setting" ? " (eingestellt)" : ` (Vorgabe HIVE_MAX_DB_MB)`,
+        ` · Obergrenze ${gbText(d.ceiling)}`,
+        d.disk_total > 0 ? ` · Datenträger: ${fmtBytes(d.disk_free)} frei von ${fmtBytes(d.disk_total)}` : ""),
+      d.auto_grow && d.at_ceiling ? h("div", { class: "msg warn" }, "Die automatische Erweiterung hat die Obergrenze erreicht. Wird die Datenbank voll, löscht der Hive die ältesten Ereignisse.") : null);
+    mount(help, `Vorschlag ${gbText(d.suggest)} (ein Viertel des Datenträgers, höchstens 10 GB). Möglich bis ${gbText(d.ceiling)}: ${d.ceiling_reason}. `,
+      d.disk_total > 0 ? `Die Obergrenze lässt immer mindestens ${gbText(d.reserve)} frei (für Cowrie-Logs, Updates, System und Sicherungen) und nimmt nie mehr als die Hälfte des Datenträgers. ` : "",
+      d.env_cap > 0 ? `HIVE_MAX_DB_CAP_MB begrenzt auf ${gbText(d.env_cap)}.` : "");
+    const lg = d.grow_log || [];
+    mount(log, lg.length ? h("div", null, h("div", { class: "muted" }, "Automatisch erweitert:"),
+      h("ul", { class: "plain" }, lg.map((e) => h("li", null, `Grenze automatisch von ${gbText(e.from)} auf ${gbText(e.to)} erhöht am ${fmtDateTime(e.at)}`)))) : null);
+  };
+  const sec = section("Speicherplatz der Datenbank", {
+    intro: "Wie groß die Datenbank werden darf. Ist sie voll, löscht der Hive die ältesten Ereignisse (vor Ablauf der Aufbewahrung); Statistiken ohne IPs bleiben. Gleiches gilt, wenn auf dem Datenträger zu wenig frei ist.",
+    saveLabel: "Speicher-Einstellung speichern",
+    save: async () => {
+      const body = { db_autogrow: auto.checked };
+      if (useDefault) body.db_limit_mb = 0;
+      else if (touched) {
+        const gb = Number(input.value);
+        if (!(gb > 0)) throw new Error("Bitte eine Grenze in GB eingeben.");
+        body.db_limit_mb = Math.round(gb * 1024);
+        if (body.db_limit_mb * 1024 * 1024 < d.used && !confirm(`Die Datenbank belegt schon ${fmtBytes(d.used)}. Bei ${gbText(body.db_limit_mb * 1024 * 1024)} löscht der Hive beim nächsten Aufräumen die ältesten Ereignisse. Trotzdem speichern?`)) throw new Error("Nicht gespeichert.");
+      }
+      const r = await api("settings", { method: "PUT", body });
+      d = r.db_limit; touched = false; useDefault = false;
+      fill();
+      return `Gespeichert: Grenze ${gbText(d.limit)}` + (d.auto_grow ? `, wächst automatisch bis ${gbText(d.ceiling)}.` : ".");
+    },
+  },
+  status,
+  row("Grenze (GB)", h("div", { class: "inline-row" }, input,
+    isAdmin() ? h("button", { type: "button", class: "btn small", onclick: () => { input.value = String(d.suggest / GB); touched = true; useDefault = false; sec.markDirty(); } }, "Vorschlag übernehmen") : null,
+    isAdmin() && d.source === "setting" ? h("button", { type: "button", class: "btn small", onclick: () => { input.value = String(Math.min(d.default, d.ceiling) / GB); useDefault = true; touched = false; sec.markDirty(); } }, "Vorgabe verwenden") : null), help),
+  row("Automatisch erweitern", h("label", { class: "inline" }, auto, "Grenze anheben, wenn die Datenbank zu 90 % voll ist"),
+    "Schrittweise um ein Viertel (mindestens 512 MB), höchstens bis zur Obergrenze. Ist die erreicht, löscht der Hive wie bisher die ältesten Ereignisse. Standard: aus, damit die Datenbank nur so groß wird, wie du es festlegst."),
+  log);
+  fill();
+  return sec.el;
 }
 
 // Sicherung (Export und Import aller Daten, verschlüsselt)

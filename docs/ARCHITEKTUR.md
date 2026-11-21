@@ -141,7 +141,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET /api/attackers/{ip}`, `…/intel`, `…/greynoise` | Angreifer, AbuseIPDB, GreyNoise |
 | `GET /api/sessions`, `/api/sessions/{id}`, `/api/sessions/{id}/tty` | Sitzungen, Mitschnitt |
 | `GET /api/report?ip=…` oder `?session=…` (`&format=text`), `POST /api/report/ai` | Angriffsbericht, KI-Auswertung |
-| `GET/PUT /api/settings` | Sensor-Konfiguration, Aufbewahrung |
+| `GET/PUT /api/settings` | Sensor-Konfiguration, Aufbewahrung, Größengrenze der Datenbank (`db_limit_mb`, 0 = Vorgabe; `db_autogrow`) |
 | `GET/PUT /api/extras`, `POST /api/extras/test-notify` | Zusatzfunktionen |
 | `GET /api/campaigns`, `GET /api/chain`, `GET /api/weekly` | Kampagnen, Angriffskette, Vorschau des Wochenberichts |
 | `GET /api/lookup/urlhaus?url=…`, `GET /api/lookup/malwarebazaar?hash=…` | abuse.ch auf Knopfdruck (nur Adressen und Hashes aus den eigenen Daten) |
@@ -207,7 +207,8 @@ Regeln für die UI:
 | `HIVE_INGEST_SUBNET` | leer | aus diesem Netz lehnt die UI Anfragen ab |
 | `HIVE_ALLOWED_HOSTS`, `HIVE_COOKIE_SECURE` | leer, `0` | Host-Prüfung (ergänzt um die Liste aus der Web-UI), Cookie immer nur über HTTPS (sonst automatisch bei HTTPS-Anmeldung) |
 | `HIVE_DB`, `HIVE_GEOIP_DIR`, `HIVE_GEOIP` | `/data/hive.db`, `/data/geoip`, `on` | Speicherorte; `off` schaltet den GeoIP-Download ab |
-| `HIVE_RETENTION_DAYS`, `HIVE_MAX_DB_MB`, `HIVE_MIN_FREE_MB` | 30, 2048, 1024 | Aufbewahrung |
+| `HIVE_RETENTION_DAYS`, `HIVE_MAX_DB_MB`, `HIVE_MIN_FREE_MB` | 30, 2048, 1024 | Aufbewahrung; `HIVE_MAX_DB_MB` ist nur die Vorgabe der Größengrenze (siehe unten) |
+| `HIVE_MAX_DB_CAP_MB` | leer | harte Obergrenze für die Größengrenze aus der Web-UI und die automatische Erweiterung |
 | `HIVE_FLUSH_MS` | 300 | Schreibintervall des Writers (100–60000). Größer schont SD-Karten |
 | `HIVE_COWRIE_LOG`, `HIVE_COWRIE_LIB` | leer | Pfad zu `cowrie.json`; Ordner mit `tty/` und `downloads/` |
 | `HIVE_COWRIE_INSTALL_STATUS` | leer | Stand der Cowrie-Installation (Pi, von `hivornet-cowrie-install` geschrieben) |
@@ -221,6 +222,8 @@ Regeln für die UI:
 | `HIVE_COWRIE_PROBE` | auf dem Pi `ssh=127.0.0.1:22,telnet=127.0.0.1:23`, sonst aus | Cowrie-Ports, die der Hive jede Minute prüft; `off` schaltet ab |
 | `HIVE_WEB_DIR` | leer | UI vom Datenträger statt aus dem Binary (Entwicklung) |
 | `PORT_*` | | nur zur Anzeige „Öffentlich“ in den Einstellungen (`publishedPorts` in `api.go`) |
+
+**Größengrenze der Datenbank** (`dblimit.go`). Vorrang: `HIVE_MAX_DB_CAP_MB` (falls gesetzt) begrenzt alles; darunter gilt die Einstellung aus der Web-UI (kv `db_limit_mb`), ohne Einstellung `HIVE_MAX_DB_MB`. Die Einstellung und die automatische Erweiterung reichen höchstens bis zur Obergrenze aus dem Datenträger (Dateisystem der Datenbank, in Docker das Volume des Hosts): die Hälfte des Datenträgers und nur so viel, dass bei voller Datenbank eine Reserve frei bleibt, das Größte aus `HIVE_MIN_FREE_MB`, 2 GB und 15 % (höchstens 20 GB). Die Obergrenze wird bei jedem Aufräumen neu berechnet; füllt sich der Datenträger mit anderem, schrumpft eine eingestellte Grenze mit, nie aber unter `HIVE_MAX_DB_MB`. Automatische Erweiterung (kv `db_autogrow`, Standard aus): ab 90 % Belegung vor dem Aufräumen um ein Viertel, mindestens 512 MB; die letzten zehn Erweiterungen stehen in kv `db_grow_log`. Unabhängig davon löscht das Aufräumen weiter die ältesten Ereignisse, wenn die Grenze überschritten oder weniger als `HIVE_MIN_FREE_MB` frei ist.
 
 In der UI gespeichert (Tabelle `kv`): Sensor-Konfiguration, Aufbewahrung, Update-Kanal, **Zusatzfunktionen** (`extras`: Standort, Benachrichtigungen, KI, Schlüssel für AbuseIPDB und GreyNoise), sowie die Merker `config_level` (Port-Anpassung lief) und `patterns_backfilled` (Muster nachgezählt). Geheimnisse darin liefert die API nie zurück.
 

@@ -401,7 +401,7 @@ func (h *Hive) backupImport(w http.ResponseWriter, r *http.Request) {
 	// Größengrenze nach dem Entpacken (N8 des dritten Audits): Eine kleine, stark komprimierte
 	// Datei könnte sonst den Datenträger füllen. Größer als die erlaubte Datenbank plus Reserve
 	// kann eine echte Sicherung nicht sein.
-	limit := restoreLimit(h.maxDBBytes)
+	limit := restoreLimit(h.dbLimit())
 	var n int64
 	n, err = io.Copy(f, io.LimitReader(plain, limit+1))
 	if err == nil && n > limit {

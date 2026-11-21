@@ -38,8 +38,10 @@ type Hive struct {
 	dbPath           string
 	started          time.Time
 	defaultRetention int
-	maxDBBytes       int64
+	maxDBBytes       int64 // HIVE_MAX_DB_MB: Vorgabe der Grenze (dblimit.go)
+	maxDBCapBytes    int64 // HIVE_MAX_DB_CAP_MB: harte Obergrenze, 0 = keine
 	minFreeBytes     int64
+	dbLimMu          sync.Mutex
 	cowrieLogDir     string
 	cowrieLibDir     string
 
@@ -343,10 +345,11 @@ func main() {
 	h := &Hive{
 		st: st, dbPath: dbPath, started: time.Now(), defaultRetention: ret,
 		maxDBBytes: envMB("HIVE_MAX_DB_MB", 2048), minFreeBytes: envMB("HIVE_MIN_FREE_MB", 1024),
-		broker:       NewBroker(),
-		sensors:      &Sensors{last: map[string]Heartbeat{}},
-		geo:          NewGeo(env("HIVE_GEOIP_DIR", filepath.Join(filepath.Dir(dbPath), "geoip"))),
-		cowrieLibDir: os.Getenv("HIVE_COWRIE_LIB"),
+		maxDBCapBytes: envMB("HIVE_MAX_DB_CAP_MB", 0),
+		broker:        NewBroker(),
+		sensors:       &Sensors{last: map[string]Heartbeat{}},
+		geo:           NewGeo(env("HIVE_GEOIP_DIR", filepath.Join(filepath.Dir(dbPath), "geoip"))),
+		cowrieLibDir:  os.Getenv("HIVE_COWRIE_LIB"),
 	}
 	h.aiSem = make(chan struct{}, 1)
 	h.restart = make(chan struct{}, 1)
@@ -424,6 +427,7 @@ func main() {
 	go func() {
 		time.Sleep(time.Minute)
 		for {
+			h.autoGrowDB(time.Now()) // erst erweitern, wenn erlaubt; sonst löscht das Aufräumen
 			s := st.Retention(h.policy())
 			h.retMu.Lock()
 			h.retStat = s

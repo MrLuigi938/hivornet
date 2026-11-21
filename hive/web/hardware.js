@@ -104,7 +104,8 @@ export function hardwareCard(d) {
       sub: `höchstens ${Math.round(d.temp_max || d.temp)} °C in der letzten Stunde`,
       hint: "Ab etwa 80 °C drosselt ein Raspberry Pi den Takt" }) : null,
     d.disk_total > 0 ? gauge({ label: "Speicherplatz", value: diskP, text: fmtPct(diskP), color: level(diskP, 80, 92),
-      sub: `${fmtBytes(d.disk_free)} frei von ${fmtBytes(d.disk_total)}`, hint: "Dateisystem der Datenbank" }) : null,
+      sub: `${fmtBytes(d.disk_free)} frei von ${fmtBytes(d.disk_total)}` + (d.db ? ` · Datenbank ${fmtBytes(d.db.used)} von ${fmtBytes(d.db.limit)}` : ""),
+      hint: "Dateisystem der Datenbank" + (d.db ? `. Grenze der Datenbank ${fmtBytes(d.db.limit)}, höchstens ${fmtBytes(d.db.ceiling)} (${d.db.ceiling_reason}); ist sie voll, löscht der Hive die ältesten Ereignisse.` : "") }) : null,
   ].filter(Boolean);
   const thr = d.throttled && d.throttled !== "ok"
     ? h("span", { class: "badge " + (/^seit/.test(d.throttled) ? "warn" : "err"), title: "Meldung der Pi-Firmware. Häufigste Ursache: zu schwaches Netzteil oder fehlende Kühlung." }, d.throttled)

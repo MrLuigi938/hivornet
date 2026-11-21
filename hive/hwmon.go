@@ -49,26 +49,27 @@ type hwService struct {
 }
 
 type hwSnapshot struct {
-	Available  bool        `json:"available"`
-	Model      string      `json:"model,omitempty"`
-	Cores      int         `json:"cores"`
-	CPU        float64     `json:"cpu"`
-	Load       [3]float64  `json:"load"`
-	MemTotal   int64       `json:"mem_total"`
-	MemUsed    int64       `json:"mem_used"`
-	MemCache   int64       `json:"mem_cache"`
-	SwapTotal  int64       `json:"swap_total"`
-	SwapUsed   int64       `json:"swap_used"`
-	Temp       float64     `json:"temp,omitempty"`
-	TempMax    float64     `json:"temp_max,omitempty"` // höchster Wert der letzten Stunde
-	Throttled  string      `json:"throttled,omitempty"`
-	UptimeS    int64       `json:"uptime_s"`
-	HiveRSS    int64       `json:"hive_rss"`
-	Services   []hwService `json:"services,omitempty"`
-	DiskTotal  int64       `json:"disk_total,omitempty"`
-	DiskFree   int64       `json:"disk_free,omitempty"`
-	History    []hwPoint   `json:"history"`
-	IntervalMs int64       `json:"interval_ms"`
+	Available  bool         `json:"available"`
+	Model      string       `json:"model,omitempty"`
+	Cores      int          `json:"cores"`
+	CPU        float64      `json:"cpu"`
+	Load       [3]float64   `json:"load"`
+	MemTotal   int64        `json:"mem_total"`
+	MemUsed    int64        `json:"mem_used"`
+	MemCache   int64        `json:"mem_cache"`
+	SwapTotal  int64        `json:"swap_total"`
+	SwapUsed   int64        `json:"swap_used"`
+	Temp       float64      `json:"temp,omitempty"`
+	TempMax    float64      `json:"temp_max,omitempty"` // höchster Wert der letzten Stunde
+	Throttled  string       `json:"throttled,omitempty"`
+	UptimeS    int64        `json:"uptime_s"`
+	HiveRSS    int64        `json:"hive_rss"`
+	Services   []hwService  `json:"services,omitempty"`
+	DiskTotal  int64        `json:"disk_total,omitempty"`
+	DiskFree   int64        `json:"disk_free,omitempty"`
+	DB         *dbLimitInfo `json:"db,omitempty"` // Datenbank auf diesem Datenträger (dblimit.go)
+	History    []hwPoint    `json:"history"`
+	IntervalMs int64        `json:"interval_ms"`
 }
 
 type hwMonitor struct {
@@ -343,6 +344,10 @@ func (h *Hive) hardwareAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	if total, free := diskTotalFree(h.dbPath); total > 0 {
 		s.DiskTotal, s.DiskFree = total, free
+	}
+	if h.st != nil {
+		dl := h.dbLimitInfo()
+		s.DB = &dl
 	}
 	writeJSON(w, s)
 }
