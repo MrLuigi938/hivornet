@@ -217,6 +217,7 @@ apply() {
     cow=""
     if [ -n "$COW_UID" ]; then
       cow="    meta skuid $COW_UID ct state established,related accept
+    meta skuid $COW_UID oifname \"lo\" ip daddr 127.0.0.1 tcp dport 8089 accept
     meta skuid $COW_UID drop
 "
     fi
@@ -266,6 +267,7 @@ apply() {
     if [ -n "$COW_UID" ]; then
       iptables -N HIVORNET-COW
       iptables -A HIVORNET-COW -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN
+      iptables -A HIVORNET-COW -o lo -d 127.0.0.1 -p tcp --dport 8089 -j RETURN
       iptables -A HIVORNET-COW -j DROP
       iptables -I OUTPUT 1 -m owner --uid-owner "$COW" -j HIVORNET-COW
     fi

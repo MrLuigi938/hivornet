@@ -8,6 +8,7 @@ import { svcName, svcColor } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, MODE_NAME, route } from "./app.js";
 import { cveInfo, cveBadges, cveDetails, kindChip, bruteStatsParam, bruteStatsNote } from "./attacks.js";
 import { weeklyAICard } from "./ai.js";
+import { dwellCard } from "./dwell.js";
 
 // ---------- Bausteine ----------
 
@@ -665,6 +666,7 @@ export async function viewInsights(el, ctx) {
     h("div", { class: "grid aw-21" },
       card("Was ist neu", newsBody),
       card("Angriffsfamilien", h("p", { class: "sub" }, "Angriffe mit ähnlicher Befehlsfolge; Adressen, Zahlen und Hashes zählen dabei als gleich."), famBody)),
+    dwellCard(), // Verweildauer nach dem Login (hive/dwell.go)
     card("Wiederkehrer", h("p", { class: "sub" }, "IPs mit mindestens drei getrennten Angriffen im Zeitraum. Je Feld die Angriffe, Farbe nach höchster Stufe."), recBody),
     card("Erkunden → Angreifen", h("p", { class: "sub" }, "Ein seltener Fingerabdruck taucht erst beim Abtasten einer IP auf und binnen 48 Stunden bei einem Angriff einer anderen: vermutlich Arbeitsteilung zwischen Scanner und Angreifer."), handBody)));
 

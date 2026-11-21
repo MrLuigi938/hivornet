@@ -256,8 +256,10 @@ func telnetReply(p deviceProfile, host, line string) string {
 			out.WriteString("  PID USER       VSZ STAT COMMAND\r\n    1 root      1484 S    init\r\n  312 root      1488 S    /sbin/syslogd -n\r\n  401 root      1492 S    telnetd\r\n  987 root      1496 S    -sh\r\n")
 		case "ls":
 			out.WriteString("bin   dev   etc   lib   mnt   proc  sbin  sys   tmp   usr   var\r\n")
-		case "wget", "curl", "tftp", "ftpget":
-			// Das Gerät hat scheinbar keine Route nach draußen (wie hinter einer Firewall).
+		case "wget":
+			// Das Gerät hat scheinbar keine Route nach draußen (wie hinter einer Firewall); Text wie BusyBox (timing.go).
+			out.WriteString(wgetError(f[1:]))
+		case "curl", "tftp", "ftpget":
 			out.WriteString(f[0] + ": can't connect to remote host: Network is unreachable\r\n")
 		default:
 			out.WriteString("sh: " + clip(f[0], 64) + ": not found\r\n")
