@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -56,6 +57,7 @@ type Attack struct {
 	Commands      []string       `json:"commands,omitempty"`       // ausgeführte Befehle (einstufung.go)
 	ProtoCommands []string       `json:"proto_commands,omitempty"` // Protokoll-Befehle vor der Anmeldung, Eingaben an der Login-Abfrage
 	URLs          []string       `json:"urls,omitempty"`
+	Forwards      []string       `json:"forwards,omitempty"`   // Ziele von SSH-Weiterleitungen (direct-tcpip)
 	Wallets       []string       `json:"wallets,omitempty"`    // Krypto-Wallets aus Miner-Befehlen (indicators.go)
 	Pools         []string       `json:"pools,omitempty"`      // Mining-Pools
 	Sensors       []string       `json:"sensors,omitempty"`    // meldende Sensoren (feed.go: Vertrauen)
@@ -90,6 +92,7 @@ type Attack struct {
 	okSess                       map[string]bool // Sitzungen mit angenommenem Login
 	credOrder                    []string        // die ersten credOrderMax Kombinationen in Reihenfolge
 	stripStride, stripSeen       int             // Ausdünnung des Zeitstreifens (addStrip)
+	dropFetch, dropRun           bool            // Laden bzw. Starten gesehen (noteDropper)
 }
 
 type stripEvent struct {
@@ -153,6 +156,22 @@ func newAttack(e *Event) *Attack {
 // als "command", wenn sie ausgeführt wurden; sonst unter "proto_command" bzw. "prompt".
 var kindCount = map[evKind]string{kindTLSPlain: "tls_plain", kindForeign: "foreign", kindPrompt: "prompt", kindProbe: "probe_command", kindProto: "proto_command", kindExec: "command"}
 
+// Dropper in Einzelschritten: "tftp -g -r x86 -l q host", dann "chmod 777 q", dann "./q".
+// download_exec (analyze.go) prüft je Befehl; Bots schicken die Schritte aber oft einzeln.
+var (
+	dropFetchRe = regexp.MustCompile(`(?i)\b(wget|curl|tftp|ftpget)\b`)
+	dropRunRe   = regexp.MustCompile(`(?i)\bchmod\s+(\+x|[0-7]*[157][0-7]*)\b|(^|[;&|\s])\./[\w.-]+|\b(ba)?sh\s+[\w./][\w./-]*`)
+)
+
+func (a *Attack) noteDropper(cmd string) {
+	if dropFetchRe.MatchString(cmd) {
+		a.dropFetch = true
+	}
+	if dropRunRe.MatchString(cmd) {
+		a.dropRun = true
+	}
+}
+
 func (a *Attack) addCommand(list *[]string, c string) {
 	c = clip(c, 500)
 	if c != "" && !a.seenCmd[c] && len(*list) < 30 {
@@ -171,8 +190,11 @@ func (a *Attack) add(e *Event) {
 	a.Last = ms
 	a.Events++
 	kind := eventKind(e, a.okSess[e.Session])
+	fwd := e.Type == "request" && dataString(e.Data, "forward_to") != ""
 	if k, ok := kindCount[kind]; ok {
 		a.Counts[k]++
+	} else if fwd { // SSH-Weiterleitung: keine Web-Anfrage
+		a.Counts["forward"]++
 	} else {
 		a.Counts[e.Type]++
 	}
@@ -218,6 +240,7 @@ func (a *Attack) add(e *Event) {
 	case e.Type == "command":
 		if kind == kindExec {
 			a.addCommand(&a.Commands, str("input"))
+			a.noteDropper(str("input"))
 		} else {
 			a.addCommand(&a.ProtoCommands, str("input"))
 		}
@@ -255,6 +278,12 @@ func (a *Attack) add(e *Event) {
 		}
 		return
 	case "request":
+		if fwd {
+			if t := clip(dataString(e.Data, "forward_to"), 120); len(a.Forwards) < 10 && !slices.Contains(a.Forwards, t) {
+				a.Forwards = append(a.Forwards, t)
+			}
+			break
+		}
 		a.paths[clip(requestKey(e), 300)]++
 		if ua := str("user_agent"); ua != "" && len(a.userAgents) < 5 && !slices.Contains(a.userAgents, ua) {
 			a.userAgents = append(a.userAgents, clip(ua, 200))
@@ -298,7 +327,7 @@ func (a *Attack) add(e *Event) {
 	}
 	// Nachlade-Adressen auch aus Befehlen (wget, curl …) und aus entschlüsselten Inhalten;
 	// bei Web-Anfragen nur entschlüsselte (Pfade sind oft nur Proben)
-	if e.Type == "command" || e.Type == "payload" || e.Type == "request" {
+	if e.Type == "command" || e.Type == "payload" || e.Type == "request" || kind == kindPrompt {
 		for _, u := range an.urls {
 			if len(a.URLs) < 10 && !slices.Contains(a.URLs, clip(u, 300)) {
 				a.URLs = append(a.URLs, clip(u, 300))
@@ -349,6 +378,9 @@ func (a *Attack) finish() {
 	sort.Ints(a.Ports)
 	a.Creds, a.CredsDistinct = topCounts(a.creds, 12), len(a.creds)
 	a.Paths, a.PathsDistinct = topCounts(a.paths, 12), len(a.paths)
+	if a.dropFetch && a.dropRun && a.tags["download_exec"] == 0 {
+		a.tags["download_exec"] = 1 // Laden und Starten in getrennten Befehlen (noteDropper)
+	}
 	a.Tags = topCounts(a.tags, 8)
 	for i := range a.Tags {
 		if p := patternByID[a.Tags[i].Key]; p != nil {

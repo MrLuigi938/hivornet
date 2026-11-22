@@ -77,9 +77,9 @@ Regeln, die jeder Handler einhalten muss:
 | `geo.go` | GeoIP (DB-IP Lite), `Enrich`, monatliches Update |
 | `sse.go` | `Broker`: Live-Ereignisse an Browser |
 | `analyze.go` | **Muster-Analyse:** `patterns` (Regeln), `matchPatterns`, `commandTools`/`eventTools`, `BuildReport`, `timelineLine` (Ablauf für die KI), `Report.Text` |
-| `einstufung.go` | **Einstufung an einer Stelle:** `eventKind` (TLS am Klartext-Port, Eingabe an der Login-Abfrage, Protokoll-Abfrage, Protokoll-Befehl, ausgeführter Befehl), `commandExecuted`, `redisChanging`, `probeCommand`, `promptLines`, `requestKey`/`maskSIP` (SIP/DNS-Schlüssel) |
+| `einstufung.go` | **Einstufung an einer Stelle:** `eventKind` (TLS am Klartext-Port, fremdes Protokoll auch in der Telnet-/SSH-Shell, leere Eingabe, Eingabe an der Login-Abfrage samt angehängtem ` ` (`trimNul`), Protokoll-Abfrage, Protokoll-Befehl, ausgeführter Befehl), `commandExecuted`, `redisChanging`, `probeCommand`, `promptLines`, `requestKey`/`maskSIP` (SIP/DNS-Schlüssel) |
 | `abusereport.go` | **Automatische Meldung an AbuseIPDB:** `abuseVerdict` (wann und mit welchen Kategorien), `abuseComment`/`scrubComment` (ohne Passwörter, IPs, Hostnamen), `abuseRound` alle 5 Minuten über die Angriffe der letzten 30 Minuten, `sendAbuseReport` (`POST /api/v2/report`, Kontingent aus `X-RateLimit-*`, Pause bei 429), Protokoll in `kv` (`abuse_report_log`), Abstand je IP in `lookups` (`abuse_report`, `abuse_report_dry`) |
-| `bait.go` | Köder-Zugangsdaten wie im Honeypot ableiten, `baitUsed`, `eventPatterns` (Muster plus `bait_used`) |
+| `bait.go` | Köder-Zugangsdaten wie im Honeypot ableiten, `baitUsed`, `eventPatterns` (Muster plus `bait_used`, `file_upload` bei SCP/SFTP, `ssh_tunnel` bei SSH-Weiterleitung) |
 | `tlsfp.go` | `parseClientHello`, JA3 und JA4 (TLS-Client, FoxIO-Spezifikation), `headerFingerprint`, `eventFingerprints` |
 | `cve.go` | `cveRules` (CVE je Web-Anfrage), `patternMitre`/`mitreNames` (MITRE ATT&CK je Muster) |
 | `campaigns.go` | Kampagnen über gleiche Zugangsdatenlisten und Nachlade-Hosts (Union-Find), gleiche Fingerabdrücke; `GET /api/campaigns` |
@@ -90,8 +90,8 @@ Regeln, die jeder Handler einhalten muss:
 | `scanner.go` | Forschungsscanner (Shodan, Censys …) am AS-Namen und User-Agent erkennen: `researchScanner` |
 | `ownnet.go` | Eigene Netze (`OwnNets` in den Extras): `isOwnIP`, `ownHidden`; der Writer schreibt eigene Tests nur nach `events`, Notifier und `/api/attacks` blenden sie aus |
 | `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |
-| `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`), `allURLs` |
-| `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
+| `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt und gzip-gepackt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`; nur URL-Dekodiertes ist kein Versteck und wird nicht als Befehl geprüft), `allURLs` (auch `tftp://host/datei` aus tftp-Aufrufen) |
+| `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); `noteDropper` erkennt Laden und Starten in getrennten Befehlen; SSH-Weiterleitungen zählen als `forward` mit Zielen in `Forwards`; liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `webhookBody` (Felder der Meldung plus `content` für Discord), `watchWarnings`, Testnachricht |
 | `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB, GreyNoise), Geheimnis-Behandlung (`secretFields`), Tabelle `lookups` |

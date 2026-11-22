@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -405,10 +406,20 @@ func (c *CowrieTail) handle(line []byte) {
 	case "cowrie.login.success", "cowrie.login.failed":
 		e.Type = "login"
 		e.Username, e.Password = str(m, "username"), str(m, "password")
+		if e.Service == "telnet" { // "root\x00": angehängtes Nullbyte gehört nicht zu den Zugangsdaten
+			e.Username, e.Password = trimNul(e.Username), trimNul(e.Password)
+		}
 		data["success"] = id == "cowrie.login.success"
 	case "cowrie.command.input":
+		in := str(m, "input")
+		if e.Service == "telnet" {
+			in = trimNul(in)
+		}
+		if strings.TrimSpace(in) == "" { // nur Enter: kein Befehl (einstufung.go, Regel 1c)
+			return
+		}
 		e.Type = "command"
-		data["input"] = clip(str(m, "input"), 4096)
+		data["input"] = clip(in, 4096)
 	case "cowrie.session.file_download", "cowrie.session.file_download.failed":
 		e.Type = "download"
 		data["url"] = clip(str(m, "url"), 2048)

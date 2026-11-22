@@ -38,7 +38,7 @@ var patternPhase = map[string]int{
 	"docker_escape": phImpact, "redis_takeover": phAccess, "account": phPersist, "cover_tracks": phPersist, "kill_rivals": phPersist,
 	"obfuscation": phPersist, "recon": phExec, "honeypot_check": phExec, "prompt_injection": phExec, "data_theft": phImpact, "log4shell": phAccess, "java4shell": phAccess, "web_rce": phAccess,
 	"secret_hunt": phRecon, "iot_exploit": phAccess, "traversal": phAccess, "sqli": phAccess, "cms_login": phRecon,
-	"api_probe": phRecon, "known_exploit": phAccess, "product_probe": phRecon, "bait_used": phAccess, "tls_on_plain": phRecon, "smb_probe": phRecon, "http_on_raw": phRecon,
+	"api_probe": phRecon, "known_exploit": phAccess, "product_probe": phRecon, "bait_used": phAccess, "file_upload": phIngress, "ssh_tunnel": phImpact, "tls_on_plain": phRecon, "smb_probe": phRecon, "http_on_raw": phRecon,
 }
 
 type ChainNode struct {
@@ -229,6 +229,8 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 		}
 		var n *ChainNode
 		switch {
+		case e.Type == "command" && strings.TrimSpace(text) == "":
+			// leere Eingabe (einstufung.go, Regel 1c): kein Schritt
 		case kind == kindTLSPlain:
 			n = b.node("tlsplain:"+e.Service, phRecon, "pattern", "TLS am Klartext-Port", 0, e, svc)
 		case kind == kindForeign && contains(ids, "http_on_raw"):

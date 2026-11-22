@@ -2,6 +2,21 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Behoben (Erkennung, geprüft an einer echten Instanz)
+- **HTTP-Anfrage an Telnet galt als „TELNET-Einbruch“ (Stufe 3).** Cowrie nimmt bei der Anmelderegel „nach N Versuchen“ auch eine Kopfzeile als Login an („User-Agent: …“ / „Accept: */*“); die restlichen Kopfzeilen kamen als Befehle. HTTP-Zeilen in der Telnet- und SSH-Shell zählen jetzt als fremdes Protokoll (Abtasten, Merkmal „HTTP auf fremdem Port“), nicht als Login oder Befehl.
+- **Leere Eingaben (nur Enter) zählten als ausgeführte Befehle** und hoben einen Login auf Stufe 3. Cowrie-Ereignisse ohne Eingabe werden verworfen; vorhandene zählen nicht mehr mit.
+- **„enable\x00 / linuxshell\x00“ erschien unter den Zugangsdaten.** Mirai-Varianten hängen ein Nullbyte an; jetzt sind das wie ohne Nullbyte Befehle an der Login-Abfrage. Cowrie-Zugangsdaten und -Befehle an Telnet kommen ohne angehängtes `\x00` an.
+- **Mirai-Telnet-Folgen ohne Probe-Applet wurden nicht als IoT-Botnetz erkannt** (enable, system, shell, linuxshell, `ping ;sh`, nacktes `/bin/busybox`, Gafgyt-Kennung als Hex-Echo, Dateien `.x86_64`). Sie liefen als „TELNET-Einbruch“ ohne Merkmal.
+- **Nachladen in Einzelschritten blieb unerkannt:** `tftp -g -r x86_64 -l q host`, dann `chmod 777 q`, dann `./q` ergibt jetzt „Nachladen und Ausführen“ (T1105). tftp-Aufrufe liefern eine Nachlade-Adresse (`tftp://host/datei`).
+- **IoT-Botnetz trug immer MITRE T1105** (Ingress Tool Transfer), auch ohne Nachladen. Jetzt nur T1059.004; T1105 kommt mit „Nachladen und Ausführen“ oder einem Download.
+- **URL-Kodierung galt als Verschleierung, dekodierte Web-Pfade als Shell-Befehle:** `archive?path=%2Fusr%2Fbin%2F` (Docker-API) bekam „Verschleierung“, `/..%2F..%2Fetc%2Fpasswd` zusätzlich „Konto ändern“. URL-Dekodiertes wird nur noch in seiner Gruppe geprüft; Base64, Hex und Oktal bleiben Verschleierung.
+- **Base64 aus gzip (`echo H4sI… | base64 -d | gunzip | sh`) wurde nicht entschlüsselt.** Jetzt entpackt (höchstens 256 KB, auch gekürzte Daten), Muster und Nachlade-Adressen darin werden erkannt.
+- **SSH-Weiterleitungen (direct-tcpip) zählten als „Web-Anfragen“** – auf der Angriffskarte, im Dashboard und mit leerem Pfad. Jetzt eigener Zähler „Weiterleitungsversuche (SSH-Tunnel)“, Liste der Tunnel-Ziele und Merkmal „Tunnel über SSH“ (T1090). Das Dashboard zählt neue Weiterleitungen nicht mehr als Web-Anfragen.
+- **Datei-Upload per SCP/SFTP ohne Merkmal:** Stufe „Datei nachgeladen“ stimmte, Muster und MITRE fehlten. Jetzt Merkmal „Datei hochgeladen“ (T1105).
+- **Dropper-Adressen an der Login-Abfrage** (Bot tippt `wget http://…` blind in die Anmeldung) fehlten unter den Nachlade-Adressen.
+
 ## [0.9.4-beta] – 2026-11-22
 
 **Update:** Raspberry Pi per Knopf; der Updater schaltet den neuen Zeitgeber `hivornet-memstat.timer` ein.

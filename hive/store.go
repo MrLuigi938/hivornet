@@ -525,6 +525,15 @@ type Writer struct {
 	done     chan struct{}
 }
 
+// hourlyType: Art in den Stundenzählern. SSH-Weiterleitungen (Cowrie direct-tcpip) kommen als
+// "request" an, sind aber keine Web-Anfragen; sie zählen unter "forward".
+func hourlyType(e *Event) string {
+	if e.Type == "request" && dataString(e.Data, "forward_to") != "" {
+		return "forward"
+	}
+	return e.Type
+}
+
 func approxSize(e *Event) int64 {
 	return int64(512 + len(e.Data) + len(e.Username) + len(e.Password) + len(e.City) + len(e.ASOrg))
 }
@@ -705,7 +714,7 @@ func (w *Writer) writeBatch(batch []*Event) error {
 		if ownHidden(e.SrcIP) || e.Type == "condensed" { // eigener Test (ownnet.go) bzw. Sammelzeile: schon gezählt
 			continue
 		}
-		if _, err := hr.Exec(ms/3600000, e.Service, e.Type, e.Country, e.TarpitMs); err != nil {
+		if _, err := hr.Exec(ms/3600000, e.Service, hourlyType(e), e.Country, e.TarpitMs); err != nil {
 			return fmt.Errorf("hourly: %w", err)
 		}
 		if _, err := at.Exec(e.SrcIP, ms, ms, b2i(e.Type == "login"), b2i(e.Type == "command"), e.TarpitMs,
