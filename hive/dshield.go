@@ -80,7 +80,8 @@ type dshieldBatch struct {
 }
 
 // dshieldCollect liest die Ereignisse nach lastID und baut die Einträge.
-func (h *Hive) dshieldCollect(ctx context.Context, cfg DShieldConfig, lastID int64) (*dshieldBatch, error) {
+// cutoff: nur Ereignisse davor (Verzögerung der Meldungen, delay.go).
+func (h *Hive) dshieldCollect(ctx context.Context, cfg DShieldConfig, lastID int64, cutoff time.Time) (*dshieldBatch, error) {
 	var types []string
 	if cfg.Firewall {
 		types = append(types, "'connect'")
@@ -96,7 +97,7 @@ func (h *Hive) dshieldCollect(ctx context.Context, cfg DShieldConfig, lastID int
 		return b, nil
 	}
 	evs, err := h.loadEvents(ctx, "id > ? AND ts < ? AND type IN ("+strings.Join(types, ",")+")",
-		[]any{lastID, time.Now().Add(-time.Minute).UnixMilli()}, "ASC", dshieldMaxEvents)
+		[]any{lastID, cutoff.UnixMilli()}, "ASC", dshieldMaxEvents)
 	if err != nil {
 		return nil, err
 	}
@@ -186,9 +187,16 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 		// Erster Lauf: nur die letzte Stunde, keine alten Daten
 		h.st.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(id), 0) FROM events WHERE ts < ?`, time.Now().Add(-time.Hour).UnixMilli()).Scan(&lastID)
 	}
-	b, err := h.dshieldCollect(ctx, cfg, lastID)
+	delay := max(h.Extras().reportDelay(), time.Minute)
+	cutoff := time.Now().Add(-delay)
+	b, err := h.dshieldCollect(ctx, cfg, lastID, cutoff)
 	if err != nil {
 		return
+	}
+	if delay > time.Minute {
+		until := time.Now().Add(55 * time.Minute)
+		h.share.setWaits("dshield", []reportWait{{Subject: "Ereignisse nach " + cutoff.In(hiveLoc()).Format("15:04"),
+			Until: until, Detail: fmt.Sprintf("noch keine %d Minuten alt; gehen mit der nächsten Sendung (etwa %s)", int(delay.Minutes()), until.In(hiveLoc()).Format("15:04"))}})
 	}
 	summary := fmt.Sprintf("%d Verbindungen, %d Web-Anfragen, %d Anmeldungen", len(b.firewall), len(b.web), len(b.logins))
 	e := shareLogEntry{Time: time.Now(), Subject: summary}

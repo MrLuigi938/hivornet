@@ -141,8 +141,9 @@ type shareState struct {
 	ch      map[string]*shareChannel
 	dir     string // Quarantäne; leer = neben der Datenbank
 	cleaned time.Time
-	skips   []sampleSkip // zuletzt nicht geholte Adressen mit Grund (nur im Speicher)
-	later   bool         // in dieser Runde aufgeschoben: Suchfenster nicht vorrücken
+	skips   []sampleSkip            // zuletzt nicht geholte Adressen mit Grund (nur im Speicher)
+	later   bool                    // in dieser Runde aufgeschoben: Suchfenster nicht vorrücken
+	waits   map[string][]reportWait // wartet auf die Verzögerung (delay.go)
 }
 
 // sampleSkip: eine Nachlade-Adresse, die der Hive nicht geholt hat, und warum.
@@ -305,6 +306,7 @@ func urlSubject(u string) string {
 type urlFinding struct {
 	URL     string
 	Service string
+	Last    time.Time // zuletzt benutzt (Verzögerung der Meldung, delay.go)
 }
 
 // urlFindings: zulässige Nachlade-Adressen seit since, je Adresse einmal. skip (darf nil sein)
@@ -313,7 +315,7 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, wh
 	if skip == nil {
 		skip = func(string, string) {}
 	}
-	rs, err := h.st.db.QueryContext(ctx, `SELECT sensor, service, type, src_ip, data, as_org FROM events
+	rs, err := h.st.db.QueryContext(ctx, `SELECT ts, sensor, service, type, src_ip, data, as_org FROM events
 		WHERE ts >= ? AND type IN ('command','download') ORDER BY id LIMIT 20000`, since.UnixMilli())
 	if err != nil {
 		return nil, err
@@ -322,13 +324,14 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, wh
 	untrusted := h.untrustedSensors()
 	own := h.ownPublicIP()
 	marks := h.ownMarkers()
-	seen := map[string]bool{}
+	seen := map[string]int{} // Adresse -> Index in out
 	var out []urlFinding
 	for rs.Next() {
 		var e Event
 		var data []byte
 		var asOrg string
-		if rs.Scan(&e.Sensor, &e.Service, &e.Type, &e.SrcIP, &data, &asOrg) != nil {
+		var ts int64
+		if rs.Scan(&ts, &e.Sensor, &e.Service, &e.Type, &e.SrcIP, &data, &asOrg) != nil {
 			continue
 		}
 		e.Data = data
@@ -355,9 +358,11 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, wh
 			u, why := shareURLProblem(strings.ReplaceAll(raw, `\`, ""), own)
 			// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
 			// nie öffentlich melden und nicht holen.
-			switch {
-			case seen[u] && u != "":
+			if i, ok := seen[u]; ok && u != "" {
+				out[i].Last = time.UnixMilli(ts) // jüngste Benutzung
 				continue
+			}
+			switch {
 			case from != "":
 				skip(raw, "stammt "+from)
 				continue
@@ -368,8 +373,8 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, wh
 				skip("(ausgeblendet)", "enthält die eigene Adresse oder den Namen des Honeypots")
 				continue
 			}
-			seen[u] = true
-			out = append(out, urlFinding{URL: u, Service: e.Service})
+			seen[u] = len(out)
+			out = append(out, urlFinding{URL: u, Service: e.Service, Last: time.UnixMilli(ts)})
 		}
 	}
 	return out, rs.Err()
@@ -415,7 +420,8 @@ func (h *Hive) shareRound(ctx context.Context) {
 	uh := x.URLhausReport.Enabled && x.AbuseChKey != ""
 	if x.Samples.Enabled || uh {
 		start := time.Now()
-		since := h.shareSince(start)
+		// URLhaus meldet erst nach der Verzögerung (delay.go): so weit zurück suchen
+		since := h.shareSince(start).Add(-x.reportDelay())
 		var skip func(u, why string)
 		if x.Samples.Enabled {
 			skip = h.share.skip
@@ -447,6 +453,9 @@ func (h *Hive) shareRound(ctx context.Context) {
 			}
 		}
 	}
+	if x.AbuseChKey != "" && (x.Bazaar.Lookup || x.Bazaar.Upload) {
+		h.bazaarDue(ctx, x) // geholte Dateien nach der Wartezeit melden (delay.go)
+	}
 	h.cleanupQuarantine(x.Samples, false)
 }
 
@@ -474,12 +483,19 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 	}
 	var batch []item
 	var subjects []string
+	var waits []reportWait
+	defer func() { h.share.setWaits("urlhaus", waits) }()
+	delay := x.reportDelay()
 	for _, f := range finds {
 		if sent+len(batch) >= cfg.DailyLimit || len(batch) >= 20 {
 			break
 		}
 		subj := urlSubject(f.URL)
 		if _, _, done := h.st.lookupGet(subj, source, 0); done {
+			continue
+		}
+		if until := f.Last.Add(delay); time.Now().Before(until) {
+			waits = append(waits, reportWait{Subject: f.URL, Until: until, Detail: waitText(until)})
 			continue
 		}
 		tags := []string{"honeypot"}
@@ -605,6 +621,16 @@ func (h *Hive) shareStatus(w http.ResponseWriter, r *http.Request) {
 			sk := append([]sampleSkip{}, h.share.skips...)
 			m["skipped"] = sk
 		}
+		var waiting []reportWait
+		for _, w := range h.share.waits[k] {
+			if time.Now().Before(w.Until) {
+				waiting = append(waiting, w)
+			}
+		}
+		if waiting == nil {
+			waiting = []reportWait{}
+		}
+		m["waiting"] = waiting
 		if time.Now().Before(c.PauseUntil) {
 			m["pause_until"] = c.PauseUntil
 		}
@@ -618,5 +644,6 @@ func (h *Hive) shareStatus(w http.ResponseWriter, r *http.Request) {
 	out["quarantine"] = map[string]any{"files": files, "bytes": total, "max_bytes": int64(x.Samples.MaxTotalMB) << 20}
 	out["own_ip_known"] = h.ownPublicIP() != ""
 	out["abusech_key"] = x.AbuseChKey != ""
+	out["report_delay_min"] = x.ReportDelayMin
 	writeJSON(w, out)
 }

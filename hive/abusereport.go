@@ -340,10 +340,13 @@ func (h *Hive) abuseRound(ctx context.Context) {
 		return
 	}
 	untrusted := h.untrustedSensors() // protect.go: gefälschte Ereignisse sollen niemanden melden
-	list, _, err := h.loadAttacksSkip(ctx, time.Now().Add(-30*time.Minute), nil, untrusted)
+	delay := x.reportDelay()          // delay.go: erst melden, wenn die IP so lange still ist
+	list, _, err := h.loadAttacksSkip(ctx, time.Now().Add(-30*time.Minute-delay), nil, untrusted)
 	if err != nil {
 		return
 	}
+	var waits []reportWait
+	defer func() { h.share.setWaits("abuseipdb", waits) }()
 	names := h.honeypotNames()
 	interval := time.Duration(cfg.IntervalHours) * time.Hour
 	source := "abuse_report"
@@ -359,6 +362,10 @@ func (h *Hive) abuseRound(ctx context.Context) {
 			continue
 		}
 		if _, _, seen := h.st.lookupGet("ip:"+a.IP, source, interval); seen {
+			continue
+		}
+		if until := time.UnixMilli(a.Last).Add(delay); time.Now().Before(until) {
+			waits = append(waits, reportWait{Subject: a.IP, Until: until, Detail: waitText(until)})
 			continue
 		}
 		e := abuseLogEntry{Time: time.Now(), IP: a.IP, Categories: cats, Comment: abuseComment(a, names)}
@@ -498,5 +505,5 @@ func (h *Hive) abuseLog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, map[string]any{"log": log, "limit": a.limit, "remaining": a.remaining, "pause_until": pause,
-		"last_error": a.lastErr, "last_run": last, "sent_24h": day})
+		"last_error": a.lastErr, "last_run": last, "sent_24h": day, "waiting": h.share.waitList("abuseipdb")})
 }

@@ -37,10 +37,12 @@ type Extras struct {
 	Samples       SampleCollectConfig `json:"samples"`
 	Bazaar        BazaarConfig        `json:"bazaar"`
 	DShield       DShieldConfig       `json:"dshield"`
-	OwnIP         OwnIPConfig         `json:"own_ip"`    // eigene öffentliche Adresse und Namen (ownip.go)
-	AIPlus        AIPlusConfig        `json:"ai_plus"`   // weitere KI-Funktionen (aiplus.go)
-	Brute         BruteConfig         `json:"brute"`     // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
-	TimeZone      string              `json:"time_zone"` // IANA-Name für Uhrzeiten in Texten des Hives; leer: TZ, sonst UTC (timezone.go)
+	// Meldungen an alle Dienste erst, wenn der Angriff so lange ruhig ist (delay.go)
+	ReportDelayMin int          `json:"report_delay_min"`
+	OwnIP          OwnIPConfig  `json:"own_ip"`    // eigene öffentliche Adresse und Namen (ownip.go)
+	AIPlus         AIPlusConfig `json:"ai_plus"`   // weitere KI-Funktionen (aiplus.go)
+	Brute          BruteConfig  `json:"brute"`     // Dauer-Brute-Force: Verdichten und Drossel (bruteforce.go)
+	TimeZone       string       `json:"time_zone"` // IANA-Name für Uhrzeiten in Texten des Hives; leer: TZ, sonst UTC (timezone.go)
 }
 
 type NotifyConfig struct {
@@ -79,6 +81,7 @@ func defaultExtras() Extras {
 	x.Mimic = defaultMimic()
 	x.CVEDB.Enabled = true // es gehen nur CVE-Nummern hinaus
 	defaultShare(&x)
+	x.ReportDelayMin = reportDelayDefault
 	x.AIPlus = defaultAIPlus()
 	x.Brute = defaultBrute()
 	return x
@@ -134,6 +137,9 @@ func (x *Extras) Validate() error {
 		return err
 	}
 	if err := x.AbuseReport.validate(); err != nil {
+		return err
+	}
+	if err := validateReportDelay(x.ReportDelayMin); err != nil {
 		return err
 	}
 	if x.AI.Enabled && (x.AI.BaseURL == "" || x.AI.Model == "") {

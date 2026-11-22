@@ -169,3 +169,52 @@ func TestShareValidateTrimsKey(t *testing.T) {
 		t.Fatal("E-Mail ohne @ angenommen")
 	}
 }
+
+func TestReportDelayURLhausAndBazaar(t *testing.T) {
+	allowDoc(t)
+	sent := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		sent++
+		io.WriteString(w, "inserted")
+	}))
+	defer srv.Close()
+	old := urlhausSubmitURL
+	urlhausSubmitURL = srv.URL
+	t.Cleanup(func() { urlhausSubmitURL = old })
+	h := shareHive(t)
+	x := h.Extras()
+	if x.ReportDelayMin != 15 {
+		t.Fatalf("Vorgabe: %d Minuten", x.ReportDelayMin)
+	}
+	x.AbuseChKey = "k"
+	x.URLhausReport = URLhausReportConfig{Enabled: true, DailyLimit: 10}
+	fresh := urlFinding{URL: "http://198.51.100.20/x", Last: time.Now().Add(-5 * time.Minute)}
+	h.urlhausSubmit(context.Background(), x, []urlFinding{fresh})
+	w := h.share.waitList("urlhaus")
+	if sent != 0 || len(w) != 1 || w[0].Subject != fresh.URL || w[0].Until.Sub(fresh.Last) != 15*time.Minute {
+		t.Fatalf("gesendet %d, wartet %+v", sent, w)
+	}
+	fresh.Last = time.Now().Add(-16 * time.Minute)
+	h.urlhausSubmit(context.Background(), x, []urlFinding{fresh})
+	if sent != 1 || len(h.share.waitList("urlhaus")) != 0 {
+		t.Fatalf("nach der Wartezeit: gesendet %d", sent)
+	}
+
+	// MalwareBazaar: vorgemerkt, wartet, danach aus der Liste (Datei fehlt hier)
+	sha := strings.Repeat("ab", 32)
+	h.bazaarLater(sha, "http://198.51.100.20/x")
+	x.Bazaar.Lookup = true
+	h.bazaarDue(context.Background(), x)
+	if w := h.share.waitList("bazaar"); len(w) != 1 || w[0].Subject != sha {
+		t.Fatalf("Bazaar wartet: %+v", w)
+	}
+	x.ReportDelayMin = 0
+	h.bazaarDue(context.Background(), x)
+	if _, _, ok := h.st.lookupGet("hash:"+sha, "bazaar_wait", 0); ok || len(h.share.waitList("bazaar")) != 0 {
+		t.Fatal("nach der Wartezeit noch vorgemerkt")
+	}
+	x.ReportDelayMin = reportDelayMax + 1
+	if err := x.Validate(); err == nil {
+		t.Fatal("Verzögerung über 24 Stunden angenommen")
+	}
+}

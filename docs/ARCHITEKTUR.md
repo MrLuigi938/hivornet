@@ -92,6 +92,7 @@ Regeln, die jeder Handler einhalten muss:
 | `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |
 | `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`), `allURLs` |
 | `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
+| `delay.go` | Verzögerung der Meldungen (`report_delay_min`, Standard 15 Minuten) für AbuseIPDB, URLhaus, MalwareBazaar und DShield; Wartelisten je Dienst im Speicher (`setWaits`, `waitList`), vorgemerkte Proben für MalwareBazaar in `lookups` (`bazaar_wait`) |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `webhookBody` (Felder der Meldung plus `content` für Discord), `watchWarnings`, Testnachricht |
 | `extras.go` | `Extras` (Standort, Benachrichtigungen, KI, AbuseIPDB, GreyNoise), Geheimnis-Behandlung (`secretFields`), Tabelle `lookups` |
@@ -145,6 +146,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET/PUT /api/extras`, `POST /api/extras/test-notify` | Zusatzfunktionen |
 | `GET /api/campaigns`, `GET /api/chain`, `GET /api/weekly` | Kampagnen, Angriffskette, Vorschau des Wochenberichts |
 | `GET /api/lookup/urlhaus?url=…`, `GET /api/lookup/malwarebazaar?hash=…` | abuse.ch auf Knopfdruck (nur Adressen und Hashes aus den eigenen Daten) |
+| `POST /api/share/dshield/check` | DShield-Zugang prüfen (E-Mail und API-Schlüssel bei isc.sans.edu), trägt die Benutzer-ID ein (nur Admin) |
 | `GET /api/abuse/log` | Protokoll der AbuseIPDB-Meldungen, Kontingent, letzter Fehler (nur Admin) |
 | `GET /api/tarpit`, `GET /api/system`, `GET /healthz`, `GET /metrics` | Tarpit (mit `held`: gerade festgehaltene Verbindungen aus den Lebenszeichen, Herkunft aus `attackers`), System, Überwachung |
 
@@ -181,12 +183,12 @@ Reines JavaScript in ES-Modulen, kein Build-Schritt, per `go:embed` im Binary (i
 |---|---|
 | `index.html`, `style.css`, `favicon.svg` | Rahmen; Farben als CSS-Variablen für Hell und Dunkel; Logo (Schild mit Stachel) |
 | `flags.woff2` | Schrift „Twemoji Country Flags“, damit Flaggen-Emojis auch unter Windows erscheinen |
-| `dom.js` | `h()` baut Elemente und fügt Texte **immer als Textknoten** ein (`safeText` ersetzt Steuerzeichen); `api()`, Formatierung, Tooltip (`hideTip`), `flag(cc)`, `store()` (Präfix `hv.`) |
+| `dom.js` | `h()` baut Elemente und fügt Texte **immer als Textknoten** ein (`safeText` ersetzt Steuerzeichen); `api()`, Formatierung, Tooltip (`hideTip`), `flag(cc)`, `store()` (Präfix `hv.`), `panels()` (Reiter mit Zähler am Fuß einer Karte statt Aufklapplisten) |
 | `charts.js` | `worldMap` (Länder nach Anzahl eingefärbt, Orte als Punkte, Zoom per Mausrad, Verschieben, `REGIONS`, Umschalter Länder/Orte/Beides in `controls`; Hover mit Flagge, Name und Angriffen; `attack()` zeichnet die Angriffslinie), `sparkline`, `timeline`, `toplist`, `svcName`, `svcColor` |
 | `attacks.js` | Seite „Angriffe“ (`viewAttacks`), Karte je Angriff (`attackCard`), Zeile für „Gerade aktiv“ (`attackRow`), `liveAttacks` (sammelt IPs aus dem Live-Strom und holt alle 2 s deren Angriffe), Umschalter zur Einzelansicht |
 | `world.js` | Landumrisse (`COUNTRIES`) und deutsche Ländernamen (`COUNTRY_NAMES`), erzeugt von `tools/build_world.py`; Länder über der Datumsgrenze sind abgewickelt |
 | `app.js` | Anmeldung, Live-Stream, Kopfleiste mit Navigation und Benutzermenü, Router (`routes`, `route()`), Ansichten Dashboard (`viewDashboard`), Einzelne Ereignisse (`viewFeed`, fasst Wiederholungen zusammen), Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
-| `extra.js` | Ansichten Live-Karte und Analyse; Bausteine `reportCard`, `ttyCard`, `intelCard`, `extrasCards` |
+| `extra.js` | Ansicht Analyse; Bausteine `reportCard`, `ttyCard`, `intelCard`, `extrasCards` |
 
 Regeln für die UI:
 

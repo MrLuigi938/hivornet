@@ -1,13 +1,13 @@
 // Hivornet Web-UI: Anmeldung, Navigation und alle Ansichten.
 import {
-  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag, hideTip,
+  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag, hideTip, panels,
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
 import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE } from "./attacks.js";
-// Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
+// Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
-import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
+import { reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
 // Einstellungen mit Unterseiten (#/settings/<bereich>)
 import { viewSettings } from "./settings.js";
 // Hardware-Monitor im Reiter System
@@ -18,7 +18,7 @@ const state = { user: null, range: store("range") || "24h", es: null, liveFns: n
 
 // Navigation in der Kopfleiste; Einstellungen, System und Protokolle stehen im Benutzermenü.
 const NAV = [
-  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/live", "Live-Karte"], ["#/analysis", "Analyse"], ["#/insights", "Erkenntnisse"],
+  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/analysis", "Analyse"], ["#/insights", "Erkenntnisse"],
   ["#/creds", "Zugangsdaten"], ["#/tarpit", "Tarpit"], ["#/system", "System"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
@@ -307,7 +307,7 @@ const routes = [
   [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings(?:\/([a-z]+))?$/, viewSettings], [/^#\/system$/, viewSystem],
-  [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/logs(\?.*)?$/, viewLogs],
+  [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/logs(\?.*)?$/, viewLogs],
 ];
 
 // route({ quiet: true }) aktualisiert die aktuelle Seite unauffällig: Die neue Fassung wird
@@ -550,8 +550,7 @@ async function viewDashboard(el, ctx) {
         h("span", null, h("i", { class: "swatch", style: { background: "var(--heat)" } }), "Land: Verbindungen im Zeitraum"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--dot)", borderRadius: "50%" } }), "Ort"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--attack)" } }), "gerade aktiver Angreifer (Linie zum Honeypot)"),
-        h("span", null, h("i", { class: "swatch", style: { background: "var(--good)", borderRadius: "50%" } }), home.label || "Honeypot"),
-        h("a", { href: "#/live" }, "Große Live-Karte"))),
+        h("span", null, h("i", { class: "swatch", style: { background: "var(--good)", borderRadius: "50%" } }), home.label || "Honeypot"))),
     h("aside", { class: "card act" }, h("div", { class: "head" }, h("h2", null, "Gerade aktiv"), h("div", { class: "grow" }), actCount), actList,
       h("a", { href: "#/attacks", style: { marginTop: "10px", fontSize: "13px" } }, "Alle Angriffe")),
     h("div", { class: "low" },
@@ -787,7 +786,7 @@ async function viewAttacker(el, ctx, ip) {
     chain,
     reportCard({ ip }),
     intelCard(ip),
-    h("section", { class: "card" }, h("details", { class: "more" }, h("summary", null, `Alle Ereignisse einzeln (neueste ${fmtNum(d.events.length)})`), evTable(d.events, { showIP: false })))));
+    h("section", { class: "card" }, panels([{ label: "Alle Ereignisse einzeln", count: d.events.length, body: () => evTable(d.events, { showIP: false }) }]))));
   liveAttacks(ctx, (updated) => {
     const a = updated.find((x) => x.ip === ip);
     if (!a) return;

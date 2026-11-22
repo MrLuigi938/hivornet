@@ -8,7 +8,7 @@
 // /api/password, /api/backup/*.
 //
 // Wie überall: nur h() und Textknoten, nie HTML aus Zeichenketten.
-import { h, mount, api, fmtNum, fmtBytes, fmtDateTime, relTime, store } from "./dom.js";
+import { h, mount, api, fmtNum, fmtBytes, fmtDateTime, relTime, store, panels } from "./dom.js";
 import { svcName } from "./charts.js";
 import { state, header, card, route, MODE_NAME } from "./app.js";
 import { forgetHome } from "./extra.js";
@@ -298,11 +298,10 @@ function portsCard(s, saved, saveCfg, byPort = new Map()) {
     sec.markDirty();
   }),
   h("p", { class: "muted" }, cowrieNote),
-  h("details", null, h("summary", null, "Was die Modi bedeuten"),
-    h("dl", { class: "modes" },
+  panels([{ label: "Was die Modi bedeuten", body: h("dl", { class: "modes" },
       h("dt", null, "Aufzeichnen"), h("dd", null, "Spielt den Dienst nach, zeichnet Logins, Befehle und Anfragen auf und antwortet normal."),
       h("dt", null, "Tarpit"), h("dd", null, "Hält die Verbindung sofort fest und sendet endlos winzige Datenstücke. Bremst Scanner aus, zeichnet aber kaum etwas auf."),
-      h("dt", null, "Hybrid"), h("dd", null, "Zeichnet erst den Login oder die erste Anfrage auf und hält die Verbindung dann fest. Daten und Ausbremsen zugleich."))));
+      h("dt", null, "Hybrid"), h("dd", null, "Zeichnet erst den Login oder die erste Anfrage auf und hält die Verbindung dann fest. Daten und Ausbremsen zugleich.")) }]));
   sec.reset = reset;
   reset();
   return sec;
@@ -317,12 +316,11 @@ function silentBox(s, saved, byPort, switchOff) {
     h("b", null, silent.length === 1 ? "Ein Port bekommt keine Verbindungen" : `${silent.length} Ports bekommen keine Verbindungen`),
     h("ul", null, silent.map((l) => h("li", null, byPort.get(l.port).text, " ",
       isAdmin() ? h("button", { type: "button", class: "btn small", onclick: (e) => { e.target.disabled = true; e.target.textContent = "Abgeschaltet (noch speichern)"; switchOff(l.port); } }, "Dienst abschalten") : null))),
-    h("details", null, h("summary", null, "Woran das liegen kann und wie du es prüfst"),
-      h("ul", null,
+    panels([{ label: "Woran das liegen kann und wie du es prüfst", body: h("ul", null,
         h("li", null, "Viele Internetanbieter (etwa Vodafone) sperren an Privatanschlüssen eingehend Port 25 (Mail) und 445 (Windows-Freigaben). Dann kommt dort nie etwas an; Abschalten spart nur Ressourcen."),
         h("li", null, s.direct_ports ? "Im Router muss der Port auf dieses Gerät weitergeleitet sein (Portfreigabe)."
           : "Im Docker-Betrieb muss der Port in der .env freigegeben und im Router auf denselben NAS-Port weitergeleitet sein (Spalte „Hinweis“)."),
-        h("li", null, "Ob der Port von außen offen ist, zeigt „Wie Shodan dich sieht“ unter System (Abfrage nur auf Knopfdruck) oder ein Online-Portprüfer, den du selbst im Browser aufrufst. Der Hive prüft nichts von außen."))));
+        h("li", null, "Ob der Port von außen offen ist, zeigt „Wie Shodan dich sieht“ unter System (Abfrage nur auf Knopfdruck) oder ein Online-Portprüfer, den du selbst im Browser aufrufst. Der Hive prüft nichts von außen.")) }]));
   return box;
 }
 
@@ -625,7 +623,7 @@ async function extrasCtx() {
 
 function homeCard(ex) {
   const x = ex.x;
-  return section("Standort für die Live-Karte", {
+  return section("Standort für die Karte", {
     intro: "Dorthin zeigen die Angriffslinien auf der Karte. Ein ungefährer Ort genügt; er wird nirgends veröffentlicht.",
     saveLabel: "Standort speichern",
     save: () => ex.save(["home"]),
@@ -779,8 +777,8 @@ function mimicStatusBox() {
       `Seit dem Start: ${fmtNum(d.asked)} Anfragen ans Modell, ${fmtNum(d.hits)} aus dem Speicher, ${fmtNum(d.limited)} wegen Grenze statisch, ${fmtNum(d.failed)} fehlgeschlagen. `,
       `Schutz: ${fmtNum(d.blocked || 0)} Manipulationsversuche nicht ans Modell gegeben, ${fmtNum(d.rejected || 0)} verräterische Antworten verworfen.`,
       d.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + d.last_error) : null),
-    d.recent.length ? h("details", null, h("summary", null, "Zuletzt erzeugt"),
-      h("ul", { class: "mono-list" }, d.recent.map((r) => h("li", null, `[${r.kind}] ${r.input}`, r.hits ? h("span", { class: "muted" }, ` · ${fmtNum(r.hits)}× wiederverwendet`) : null)))) : null,
+    d.recent.length ? panels([{ label: "Zuletzt erzeugt", count: d.recent.length,
+      body: h("ul", { class: "mono-list" }, d.recent.map((r) => h("li", null, `[${r.kind}] ${r.input}`, r.hits ? h("span", { class: "muted" }, ` · ${fmtNum(r.hits)}× wiederverwendet`) : null))) }]) : null,
     h("button", { class: "btn small", onclick: async () => {
       if (!confirm("Alle gespeicherten Antworten löschen? Sinnvoll nach einem Wechsel des Geräteprofils.")) return;
       await api("mimic/cache", { method: "DELETE" }); load();
@@ -814,7 +812,7 @@ async function tabWeitergabe() {
     ex.check(n, "on_spike", "Ungewöhnlich viele Angriffe auf einen Dienst (Spitze)"),
     ex.check(n, "weekly_report", "Wochenbericht (montags ab 8 Uhr)"))),
   row("Höchstens pro Stunde", ex.num(n, "max_per_hour", 1, 500, 1), "Darüber wird nur gezählt."),
-  h("details", null, h("summary", null, "Vorschau des Wochenberichts (letzte 7 Tage)"), weeklyBox()),
+  panels([{ label: "Vorschau des Wochenberichts (letzte 7 Tage)", body: weeklyBox }]),
   h("p", { class: "muted" }, `Bisher gesendet: ${fmtNum(st.sent)}, unterdrückt: ${fmtNum(st.suppressed)}.`,
     st.last_error ? h("span", { class: "warn-text" }, " Letzter Fehler: " + st.last_error) : null));
   const testBtn = h("button", { class: "btn small", onclick: async () => {
@@ -842,9 +840,17 @@ async function tabWeitergabe() {
   row("Ausnahmen", h("div", { class: "checklist" },
     ex.check(ar, "skip_scanners", "Forschungsscanner (Shodan, Censys, Shadowserver …) nicht melden"),
     ex.check(ar, "include_web_probe", "Auch die Suche nach .env, .git und Anmeldeseiten als Web-Angriff melden"))),
-  h("details", null, h("summary", null, "Protokoll der Meldungen"), await abuseLogBox()));
+  await abuseLogBox());
 
-  return [notify.el, abuse.el, ...(await shareCards(ex)), feedCard().el];
+  const delay = section("Zeitpunkt der Meldungen", {
+    intro: "Gilt für AbuseIPDB, URLhaus, MalwareBazaar und DShield: Gemeldet wird erst, wenn ein Angriff so lange ruhig ist. So erfährt der Angreifer nicht mitten im Angriff, dass er gemeldet wird, und die Meldung umfasst den ganzen Angriff.",
+    saveLabel: "Verzögerung speichern",
+    save: () => ex.save(["report_delay_min"]),
+  },
+  row("Verzögerung (Minuten)", ex.num(x, "report_delay_min", 0, 1440, 5),
+    "Standard 15. AbuseIPDB: die IP war so lange still. URLhaus: die Nachlade-Adresse wurde so lange nicht benutzt. MalwareBazaar: Die Datei wird sofort geholt (Adressen gehen schnell offline), aber erst danach gemeldet. DShield: nur Ereignisse, die mindestens so alt sind. 0 = sofort. Was wartet, steht bei jedem Dienst im Reiter „Wartet“."));
+
+  return [notify.el, delay.el, abuse.el, ...(await shareCards(ex)), feedCard().el];
 }
 
 // ---------- Weitergabe an die Community (hive/share.go, samplecollect.go, dshield.go) ----------
@@ -852,13 +858,36 @@ async function tabWeitergabe() {
 
 const SHARE_ST = { ok: ["gesendet", "ok"], dry: ["Probe", ""], error: ["Fehler", "err"], known: ["bekannt", "ok"], skipped: ["übersprungen", ""] };
 
-function shareLogTable(ch, subjectLabel, okText) {
+// shareLog: Stand eines Dienstes (Zähler, Pause, letzter Fehler) und Reiter für Protokoll,
+// Warteliste (Verzögerung, hive/delay.go) und weitere (extra, vorn).
+function shareLog(ch, subjectLabel, okText, extra = []) {
   if (!ch) return h("div", { class: "empty" }, "Noch nichts.");
+  const errs = ch.log.filter((e) => e.status === "error").length;
   return h("div", null,
     h("p", { class: "muted" }, `Letzte 24 Stunden: ${fmtNum(ch.ok_24h)} ${okText}`,
       ch.last_run ? ` · zuletzt geprüft ${new Date(ch.last_run).toLocaleTimeString("de-DE")}` : ""),
     ch.pause_until ? h("div", { class: "msg warn" }, "Pausiert bis " + new Date(ch.pause_until).toLocaleString("de-DE") + ".") : null,
     ch.last_error ? h("div", { class: "msg err" }, "Letzter Fehler: " + ch.last_error) : null,
+    panels([...extra,
+      { label: "Protokoll", count: ch.log.length, tone: errs ? "err" : "", body: () => shareLogTable(ch, subjectLabel) },
+      ch.waiting ? { label: "Wartet", count: ch.waiting.length, tone: ch.waiting.length ? "warn" : "", body: () => waitTable(ch.waiting, subjectLabel) } : null]));
+}
+
+const IP_RE = /^(\d{1,3}(\.\d{1,3}){3}|[0-9a-f:]+:[0-9a-f:]*)$/i;
+
+// Einträge, die auf die Verzögerung warten (hive/delay.go).
+function waitTable(list, subjectLabel) {
+  if (!list || !list.length) return h("div", { class: "empty" }, "Nichts wartet. Neue Funde werden nach der eingestellten Verzögerung gemeldet.");
+  return h("div", { class: "tablewrap" }, h("table", null,
+    h("thead", null, h("tr", null, [subjectLabel, "Gemeldet ab", "Hinweis"].map((t) => h("th", null, t)))),
+    h("tbody", null, list.map((w) => h("tr", null,
+      h("td", { class: "mono", style: { wordBreak: "break-all" } }, IP_RE.test(w.subject) ? h("a", { href: "#/attacker/" + encodeURIComponent(w.subject) }, w.subject) : w.subject),
+      h("td", { class: "num" }, new Date(w.until).toLocaleString("de-DE")),
+      h("td", null, w.detail || ""))))));
+}
+
+function shareLogTable(ch, subjectLabel) {
+  return h("div", null,
     ch.log.length ? h("div", { class: "tablewrap" }, h("table", null,
       h("thead", null, h("tr", null, ["Zeit", subjectLabel, "Status", "Hinweis"].map((t) => h("th", null, t)))),
       h("tbody", null, ch.log.slice(0, 50).map((e) => {
@@ -922,7 +951,7 @@ async function shareCards(ex) {
   row("Nur bestätigte", ex.check(uh, "verified_only", "Nur Adressen melden, deren Datei der Hive selbst geholt und als Schadsoftware erkannt hat (Programm oder eindeutiges Schadskript)"),
     "Empfohlen. Setzt „Dateien sammeln“ voraus; ftp- und tftp-Adressen werden dann nie gemeldet."),
   row("Höchstens pro Tag", ex.num(uh, "daily_limit", 1, 150, 1)),
-  h("details", null, h("summary", null, "Protokoll der Meldungen"), shareLogTable(st && st.urlhaus, "Adresse", "gemeldet")));
+  shareLog(st && st.urlhaus, "Adresse", "gemeldet"));
 
   const sc = x.samples;
   const samples = section("Dateien sammeln (Quarantäne)", {
@@ -943,9 +972,9 @@ async function shareCards(ex) {
   row("Aufbewahrung (Tage)", ex.num(sc, "keep_days", 1, 365, 1)),
   row("Platz insgesamt (MB)", ex.num(sc, "max_total_mb", 10, 10000, 10), "Darüber werden die ältesten Dateien gelöscht."),
   row("User-Agent", ex.text(sc, "user_agent", { maxlength: 120 }), "Wie ein gewöhnliches Werkzeug, z. B. Wget/1.21.4 oder curl/8.5.0. Keine Angaben, die auf dich hinweisen."),
-  h("details", null, h("summary", null, "Quarantäne"), quarantineTable(st && st.quarantine)),
-  h("details", null, h("summary", null, "Protokoll der Downloads"), shareLogTable(st && st.sample, "Adresse", "geholt")),
-  h("details", null, h("summary", null, "Nicht geholt (mit Grund)"), skippedTable(st && st.sample && st.sample.skipped)));
+  shareLog(st && st.sample ? { ...st.sample, waiting: null } : null, "Adresse", "geholt", [
+    { label: "Quarantäne", count: st && st.quarantine ? st.quarantine.files.length : 0, body: () => quarantineTable(st && st.quarantine) },
+    { label: "Nicht geholt", count: st && st.sample && st.sample.skipped ? st.sample.skipped.length : 0, body: () => skippedTable(st && st.sample && st.sample.skipped) }]));
 
   const bz = x.bazaar;
   const bazaar = section("MalwareBazaar: Proben teilen", {
@@ -959,7 +988,7 @@ async function shareCards(ex) {
   row("Nachschlagen", ex.check(bz, "lookup", "Hash gesammelter Dateien nachschlagen")),
   row("Hochladen", ex.check(bz, "upload", "Unbekannte Schadprogramme hochladen")),
   row("Probemodus", ex.check(bz, "dry_run", "Nur protokollieren, was hochgeladen würde")),
-  h("details", null, h("summary", null, "Protokoll"), shareLogTable(st && st.bazaar, "SHA-256", "erledigt")));
+  shareLog(st && st.bazaar, "SHA-256", "erledigt"));
 
   const ds = x.dshield;
   const dshield = section("DShield (SANS Internet Storm Center)", {
@@ -1000,7 +1029,7 @@ async function shareCards(ex) {
     ex.check(ds, "firewall", "Verbindungsversuche (wie ein Firewall-Protokoll)"),
     ex.check(ds, "web", "Web-Anfragen (ohne Host-Kopfzeile)"),
     ex.check(ds, "logins", "SSH- und Telnet-Anmeldeversuche mit Benutzername und Passwort"))),
-  h("details", null, h("summary", null, "Protokoll der Sendungen"), shareLogTable(st && st.dshield, "Umfang", "Sendungen")));
+  shareLog(st && st.dshield, "Umfang", "Sendungen"));
 
   return [urlhaus.el, samples.el, bazaar.el, dshield.el];
 }
@@ -1016,14 +1045,16 @@ async function abuseLogBox() {
       d.last_run ? ` · zuletzt geprüft ${new Date(d.last_run).toLocaleTimeString("de-DE")}` : ""),
     d.pause_until ? h("div", { class: "msg warn" }, "Pausiert bis " + new Date(d.pause_until).toLocaleString("de-DE") + " (Kontingent erschöpft).") : null,
     d.last_error ? h("div", { class: "msg err" }, "Letzter Fehler: " + d.last_error) : null,
-    d.log.length ? h("div", { class: "tablewrap" }, h("table", null,
-      h("thead", null, h("tr", null, ["Zeit", "IP", "Status", "Kategorien", "Kommentar"].map((t) => h("th", null, t)))),
-      h("tbody", null, d.log.slice(0, 50).map((e) => h("tr", null,
-        h("td", { class: "num" }, new Date(e.time).toLocaleString("de-DE")),
-        h("td", null, h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(e.ip) }, e.ip)),
-        h("td", null, h("span", { class: "badge " + (e.status === "ok" ? "ok" : e.status === "error" ? "err" : ""), title: e.error || "" }, st[e.status] || e.status)),
-        h("td", null, (e.categories || []).map((c) => ABUSE_CAT[c] || c).join(", ")),
-        h("td", { class: "mono" }, e.comment)))))) : h("div", { class: "empty" }, "Noch keine Meldungen."));
+    panels([
+      { label: "Protokoll", count: d.log.length, tone: d.log.some((e) => e.status === "error") ? "err" : "", body: () => d.log.length ? h("div", { class: "tablewrap" }, h("table", null,
+        h("thead", null, h("tr", null, ["Zeit", "IP", "Status", "Kategorien", "Kommentar"].map((t) => h("th", null, t)))),
+        h("tbody", null, d.log.slice(0, 50).map((e) => h("tr", null,
+          h("td", { class: "num" }, new Date(e.time).toLocaleString("de-DE")),
+          h("td", null, h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(e.ip) }, e.ip)),
+          h("td", null, h("span", { class: "badge " + (e.status === "ok" ? "ok" : e.status === "error" ? "err" : ""), title: e.error || "" }, st[e.status] || e.status)),
+          h("td", null, (e.categories || []).map((c) => ABUSE_CAT[c] || c).join(", ")),
+          h("td", { class: "mono" }, e.comment)))))) : h("div", { class: "empty" }, "Noch keine Meldungen.") },
+      { label: "Wartet", count: (d.waiting || []).length, tone: (d.waiting || []).length ? "warn" : "", body: () => waitTable(d.waiting, "IP") }]));
 }
 
 function weeklyBox() {

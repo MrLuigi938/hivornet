@@ -153,6 +153,14 @@ func TestAbuseReportRound(t *testing.T) {
 	h.extras.x = x
 	ctx := context.Background()
 
+	// Verzögerung (Standard 15 Minuten): die Angriffe sind Sekunden alt, also warten beide
+	h.abuseRound(ctx)
+	if w := h.share.waitList("abuseipdb"); len(h.abuse.log) != 0 || len(w) != 2 || !strings.HasPrefix(w[0].Detail, "wartet bis ") {
+		t.Fatalf("Verzögerung: Protokoll %+v, wartet %+v", h.abuse.log, w)
+	}
+	x.ReportDelayMin = 0
+	h.extras.x = x
+
 	// Probemodus: nichts senden, aber protokollieren
 	h.abuseRound(ctx)
 	if len(got) != 0 {

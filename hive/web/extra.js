@@ -1,11 +1,11 @@
-// Zusatzfunktionen der UI: Live-Karte, Analyse, Angriffsbericht mit KI-Auswertung,
+// Zusatzfunktionen der UI: Analyse, Angriffsbericht mit KI-Auswertung,
 // Terminal-Mitschnitt und AbuseIPDB-Abgleich. Die Einstellungen dazu stehen in settings.js.
 //
 // Wie überall gilt: Angreiferdaten werden nur als Text eingefügt (h() aus dom.js).
 // Adressen aus Angreiferdaten werden nie zu Links gemacht.
-import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag } from "./dom.js";
-import { worldMap, toplist, svcName, countryName } from "./charts.js";
-import { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME } from "./app.js";
+import { h, s, mount, api, fmtNum, fmtDur, fmtDateTime, relTime } from "./dom.js";
+import { toplist } from "./charts.js";
+import { state, card } from "./app.js";
 import { aiReplies, exploitHits } from "./attacks.js";
 import { renderMd, explainSlot, briefsForIP } from "./ai.js";
 
@@ -20,83 +20,6 @@ export async function homeLocation() {
 }
 // Nach dem Speichern des Standorts (Einstellungen) neu laden
 export function forgetHome() { homeCache = null; }
-
-// ---------- Live-Karte ----------
-
-export async function viewLive(el, ctx) {
-  header("Live-Karte");
-  const [mp, ctry, home] = await Promise.all([api("stats/map?range=24h"), api("stats/top?field=country&limit=100&range=24h"), homeLocation()]);
-  const map = worldMap(mp, { home, large: true, countries: ctry });
-  api("attacks?active=1&limit=200").then((d) => map.seedActive(d.attacks)).catch(() => {}); // Linien der letzten 10 Minuten
-  const ticker = h("ul", { class: "ticker" });
-  const perMin = tile("Angriffe pro Minute", "0", "Verbindungen in den letzten 60 s");
-  const countries = tile("Länder", "0", "in den letzten 10 Minuten");
-  const last = tile("Letzter Angriff", "–");
-  const svcBox = h("div");
-  const stamps = [];            // Zeitpunkte der Verbindungen (60 s)
-  const seen = new Map();       // Land -> letzter Zeitpunkt
-  const bySvc = new Map();      // Dienst -> Anzahl seit Öffnen der Ansicht
-
-  const refresh = () => {
-    const now = Date.now();
-    while (stamps.length && now - stamps[0] > 60000) stamps.shift();
-    for (const [k, t] of seen) if (now - t > 600000) seen.delete(k);
-    perMin.querySelector(".value").textContent = fmtNum(stamps.length);
-    countries.querySelector(".value").textContent = fmtNum(seen.size);
-    mount(svcBox, toplist([...bySvc].map(([key, n]) => ({ key: svcName(key), n })).sort((a, b) => b.n - a.n).slice(0, 8)));
-  };
-  const addLine = (e, hot) => {
-    // gleiche IP, gleiche Art direkt hintereinander: Zähler hochzählen statt neuer Zeile
-    const key = `${e.src_ip}|${e.type}|${e.service}`, top = ticker.firstChild;
-    if (top && top.dataset.key === key) {
-      const n = Number(top.dataset.n) + 1;
-      top.dataset.n = n;
-      top.querySelector(".when").textContent = fmtTime(e.ts);
-      let x = top.querySelector(".xn");
-      if (!x) { x = h("span", { class: "xn" }); top.children[1].append(x); }
-      x.textContent = "×" + fmtNum(n);
-      if (hot) mount(top.querySelector(".what"), ipLink(e.src_ip), " ", TYPE_NAME[e.type] || e.type, ": ", describe(e));
-      top.style.animation = "none"; void top.offsetWidth; top.style.animation = "";
-      return;
-    }
-    const where = [e.city, e.country_name].filter(Boolean).join(", ") || (e.country === "LAN" ? "Lokales Netz" : "unbekannt");
-    ticker.prepend(h("li", { class: hot ? "hot" : "", dataset: { key, n: 1 } },
-      h("span", { class: "when" }, fmtTime(e.ts)),
-      h("span", null, cc(e.country, e.country_name), " ", where, " → ", svcBadge(e.service, e.dst_port)),
-      h("span", { class: "what" }, ipLink(e.src_ip), " ", hot ? [TYPE_NAME[e.type] || e.type, ": ", describe(e)] : null)));
-    while (ticker.children.length > 60) ticker.lastChild.remove();
-  };
-
-  mount(el, h("div", { class: "stack" },
-    h("p", { class: "sub" }, "Jede rote Linie ist ein gerade aktiver Angreifer: vom Ursprung zum Honeypot (",
-      home.label || "Honeypot", "). Sie bleibt stehen, bis er 10 Minuten lang nichts mehr getan hat. ",
-      "Der kurze Puls am Ursprung zeigt jede neue Verbindung, seine Farbe den Dienst. Den Standort stellst du unter Einstellungen ein."),
-    h("div", { class: "live-grid" },
-      h("div", { class: "stack" },
-        h("section", { class: "card" }, h("div", { class: "head" }, h("h2", null, "Herkunft, letzte 24 Stunden"), h("div", { class: "grow" }), map.controls), map.el),
-        h("div", { class: "grid kpi" }, perMin, countries, last)),
-      h("div", { class: "stack" },
-        card("Gerade eben", ticker, h("div", { class: "empty", id: "ticker-empty" }, "Warte auf den nächsten Angriff …")),
-        card("Dienste seit Öffnen der Karte", svcBox)))));
-  refresh();
-
-  ctx.live((e) => {
-    map.track(e); // Linie bleibt, solange der Angreifer aktiv ist
-    if (e.type === "connect") {
-      stamps.push(Date.now());
-      if (e.country && e.country !== "LAN") seen.set(e.country, Date.now());
-      bySvc.set(e.service, (bySvc.get(e.service) || 0) + 1);
-      mount(last.querySelector(".value"), e.country && e.country !== "LAN" ? [flag(e.country), " ", countryName(e.country)] : e.country === "LAN" ? "Lokales Netz" : "–");
-      addLine(e, false);
-    } else if (!isNoise(e) && e.type !== "tls" && e.type !== "client_version" && e.type !== "fingerprint") {
-      addLine(e, true);
-    } else return;
-    const empty = document.getElementById("ticker-empty");
-    if (empty) empty.remove();
-    refresh();
-  });
-  ctx.every(5000, refresh);
-}
 
 // Abfrage bei abuse.ch auf Knopfdruck; das Ergebnis erscheint hinter dem Knopf (nur Text).
 function lookupBtn(name, path, fmt) {

@@ -3,7 +3,7 @@
 //
 // Wie überall: Angreiferdaten nur als Text (h() aus dom.js), nie als Link-Ziel außer
 // den eigenen Routen (#/attacker/…, #/attacks?q=…).
-import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip } from "./dom.js";
+import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip, panels } from "./dom.js";
 import { svcName, svcColor } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, MODE_NAME, route } from "./app.js";
 import { cveInfo, cveBadges, cveDetails, kindChip, bruteStatsParam, bruteStatsNote } from "./attacks.js";
@@ -327,7 +327,7 @@ function exploitSection(ctx, tileNoCve) {
       h("div", { class: "aw-small" }, h("span", { class: "muted" }, "Regel: "), h("code", { class: "mono xp-expr" }, x.expr || "(keine)")),
       x.problem ? h("div", { class: "msg warn aw-small" }, "Nicht übernehmbar: " + x.problem) : null,
       x.cve && x.cve_check !== "kev" && x.cve_check !== "nvd" ? h("div", { class: "muted aw-small" }, "Die CVE ist nicht bestätigt; beim Annehmen wird sie weggelassen und die Regel erkennt nur das Produkt.") : null,
-      h("details", null, h("summary", { class: "aw-small" }, "An das Modell geschickt"), h("pre", { class: "json" }, x.sample)),
+      panels([{ label: "An das Modell geschickt", body: () => h("pre", { class: "json" }, x.sample) }]),
       isAdmin() ? h("div", { class: "row" },
         h("button", { class: "btn small primary", disabled: !!x.problem, onclick: act("accept") }, "Als Regel übernehmen"),
         h("button", { class: "btn small", onclick: act("discard") }, "Verwerfen"), msg) : null);
@@ -610,9 +610,9 @@ function newsFeed(items) {
           h("div", { class: "s" }, i.text),
           i.ip ? h("div", { class: "aw-small" }, ipLink(i.ip)) : null,
           i.links ? h("div", { class: "aw-small aw-links" }, i.links.map((l) => h("a", { class: "aw-code mono", href: find(l.q), title: l.label }, clipStr(l.label, 40)))) : null,
-          i.fam ? h("details", null, h("summary", null, "Befehle und IPs"),
+          i.fam ? panels([{ label: "Befehle und IPs", count: i.fam.sample_ips.length, body: () => h("div", null,
             h("div", { class: "term" }, i.fam.example.map((cmd) => h("div", null, h("span", { class: "cmd" }, cmd)))),
-            h("div", { class: "aw-ips" }, i.fam.sample_ips.map((ip) => [ipLink(ip), " "]))) : null))];
+            h("div", { class: "aw-ips" }, i.fam.sample_ips.map((ip) => [ipLink(ip), " "]))) }]) : null))];
     }) : h("div", { class: "empty" }, "Im Zeitraum nichts Neues."));
   };
   render();

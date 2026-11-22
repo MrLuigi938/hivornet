@@ -2,6 +2,21 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+- **Verzögerung für Meldungen** (Einstellungen → Weitergabe und Meldungen → „Zeitpunkt der Meldungen“, Standard 15 Minuten, 0 bis 1440): AbuseIPDB, URLhaus, MalwareBazaar und DShield melden erst, wenn ein Angriff so lange ruhig ist. AbuseIPDB: Die IP war so lange still. URLhaus: Die Nachlade-Adresse wurde so lange nicht benutzt. MalwareBazaar: Die Datei wird weiter sofort geholt, aber erst danach nachgeschlagen und hochgeladen. DShield: nur Ereignisse, die mindestens so alt sind. Was wartet, steht bei jedem Dienst im neuen Reiter „Wartet“ mit „wartet bis …“.
+- **DShield: „Zugang prüfen“.** Aus E-Mail-Adresse und API-Schlüssel ermittelt der Hive die numerische ISC-Benutzer-ID bei isc.sans.edu (wie das Installationsprogramm des DShield-Sensors) und trägt sie ein. Die Felder heißen jetzt „E-Mail-Adresse“, „API-Schlüssel“ und „Benutzer-ID“ und sagen, was hineingehört.
+- **Reiter statt Aufklapplisten:** Protokolle, Quarantäne, „Nicht geholt“, Wartelisten und Erklärungen stehen am Fuß der Karten als Reiter mit Zähler (Fehler rot, Wartendes gelb). Ein Klick öffnet, ein zweiter schließt; der Inhalt wird erst beim Öffnen geladen. Gilt für die Einstellungen, die Angreiferseite („Alle Ereignisse einzeln“) und die Erkenntnisse.
+
+### Entfernt
+- **Tab „Live-Karte“.** Er lief nicht zuverlässig; die Karte im Dashboard zeigt dieselben Linien der gerade aktiven Angreifer. Alte Lesezeichen auf `#/live` führen zum Dashboard.
+
+### Behoben
+- **DShield: Anmeldung schlug fehl.** In das Feld „Benutzernummer“ gehört die numerische ISC-Benutzer-ID, nicht der Anmeldename; das war nicht zu erkennen. Ablehnungen von DShield erklären jetzt, was falsch ist (mit der Antwort des Servers), und pausieren den Versand eine Stunde. Leerzeichen und Zeilenumbrüche am Rand eingefügter Schlüssel werden bei allen Schlüsseln entfernt (vorher: „dshield_key ist ungültig“).
+- **Dateien sammeln: „Adresse nicht zulässig: Länge“.** Mit SFTP oder scp hochgeladene Dateien haben keine Nachlade-Adresse; die leere Adresse fiel durch die Längenprüfung und stand als übersprungen in der Liste. Jetzt werden sie gar nicht erst geprüft. Die Grenze für Adressen steigt von 1024 auf 2048 Zeichen (so weit speichert Cowrie sie), und der Grund heißt „leer“ bzw. „länger als 2048 Zeichen“. Die Sperren für Heimnetz, private und eigene Adressen bleiben unverändert.
+- **URLhaus: „User unknown, please visit … and try again“ stand als „gesendet“ im Protokoll.** URLhaus lehnt so ab, wenn sich das abuse.ch-Konto des Schlüssels noch nie bei URLhaus angemeldet hat; Abfragen gehen dann schon, Melden nicht. Jetzt gilt das als Fehler mit Anleitung (einmal unter urlhaus.abuse.ch/login anmelden), die Adressen bleiben ungemeldet und kommen später wieder dran, der Kanal pausiert eine Stunde. Auch MalwareBazaar nennt bei abgelehntem oder gesperrtem Schlüssel den Grund.
+
 ## [0.9.4-beta] – 2026-11-22
 
 **Update:** Raspberry Pi per Knopf; der Updater schaltet den neuen Zeitgeber `hivornet-memstat.timer` ein.

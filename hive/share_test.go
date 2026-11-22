@@ -596,6 +596,7 @@ func TestDShieldRound(t *testing.T) {
 	h.st.lookupPut("self", "internetdb", `{"ip":"198.51.100.40"}`)
 	x := h.Extras()
 	x.DShield = DShieldConfig{Enabled: true, UserID: 4711, APIKey: "c2VjcmV0", Firewall: true, Web: true, Logins: true}
+	x.ReportDelayMin = 4 // die Ereignisse sind 5 Minuten alt (delay.go)
 	b, _ := json.Marshal(x)
 	h.st.SetKV("extras", string(b))
 	h.loadExtras()

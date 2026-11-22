@@ -91,12 +91,12 @@ func TestDShieldWebPrivacy(t *testing.T) {
 		time.Now().Add(-5*time.Minute).UnixMilli(), "request", "203.0.113.52", 40000, 80, "http", string(d))
 	cfg := DShieldConfig{Enabled: true, Web: true}
 
-	b, err := h.dshieldCollect(context.Background(), cfg, 0)
+	b, err := h.dshieldCollect(context.Background(), cfg, 0, time.Now().Add(-time.Minute))
 	if err != nil || len(b.web) != 0 || !b.webSkipped {
 		t.Fatalf("ohne eigene Adresse gesendet: %v %v", b.web, err)
 	}
 	h.st.lookupPut("self", "internetdb", `{"ip":"198.51.100.40"}`)
-	b, _ = h.dshieldCollect(context.Background(), cfg, 0)
+	b, _ = h.dshieldCollect(context.Background(), cfg, 0, time.Now().Add(-time.Minute))
 	if len(b.web) != 1 || b.webSkipped {
 		t.Fatalf("Web: %+v", b)
 	}

@@ -155,7 +155,11 @@ func (h *Hive) collectSample(ctx context.Context, x Extras, f urlFinding) bool {
 			e.Detail = strings.TrimSpace(si.Type + " " + si.Arch + " " + e.Detail)
 		}
 		defer func() {
-			if aerr == nil && res.New {
+			switch {
+			case aerr != nil || !res.New:
+			case x.ReportDelayMin > 0 && x.AbuseChKey != "" && (x.Bazaar.Lookup || x.Bazaar.Upload):
+				h.bazaarLater(res.SHA256, f.URL) // erst nach der Wartezeit (delay.go)
+			default:
 				h.bazaarHandle(ctx, x, res.SHA256, si, f.URL)
 			}
 		}()

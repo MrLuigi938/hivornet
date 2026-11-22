@@ -184,3 +184,38 @@ export function store(key, val) {
   } catch { /* privates Fenster o. ä. */ }
   return null;
 }
+
+// ---------- Reiter am Fuß einer Karte (statt gestapelter Aufklapplisten) ----------
+// panels([{ label, count, tone, body }], { open, key }): Eine Leiste mit Reitern; jeder zeigt
+// Titel und Zähler. Ein Klick öffnet den Inhalt darunter, ein zweiter schließt ihn wieder.
+// body ist ein Knoten oder eine Funktion, die ihn beim ersten Öffnen baut (lädt erst dann).
+// tone "warn"/"err" färbt den Zähler. key merkt sich im Browser, welcher Reiter offen war.
+let panelSeq = 0;
+export function panels(items, { open = null, key = null } = {}) {
+  items = items.filter(Boolean);
+  const id = "pn" + ++panelSeq;
+  const built = new Map();
+  const body = h("div", { class: "panel-body", role: "tabpanel", hidden: true });
+  let cur = -1;
+  const btns = items.map((it, i) => h("button", {
+    type: "button", class: "panel-tab", role: "tab", id: `${id}-${i}`, "aria-selected": "false", "aria-controls": id,
+    onclick: () => show(cur === i ? -1 : i),
+  }, h("span", null, it.label),
+  it.count !== undefined && it.count !== null ? h("span", { class: "count" + (it.tone ? " " + it.tone : "") }, typeof it.count === "number" ? fmtNum(it.count) : it.count) : null,
+  h("i", { class: "chev", "aria-hidden": "true" })));
+  body.id = id;
+  function show(i) {
+    cur = i;
+    btns.forEach((b, j) => { b.setAttribute("aria-selected", String(j === i)); b.classList.toggle("on", j === i); });
+    if (key) store("panel." + key, i < 0 ? "" : items[i].label);
+    if (i < 0) { body.hidden = true; mount(body); return; }
+    if (!built.has(i)) built.set(i, typeof items[i].body === "function" ? items[i].body() : items[i].body);
+    mount(body, built.get(i));
+    body.setAttribute("aria-labelledby", btns[i].id);
+    body.hidden = false;
+  }
+  const remembered = key ? store("panel." + key) : null;
+  const start = remembered !== null && remembered !== undefined ? items.findIndex((it) => it.label === remembered) : items.findIndex((it) => it.label === open);
+  if (start >= 0) show(start);
+  return h("div", { class: "panels" }, h("div", { class: "panel-tabs", role: "tablist" }, btns), body);
+}
