@@ -850,7 +850,9 @@ async function tabWeitergabe() {
   row("Verzögerung (Minuten)", ex.num(x, "report_delay_min", 0, 1440, 5),
     "Standard 15. AbuseIPDB: die IP war so lange still. URLhaus: die Nachlade-Adresse wurde so lange nicht benutzt. MalwareBazaar: Die Datei wird sofort geholt (Adressen gehen schnell offline), aber erst danach gemeldet. DShield: nur Ereignisse, die mindestens so alt sind. 0 = sofort. Was wartet, steht bei jedem Dienst im Reiter „Wartet“."));
 
-  return [notify.el, delay.el, abuse.el, ...(await shareCards(ex)), feedCard().el];
+  const hint = h("div", { class: "msg" }, "Alles, was gemeldet wurde oder würde, mit Dateien, Quarantäne, KI-Antworten und dem genauen Wortlaut jeder Meldung, steht übersichtlich im Tab ",
+    h("a", { href: "#/funde" }, "Funde"), ".");
+  return [hint, notify.el, delay.el, abuse.el, ...(await shareCards(ex)), feedCard().el];
 }
 
 // ---------- Weitergabe an die Community (hive/share.go, samplecollect.go, dshield.go) ----------

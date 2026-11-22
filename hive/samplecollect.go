@@ -25,6 +25,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -334,6 +335,7 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 			h.st.lookupPut(subj, "bazaar_upload", status)
 		}
 	}
+	e.Sent = "POST " + bazaarBase + "/api/v1/ (Auth-Key: •••)\nquery=get_info&hash=" + sha
 	out, code, err := bazaarCall(ctx, x.AbuseChKey, "application/x-www-form-urlencoded",
 		strings.NewReader(url.Values{"query": {"get_info"}, "hash": {sha}}.Encode()))
 	if err != nil {
@@ -383,6 +385,7 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 	}
 	meta, _ := json.Marshal(map[string]any{"anonymous": 0, "tags": bazaarTags(si), "delivery_method": "web_download",
 		"context": map[string]string{"comment": "Collected by a honeypot from a download URL used in an attack."}})
+	e.Sent += "\n\nPOST " + bazaarBase + "/api/v1/ (Auth-Key: •••, multipart)\njson_data=" + string(meta) + fmt.Sprintf("\nfile=%s (%d Byte)", sha, len(content))
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	jh := textproto.MIMEHeader{}

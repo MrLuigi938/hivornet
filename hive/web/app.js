@@ -10,6 +10,7 @@ import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from 
 import { reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
 // Einstellungen mit Unterseiten (#/settings/<bereich>)
 import { viewSettings } from "./settings.js";
+import { viewFunde } from "./funde.js";
 // Hardware-Monitor im Reiter System
 import { hardwareCard } from "./hardware.js";
 
@@ -18,7 +19,7 @@ const state = { user: null, range: store("range") || "24h", es: null, liveFns: n
 
 // Navigation in der Kopfleiste; Einstellungen, System und Protokolle stehen im Benutzermenü.
 const NAV = [
-  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/analysis", "Analyse"], ["#/insights", "Erkenntnisse"],
+  ["#/", "Dashboard"], ["#/attacks", "Angriffe"], ["#/analysis", "Analyse"], ["#/insights", "Erkenntnisse"], ["#/funde", "Funde"],
   ["#/creds", "Zugangsdaten"], ["#/tarpit", "Tarpit"], ["#/system", "System"],
 ];
 const RANGES = [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"]];
@@ -307,7 +308,7 @@ const routes = [
   [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings(?:\/([a-z]+))?$/, viewSettings], [/^#\/system$/, viewSystem],
-  [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/logs(\?.*)?$/, viewLogs],
+  [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/funde(?:\?(.*))?$/, viewFunde], [/^#\/logs(\?.*)?$/, viewLogs],
 ];
 
 // route({ quiet: true }) aktualisiert die aktuelle Seite unauffällig: Die neue Fassung wird

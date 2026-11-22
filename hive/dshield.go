@@ -199,7 +199,7 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 			Until: until, Detail: fmt.Sprintf("noch keine %d Minuten alt; gehen mit der nächsten Sendung (etwa %s)", int(delay.Minutes()), until.In(hiveLoc()).Format("15:04"))}})
 	}
 	summary := fmt.Sprintf("%d Verbindungen, %d Web-Anfragen, %d Anmeldungen", len(b.firewall), len(b.web), len(b.logins))
-	e := shareLogEntry{Time: time.Now(), Subject: summary}
+	e := shareLogEntry{Time: time.Now(), Subject: summary, Sent: dshieldSentText(cfg, b)}
 	if b.truncated {
 		e.Detail = "mehr folgt"
 	} else if b.webSkipped {
@@ -232,6 +232,23 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 	e.Status = "ok"
 	h.share.add("dshield", e)
 	h.st.SetKV("dshield_last_id", strconv.FormatInt(b.lastID, 10))
+}
+
+// dshieldSentText: Zusammenfassung der Sendung mit je einem Beispiel (Prüfprotokoll).
+func dshieldSentText(cfg DShieldConfig, b *dshieldBatch) string {
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "POST %s (X-ISC-Authorization: ISC-HMAC-SHA256 Userid=%d …)\n", dshieldSubmitURL, cfg.UserID)
+	for _, p := range []struct {
+		typ  string
+		logs []map[string]any
+	}{{"firewall", b.firewall}, {"webhoneypot", b.web}, {"cowrie", b.logins}} {
+		if len(p.logs) == 0 {
+			continue
+		}
+		ex, _ := json.Marshal(p.logs[0])
+		fmt.Fprintf(&sb, "type=%s: %d Einträge, z. B. %s\n", p.typ, len(p.logs), ex)
+	}
+	return sb.String()
 }
 
 func dshieldPost(ctx context.Context, cfg DShieldConfig, typ string, logs []map[string]any) (int, error) {

@@ -165,11 +165,9 @@ var errNoSample = errors.New("Datei nicht (mehr) vorhanden")
 // sampleSem: höchstens eine Untersuchung gleichzeitig (bis zu 16 MB je Datei).
 var sampleSem = make(chan struct{}, 1)
 
-func (h *Hive) loadSample(hash string) (SampleInfo, error) {
-	if !sha256Re.MatchString(hash) {
-		return SampleInfo{}, errNoSample
-	}
-	// Downloads von Cowrie oder vom Hive selbst geholte Dateien (Quarantäne, samplecollect.go)
+// samplePath: Ort der Datei, Downloads von Cowrie oder vom Hive selbst geholte Dateien
+// (Quarantäne, samplecollect.go); leer, wenn es keinen gibt.
+func (h *Hive) samplePath(hash string) string {
 	var path string
 	if h.cowrieLibDir != "" {
 		path = filepath.Join(h.cowrieLibDir, "downloads", hash)
@@ -179,7 +177,51 @@ func (h *Hive) loadSample(hash string) (SampleInfo, error) {
 			path = filepath.Join(q, hash)
 		}
 	}
+	return path
+}
+
+// readSample liest höchstens max Byte einer Probe und liefert ihre ganze Größe. Nur reguläre
+// Dateien, keine Verweise oder FIFOs: Wer Cowrie übernimmt, könnte sonst einen Symlink auf
+// andere Dateien des Hive legen.
+func (h *Hive) readSample(hash string, max int64) ([]byte, int64, error) {
+	if !sha256Re.MatchString(hash) {
+		return nil, 0, errNoSample
+	}
+	path := h.samplePath(hash)
 	if path == "" {
+		return nil, 0, errNoSample
+	}
+	lst, err := os.Lstat(path)
+	if err != nil {
+		if os.IsPermission(err) {
+			return nil, 0, errors.New("Datei nicht lesbar (Rechte)")
+		}
+		return nil, 0, errNoSample
+	}
+	if !lst.Mode().IsRegular() {
+		return nil, 0, errors.New("keine reguläre Datei")
+	}
+	f, err := openNoFollow(path)
+	if err != nil {
+		if os.IsPermission(err) {
+			return nil, 0, errors.New("Datei nicht lesbar (Rechte)")
+		}
+		return nil, 0, errNoSample
+	}
+	defer f.Close()
+	st, _ := f.Stat()
+	if st == nil || !os.SameFile(st, lst) { // zwischen Prüfung und Öffnen ausgetauscht
+		return nil, 0, errors.New("keine reguläre Datei")
+	}
+	b, err := io.ReadAll(io.LimitReader(f, max))
+	if err != nil {
+		return nil, 0, err
+	}
+	return b, st.Size(), nil
+}
+
+func (h *Hive) loadSample(hash string) (SampleInfo, error) {
+	if !sha256Re.MatchString(hash) || h.samplePath(hash) == "" {
 		return SampleInfo{}, errNoSample
 	}
 	// Ergebnis je Hash speichern: Die Datei ändert sich nie.
@@ -195,39 +237,12 @@ func (h *Hive) loadSample(hash string) (SampleInfo, error) {
 	case <-time.After(20 * time.Second):
 		return SampleInfo{}, errors.New("gerade wird schon eine Datei untersucht, bitte gleich noch einmal")
 	}
-	// Nur reguläre Dateien, keine Verweise oder FIFOs: Wer Cowrie übernimmt,
-	// könnte sonst einen Symlink auf andere Dateien des Hive legen.
-	lst, err := os.Lstat(path)
-	if err != nil {
-		if os.IsPermission(err) {
-			return SampleInfo{}, errors.New("Datei nicht lesbar (Rechte)")
-		}
-		return SampleInfo{}, errNoSample
-	}
-	if !lst.Mode().IsRegular() {
-		return SampleInfo{}, errors.New("keine reguläre Datei")
-	}
-	f, err := openNoFollow(path)
-	if err != nil {
-		if os.IsPermission(err) {
-			return SampleInfo{}, errors.New("Datei nicht lesbar (Rechte)")
-		}
-		return SampleInfo{}, errNoSample
-	}
-	defer f.Close()
-	st, _ := f.Stat()
-	if st == nil || !os.SameFile(st, lst) { // zwischen Prüfung und Öffnen ausgetauscht
-		return SampleInfo{}, errors.New("keine reguläre Datei")
-	}
-	b, err := io.ReadAll(io.LimitReader(f, sampleMaxBytes))
+	b, size, err := h.readSample(hash, sampleMaxBytes)
 	if err != nil {
 		return SampleInfo{}, err
 	}
 	si := analyzeSample(b)
-	si.SHA256, si.Size = hash, int64(len(b))
-	if st != nil {
-		si.Size = st.Size()
-	}
+	si.SHA256, si.Size = hash, size
 	if si.Size > sampleMaxBytes {
 		si.Truncated = true
 	} else if sum := sha256.Sum256(b); hex.EncodeToString(sum[:]) != hash {

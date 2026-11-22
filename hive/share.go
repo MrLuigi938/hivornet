@@ -25,6 +25,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -123,6 +124,9 @@ type shareLogEntry struct {
 	SHA256  string    `json:"sha256,omitempty"`
 	Detail  string    `json:"detail,omitempty"`
 	Error   string    `json:"error,omitempty"`
+	// Sent: was den Hive verließ, wörtlich (ohne Schlüssel), für das Prüfprotokoll im Tab
+	// „Funde“ (funde.go). Neu seit 0.9.5; ältere Einträge haben es nicht.
+	Sent string `json:"sent,omitempty"`
 }
 
 type shareChannel struct {
@@ -208,7 +212,7 @@ func (s *shareState) add(kind string, e shareLogEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c := s.channel(kind)
-	e.Subject, e.Detail, e.Error = clip(e.Subject, 300), clip(e.Detail, 300), clip(e.Error, 300)
+	e.Subject, e.Detail, e.Error, e.Sent = clip(e.Subject, 300), clip(e.Detail, 300), clip(e.Error, 300), clip(e.Sent, 1500)
 	c.Log = append([]shareLogEntry{e}, c.Log...)
 	if len(c.Log) > shareLogMax {
 		c.Log = c.Log[:shareLogMax]
@@ -310,29 +314,38 @@ type urlFinding struct {
 	Last    time.Time // zuletzt benutzt (Verzögerung der Meldung, delay.go)
 }
 
-// urlFindings: zulässige Nachlade-Adressen seit since, je Adresse einmal. skip (darf nil sein)
-// erfährt verworfene Adressen mit Grund.
-func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, why string)) ([]urlFinding, error) {
-	if skip == nil {
-		skip = func(string, string) {}
-	}
-	rs, err := h.st.db.QueryContext(ctx, `SELECT ts, sensor, service, type, src_ip, data, as_org FROM events
-		WHERE ts >= ? AND type IN ('command','download') ORDER BY id LIMIT 20000`, since.UnixMilli())
+// urlSighting: eine Nachlade-Adresse in einem Befehl oder Download (scanURLs).
+type urlSighting struct {
+	TS      time.Time
+	IP      string
+	Service string
+	Session string
+	Kind    string // command | download
+	Raw     string // wie gesehen ("(ausgeblendet)", wenn sie eigene Marken enthält)
+	URL     string // bereinigt; leer, wenn nicht zulässig
+	Why     string // Grund, warum sie nicht geholt und nicht gemeldet wird; leer = zulässig
+	SHA256  string // nur Downloads von Cowrie
+}
+
+// scanURLs ruft fn für jede Nachlade-Adresse in Befehlen und Downloads seit since auf, in
+// zeitlicher Reihenfolge, höchstens aus limit Ereignissen. Grundlage für die Weitergabe
+// (urlFindings) und den Tab „Funde“ (funde.go), damit beide dieselben Regeln anwenden.
+func (h *Hive) scanURLs(ctx context.Context, since time.Time, limit int, fn func(urlSighting)) error {
+	rs, err := h.st.db.QueryContext(ctx, `SELECT ts, sensor, service, type, src_ip, session, data, as_org FROM events
+		WHERE ts >= ? AND type IN ('command','download') ORDER BY id LIMIT ?`, since.UnixMilli(), limit)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rs.Close()
 	untrusted := h.untrustedSensors()
 	own := h.ownPublicIP()
 	marks := h.ownMarkers()
-	seen := map[string]int{} // Adresse -> Index in out
-	var out []urlFinding
 	for rs.Next() {
 		var e Event
 		var data []byte
-		var asOrg string
+		var asOrg, session sql.NullString
 		var ts int64
-		if rs.Scan(&ts, &e.Sensor, &e.Service, &e.Type, &e.SrcIP, &data, &asOrg) != nil {
+		if rs.Scan(&ts, &e.Sensor, &e.Service, &e.Type, &e.SrcIP, &session, &data, &asOrg) != nil {
 			continue
 		}
 		e.Data = data
@@ -352,33 +365,54 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, wh
 			from = "von einer eigenen Adresse (Test)"
 		case untrusted[e.Sensor]:
 			from = "von einem nicht vertrauenswürdigen Sensor"
-		case researchScanner(asOrg) != "":
+		case researchScanner(asOrg.String) != "":
 			from = "von einem Forschungsscanner"
 		}
 		for _, raw := range urls {
-			u, why := shareURLProblem(strings.ReplaceAll(raw, `\`, ""), own)
-			// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
-			// nie öffentlich melden und nicht holen.
-			if i, ok := seen[u]; ok && u != "" {
-				out[i].Last = time.UnixMilli(ts) // jüngste Benutzung
-				continue
+			s := urlSighting{TS: time.UnixMilli(ts), IP: e.SrcIP, Service: e.Service, Session: session.String, Kind: e.Type, Raw: raw}
+			if e.Type == "download" {
+				s.SHA256 = strings.ToLower(dataString(e.Data, "sha256"))
 			}
+			u, why := shareURLProblem(strings.ReplaceAll(raw, `\`, ""), own)
 			switch {
 			case from != "":
-				skip(raw, "stammt "+from)
-				continue
+				s.Why = "stammt " + from
 			case why != "":
-				skip(raw, "Adresse nicht zulässig: "+why)
-				continue
+				s.Why = "Adresse nicht zulässig: " + why
+			// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
+			// nie öffentlich melden und nicht holen.
 			case containsMarker(u, marks):
-				skip("(ausgeblendet)", "enthält die eigene Adresse oder den Namen des Honeypots")
-				continue
+				s.Raw, s.Why = "(ausgeblendet)", "enthält die eigene Adresse oder den Namen des Honeypots"
+			default:
+				s.URL = u
 			}
-			seen[u] = len(out)
-			out = append(out, urlFinding{URL: u, Service: e.Service, Last: time.UnixMilli(ts)})
+			fn(s)
 		}
 	}
-	return out, rs.Err()
+	return rs.Err()
+}
+
+// urlFindings: zulässige Nachlade-Adressen seit since, je Adresse einmal. skip (darf nil sein)
+// erfährt verworfene Adressen mit Grund.
+func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, why string)) ([]urlFinding, error) {
+	if skip == nil {
+		skip = func(string, string) {}
+	}
+	seen := map[string]int{} // Adresse -> Index in out
+	var out []urlFinding
+	err := h.scanURLs(ctx, since, 20000, func(s urlSighting) {
+		if s.Why != "" {
+			skip(s.Raw, s.Why)
+			return
+		}
+		if i, ok := seen[s.URL]; ok {
+			out[i].Last = s.TS // jüngste Benutzung
+			return
+		}
+		seen[s.URL] = len(out)
+		out = append(out, urlFinding{URL: s.URL, Service: s.Service, Last: s.TS})
+	})
+	return out, err
 }
 
 // ---- Ablauf ----
@@ -527,7 +561,9 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 	logAll := func(status, detail, errText string) {
 		for i, it := range batch {
 			u, _ := url.Parse(it.URL)
-			e := shareLogEntry{Time: time.Now(), Status: status, Subject: it.URL, Detail: detail, Error: errText}
+			one, _ := json.MarshalIndent(map[string]any{"anonymous": "0", "submission": []item{it}}, "", "  ")
+			e := shareLogEntry{Time: time.Now(), Status: status, Subject: it.URL, Detail: detail, Error: errText,
+				Sent: "POST " + urlhausSubmitURL + " (Auth-Key: •••)\n" + string(one)}
 			if u != nil {
 				e.Host = u.Hostname()
 			}
