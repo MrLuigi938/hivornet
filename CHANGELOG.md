@@ -2,7 +2,9 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.9.5-beta] – 2026-11-22
+
+**Update:** Raspberry Pi per Knopf; der Updater trägt die neue Cowrie-Anpassung (HTTP-Zeilen nie als Login) nach. Docker: `./update.sh`.
 
 ### Neu
 - **Tab „Funde“:** alles, was Angreifer nachladen wollten, was der Hive davon geholt hat und was an wen gemeldet wurde oder würde, an einer Stelle statt verteilt in den Einstellungen.
@@ -26,6 +28,7 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 - **Tab „Live-Karte“.** Er lief nicht zuverlässig; die Karte im Dashboard zeigt dieselben Linien der gerade aktiven Angreifer. Alte Lesezeichen auf `#/live` führen zum Dashboard.
 
 ### Behoben
+- **Einstellungen ließen sich nicht verlassen, solange keine Zeitzone gespeichert war:** Der Vorschlag aus dem Browser galt als ungespeicherte Änderung, und jede andere Seite fragte erst nach. Jetzt ist er nur ein Angebot mit bereitem Speichern-Knopf.
 - **DShield: Anmeldung schlug fehl.** In das Feld „Benutzernummer“ gehört die numerische ISC-Benutzer-ID, nicht der Anmeldename; das war nicht zu erkennen. Ablehnungen von DShield erklären jetzt, was falsch ist (mit der Antwort des Servers), und pausieren den Versand eine Stunde. Leerzeichen und Zeilenumbrüche am Rand eingefügter Schlüssel werden bei allen Schlüsseln entfernt (vorher: „dshield_key ist ungültig“).
 - **Dateien sammeln: „Adresse nicht zulässig: Länge“.** Mit SFTP oder scp hochgeladene Dateien haben keine Nachlade-Adresse; die leere Adresse fiel durch die Längenprüfung und stand als übersprungen in der Liste. Jetzt werden sie gar nicht erst geprüft. Die Grenze für Adressen steigt von 1024 auf 2048 Zeichen (so weit speichert Cowrie sie), und der Grund heißt „leer“ bzw. „länger als 2048 Zeichen“. Die Sperren für Heimnetz, private und eigene Adressen bleiben unverändert.
 - **URLhaus: „User unknown, please visit … and try again“ stand als „gesendet“ im Protokoll.** URLhaus konnte die Meldung keinem Konto zuordnen: Der Schlüssel ging nur als Kopfzeile mit, die API-Dokumentation verlangt ihn als Feld der Anfrage. Jetzt geht er an beiden Stellen mit. Lehnt URLhaus trotzdem ab, gilt das als Fehler (vorher „gesendet“), die Adressen bleiben ungemeldet und kommen später wieder dran, der Kanal pausiert eine Stunde, und die Meldung sagt, ob der Schlüssel wenigstens für Abfragen gilt. Auch MalwareBazaar nennt bei abgelehntem oder gesperrtem Schlüssel den Grund.
