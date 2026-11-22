@@ -20,7 +20,7 @@ import (
 // Tests für Muster-Analyse, Bericht, KI, AbuseIPDB, Benachrichtigungen,
 // Zusatz-Einstellungen und TTY-Mitschnitte.
 
-func testHive(t *testing.T) *Hive {
+func testHive(t testing.TB) *Hive {
 	t.Helper()
 	h := &Hive{st: testStore(t), started: time.Now(), broker: NewBroker(), sensors: &Sensors{last: map[string]Heartbeat{}},
 		aiSem: make(chan struct{}, 1), geo: &Geo{}}

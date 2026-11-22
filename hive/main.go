@@ -52,22 +52,23 @@ type Hive struct {
 	retMu   sync.Mutex
 	retStat RetentionStatus
 
-	extras    extrasCache   // Einstellungen der Zusatzfunktionen (extras.go)
-	feed      feedCache     // Blockliste zum Abonnieren (feed.go)
-	mimicSt   mimicState    // Sprachmodell-Antworten (mimic.go)
-	insightsC insightsCache // Erkenntnisse (insights.go)
-	notifier  *Notifier     // Benachrichtigungen (notify.go)
-	aiSem     chan struct{} // höchstens eine KI-Auswertung gleichzeitig
-	upd       updater       // Update-Prüfung (setup.go)
-	restart   chan struct{} // Neustart nach einer Wiederherstellung (backup.go)
-	hosts     hostList      // erlaubte Hostnamen der Web-UI (hosts.go)
-	probe     *portProbe    // lauschen die Cowrie-Ports? (probe.go)
-	abuse     abuseReporter // Meldungen an AbuseIPDB (abusereport.go)
-	ports     portActivity  // seit wann welche Ports laufen (silentports.go)
-	share     shareState    // URLhaus, Dateien sammeln, MalwareBazaar, DShield (share.go)
-	snap      attackSnap    // Angriffe der letzten sieben Tage (attacksnap.go)
-	hw        hwMonitor     // Hardware-Monitor (hwmon.go)
-	bruteTop  bruteTopCache // Top-Listen ohne Dauer-Brute-Force (brutetop.go)
+	extras     extrasCache   // Einstellungen der Zusatzfunktionen (extras.go)
+	feed       feedCache     // Blockliste zum Abonnieren (feed.go)
+	mimicSt    mimicState    // Sprachmodell-Antworten (mimic.go)
+	insightsC  insightsCache // Erkenntnisse (insights.go)
+	notifier   *Notifier     // Benachrichtigungen (notify.go)
+	aiSem      chan struct{} // höchstens eine KI-Auswertung gleichzeitig
+	upd        updater       // Update-Prüfung (setup.go)
+	restart    chan struct{} // Neustart nach einer Wiederherstellung (backup.go)
+	hosts      hostList      // erlaubte Hostnamen der Web-UI (hosts.go)
+	probe      *portProbe    // lauschen die Cowrie-Ports? (probe.go)
+	abuse      abuseReporter // Meldungen an AbuseIPDB (abusereport.go)
+	ports      portActivity  // seit wann welche Ports laufen (silentports.go)
+	share      shareState    // URLhaus, Dateien sammeln, MalwareBazaar, DShield (share.go)
+	fundeCache sightCache    // Nachlade-Adressen der letzten 30 Tage für den Tab „Funde“ (funde_cache.go)
+	snap       attackSnap    // Angriffe der letzten sieben Tage (attacksnap.go)
+	hw         hwMonitor     // Hardware-Monitor (hwmon.go)
+	bruteTop   bruteTopCache // Top-Listen ohne Dauer-Brute-Force (brutetop.go)
 }
 
 func env(k, def string) string {

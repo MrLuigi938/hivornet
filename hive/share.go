@@ -327,9 +327,64 @@ type urlSighting struct {
 	SHA256  string // nur Downloads von Cowrie
 }
 
+// urlRules: Regeln, nach denen Nachlade-Adressen geholt und gemeldet werden dürfen
+// (Stand der Einstellungen beim Aufruf). Gemeinsam für scanURLs und den Tab „Funde“.
+type urlRules struct {
+	untrusted map[string]bool
+	own       string
+	marks     []string
+}
+
+func (h *Hive) urlRules() urlRules {
+	return urlRules{untrusted: h.untrustedSensors(), own: h.ownPublicIP(), marks: h.ownMarkers()}
+}
+
+// source: Eigene Tests, nicht vertrauenswürdige Sensoren und Forschungsscanner liefern keine
+// Funde; leer, wenn der Absender zählt.
+func (r urlRules) source(ip, sensor, asOrg string) string {
+	switch {
+	case isOwnIP(ip) || ip == r.own:
+		return "stammt von einer eigenen Adresse (Test)"
+	case r.untrusted[sensor]:
+		return "stammt von einem nicht vertrauenswürdigen Sensor"
+	case researchScanner(asOrg) != "":
+		return "stammt von einem Forschungsscanner"
+	}
+	return ""
+}
+
+// check: bereinigte Adresse, angezeigte Form und Grund dagegen (leer = zulässig).
+func (r urlRules) check(raw string) (u, shown, why string) {
+	u, why = shareURLProblem(strings.ReplaceAll(raw, `\`, ""), r.own)
+	switch {
+	case why != "":
+		return "", raw, "Adresse nicht zulässig: " + why
+	// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
+	// nie öffentlich melden und nicht holen.
+	case containsMarker(u, r.marks):
+		return "", "(ausgeblendet)", "enthält die eigene Adresse oder den Namen des Honeypots"
+	}
+	return u, raw, ""
+}
+
+// eventURLs: Nachlade-Adressen eines Befehls oder Downloads.
+func eventURLs(e *Event) []string {
+	if e.Type == "download" {
+		// Hochgeladene Dateien (SFTP/scp, data.upload) haben keine Adresse: nichts zu holen
+		if u := dataString(e.Data, "url"); u != "" {
+			return []string{u}
+		}
+		return nil
+	}
+	if text, on := eventText(e); on == "cmd" {
+		return analyzeText(text, on).urls
+	}
+	return nil
+}
+
 // scanURLs ruft fn für jede Nachlade-Adresse in Befehlen und Downloads seit since auf, in
 // zeitlicher Reihenfolge, höchstens aus limit Ereignissen. Grundlage für die Weitergabe
-// (urlFindings) und den Tab „Funde“ (funde.go), damit beide dieselben Regeln anwenden.
+// (urlFindings); der Tab „Funde“ nutzt dieselben Regeln über einen Zwischenspeicher (funde_cache.go).
 func (h *Hive) scanURLs(ctx context.Context, since time.Time, limit int, fn func(urlSighting)) error {
 	rs, err := h.st.db.QueryContext(ctx, `SELECT ts, sensor, service, type, src_ip, session, data, as_org FROM events
 		WHERE ts >= ? AND type IN ('command','download') ORDER BY id LIMIT ?`, since.UnixMilli(), limit)
@@ -337,9 +392,7 @@ func (h *Hive) scanURLs(ctx context.Context, since time.Time, limit int, fn func
 		return err
 	}
 	defer rs.Close()
-	untrusted := h.untrustedSensors()
-	own := h.ownPublicIP()
-	marks := h.ownMarkers()
+	rules := h.urlRules()
 	for rs.Next() {
 		var e Event
 		var data []byte
@@ -349,42 +402,16 @@ func (h *Hive) scanURLs(ctx context.Context, since time.Time, limit int, fn func
 			continue
 		}
 		e.Data = data
-		var urls []string
-		if e.Type == "download" {
-			// Hochgeladene Dateien (SFTP/scp, data.upload) haben keine Adresse: nichts zu holen
-			if u := dataString(e.Data, "url"); u != "" {
-				urls = []string{u}
-			}
-		} else if text, on := eventText(&e); on == "cmd" {
-			urls = analyzeText(text, on).urls
-		}
-		// Eigene Tests, nicht vertrauenswürdige Sensoren und Forschungsscanner liefern keine Funde
-		var from string
-		switch {
-		case isOwnIP(e.SrcIP) || e.SrcIP == own:
-			from = "von einer eigenen Adresse (Test)"
-		case untrusted[e.Sensor]:
-			from = "von einem nicht vertrauenswürdigen Sensor"
-		case researchScanner(asOrg.String) != "":
-			from = "von einem Forschungsscanner"
-		}
-		for _, raw := range urls {
+		from := rules.source(e.SrcIP, e.Sensor, asOrg.String)
+		for _, raw := range eventURLs(&e) {
 			s := urlSighting{TS: time.UnixMilli(ts), IP: e.SrcIP, Service: e.Service, Session: session.String, Kind: e.Type, Raw: raw}
 			if e.Type == "download" {
 				s.SHA256 = strings.ToLower(dataString(e.Data, "sha256"))
 			}
-			u, why := shareURLProblem(strings.ReplaceAll(raw, `\`, ""), own)
-			switch {
-			case from != "":
-				s.Why = "stammt " + from
-			case why != "":
-				s.Why = "Adresse nicht zulässig: " + why
-			// Eigene Adresse oder Name des Honeypots irgendwo in der Adresse (Pfad, Parameter):
-			// nie öffentlich melden und nicht holen.
-			case containsMarker(u, marks):
-				s.Raw, s.Why = "(ausgeblendet)", "enthält die eigene Adresse oder den Namen des Honeypots"
-			default:
-				s.URL = u
+			if from != "" {
+				s.Why = from
+			} else {
+				s.URL, s.Raw, s.Why = rules.check(raw)
 			}
 			fn(s)
 		}
@@ -437,6 +464,9 @@ func (h *Hive) shareSince(now time.Time) time.Time {
 func (h *Hive) runSharing(stop <-chan struct{}) {
 	t := time.NewTicker(5 * time.Minute)
 	defer t.Stop()
+	warm, cancelWarm := context.WithTimeout(context.Background(), 4*time.Minute)
+	h.warmFunde(warm) // Tab „Funde“ (funde_cache.go)
+	cancelWarm()
 	for {
 		select {
 		case <-stop:
@@ -446,6 +476,7 @@ func (h *Hive) runSharing(stop <-chan struct{}) {
 		ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 		h.shareRound(ctx)
 		h.dshieldRound(ctx)
+		h.warmFunde(ctx)
 		cancel()
 	}
 }

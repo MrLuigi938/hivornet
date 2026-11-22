@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-func testStore(t *testing.T) *Store {
+func testStore(t testing.TB) *Store {
 	t.Helper()
 	st, err := OpenStore(filepath.Join(t.TempDir(), "t.db"))
 	if err != nil {

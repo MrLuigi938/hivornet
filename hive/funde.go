@@ -27,7 +27,6 @@ import (
 
 const (
 	fundeMaxRange   = 30 * 24 * time.Hour
-	fundeMaxEvents  = 50000
 	fundeMaxFiles   = 150
 	fundeScriptMax  = 64 << 10
 	fundeScriptRows = 400
@@ -112,38 +111,68 @@ type fundeData struct {
 	files map[string]*fundFile
 	atts  map[string]*fundAttacker
 	order []string // Reihenfolge der Adressen (jüngste zuletzt)
+	st    *fundeState
 }
 
 func (h *Hive) collectFunde(ctx context.Context, since time.Time) (*fundeData, error) {
-	d := &fundeData{urls: map[string]*fundURL{}, files: map[string]*fundFile{}, atts: map[string]*fundAttacker{}}
-	att := func(ip string, t time.Time) *fundAttacker {
-		a := d.atts[ip]
+	d := &fundeData{urls: map[string]*fundURL{}, files: map[string]*fundFile{}, atts: map[string]*fundAttacker{}, st: h.fundeState(ctx)}
+	att := func(s *sighting) *fundAttacker {
+		a := d.atts[s.ip]
 		if a == nil {
-			a = &fundAttacker{IP: ip, First: t.UnixMilli(), urlSet: map[string]bool{}, fileSet: map[string]bool{}}
-			d.atts[ip] = a
+			a = &fundAttacker{IP: s.ip, First: s.ts, urlSet: map[string]bool{}, fileSet: map[string]bool{}}
+			d.atts[s.ip] = a
 		}
-		a.Last = max(a.Last, t.UnixMilli())
+		if s.ts >= a.Last {
+			a.Last, a.Country, a.ASOrg = s.ts, s.country, s.asOrg
+		}
 		return a
 	}
-	file := func(sha string, t time.Time) *fundFile {
+	file := func(sha string, t int64) *fundFile {
 		f := d.files[sha]
 		if f == nil {
-			f = &fundFile{SHA256: sha, First: t.UnixMilli(), sess: map[string]bool{}, ipSet: map[string]bool{}, Patterns: []string{}, Sources: []string{}, IPs: []string{}}
+			f = &fundFile{SHA256: sha, First: t, sess: map[string]bool{}, ipSet: map[string]bool{}, Patterns: []string{}, Sources: []string{}, IPs: []string{}}
 			d.files[sha] = f
 		}
-		f.First, f.Last = min(f.First, t.UnixMilli()), max(f.Last, t.UnixMilli())
+		f.First, f.Last = min(f.First, t), max(f.Last, t)
 		return f
 	}
-	err := h.scanURLs(ctx, since, fundeMaxEvents, func(s urlSighting) {
-		key := s.URL
-		if s.Why != "" {
-			key = "skip:" + clip(s.Raw, 300)
+	list, err := h.fundeSightings(ctx)
+	if err != nil {
+		return nil, err
+	}
+	// Regeln je Absender und je Adresse nur einmal prüfen
+	rules := h.urlRules()
+	type checked struct{ u, shown, why string }
+	srcWhy := map[[3]string]string{}
+	urlWhy := map[string]checked{}
+	from0 := since.UnixMilli()
+	for i := range list {
+		s := &list[i]
+		if s.ts < from0 {
+			continue
+		}
+		k := [3]string{s.ip, s.sensor, s.asOrg}
+		from, ok := srcWhy[k]
+		if !ok {
+			from = rules.source(s.ip, s.sensor, s.asOrg)
+			srcWhy[k] = from
+		}
+		c := checked{shown: s.raw, why: from}
+		if from == "" {
+			if c, ok = urlWhy[s.raw]; !ok {
+				c.u, c.shown, c.why = rules.check(s.raw)
+				urlWhy[s.raw] = c
+			}
+		}
+		key := c.u
+		if c.why != "" {
+			key = "skip:" + clip(c.shown, 300)
 		}
 		u := d.urls[key]
 		if u == nil {
-			u = &fundURL{URL: s.URL, Why: s.Why, First: s.TS.UnixMilli(), ipSet: map[string]bool{}, IPs: []string{}, Services: []string{}}
-			if s.Why != "" {
-				u.URL = clip(s.Raw, 300)
+			u = &fundURL{URL: c.u, Why: c.why, First: s.ts, ipSet: map[string]bool{}, IPs: []string{}, Services: []string{}}
+			if c.why != "" {
+				u.URL = clip(c.shown, 300)
 			}
 			if p, err := url.Parse(u.URL); err == nil {
 				u.Host = p.Hostname()
@@ -152,32 +181,29 @@ func (h *Hive) collectFunde(ctx context.Context, since time.Time) (*fundeData, e
 			d.order = append(d.order, key)
 		}
 		u.Uses++
-		u.Last = s.TS.UnixMilli()
-		if !u.ipSet[s.IP] {
-			u.ipSet[s.IP] = true
+		u.Last = s.ts
+		if !u.ipSet[s.ip] {
+			u.ipSet[s.ip] = true
 			if len(u.IPs) < 5 {
-				u.IPs = append(u.IPs, s.IP)
+				u.IPs = append(u.IPs, s.ip)
 			}
 		}
-		if !contains(u.Services, s.Service) {
-			u.Services = append(u.Services, s.Service)
+		if !contains(u.Services, s.service) {
+			u.Services = append(u.Services, s.service)
 		}
-		if s.Why != "" {
-			return
+		if c.why != "" {
+			continue
 		}
-		a := att(s.IP, s.TS)
-		a.urlSet[s.URL] = true
-		if sha256HexRe.MatchString(s.SHA256) { // von Cowrie geladen
-			f := file(s.SHA256, s.TS)
-			if !contains(f.Sources, s.URL) && len(f.Sources) < 20 {
-				f.Sources = append(f.Sources, s.URL)
+		a := att(s)
+		a.urlSet[c.u] = true
+		if sha256HexRe.MatchString(s.sha) { // von Cowrie geladen
+			f := file(s.sha, s.ts)
+			if !contains(f.Sources, c.u) && len(f.Sources) < 20 {
+				f.Sources = append(f.Sources, c.u)
 			}
-			f.ipSet[s.IP], f.sess[s.Session] = true, true
-			a.fileSet[s.SHA256] = true
+			f.ipSet[s.ip], f.sess[s.session] = true, true
+			a.fileSet[s.sha] = true
 		}
-	})
-	if err != nil {
-		return nil, err
 	}
 	// Ergebnis des eigenen Holens je Adresse (samplecollect.go); geholte Dateien kommen dazu
 	for _, key := range d.order {
@@ -186,12 +212,12 @@ func (h *Hive) collectFunde(ctx context.Context, since time.Time) (*fundeData, e
 		if u.Why != "" {
 			continue
 		}
-		if v, _, ok := h.st.lookupGet(urlSubject(u.URL), "sample_fetch", 0); ok {
+		if v, ok := d.st.lk["sample_fetch"][urlSubject(u.URL)]; ok {
 			var r sampleFetchResult
 			json.Unmarshal([]byte(v), &r)
 			u.Fetch, u.FetchError, u.SHA256, u.Malware = r.Status, r.Error, r.SHA256, r.Malware
 			if r.Status == "ok" && sha256HexRe.MatchString(r.SHA256) {
-				f := file(r.SHA256, time.UnixMilli(u.Last))
+				f := file(r.SHA256, u.Last)
 				f.First = min(f.First, u.First)
 				if !contains(f.Sources, u.URL) && len(f.Sources) < 20 {
 					f.Sources = append(f.Sources, u.URL)
@@ -205,69 +231,9 @@ func (h *Hive) collectFunde(ctx context.Context, since time.Time) (*fundeData, e
 				f.Malware = f.Malware || r.Malware
 			}
 		}
-		u.URLhaus, u.Note = h.urlhausState(u.URL)
+		u.URLhaus, u.Note = d.st.urlhaus(u.URL)
 	}
 	return d, nil
-}
-
-// urlhausState: Meldestand einer Adresse bei URLhaus.
-func (h *Hive) urlhausState(u string) (string, string) {
-	subj := urlSubject(u)
-	if _, _, ok := h.st.lookupGet(subj, "urlhaus_report", 0); ok {
-		return "ok", ""
-	}
-	for _, w := range h.share.waitList("urlhaus") {
-		if w.Subject == u {
-			return "wait", w.Detail
-		}
-	}
-	if e, ok := h.share.lastFor("urlhaus", func(e shareLogEntry) bool { return e.Subject == u }); ok && e.Status == "error" {
-		return "error", e.Error
-	}
-	if _, _, ok := h.st.lookupGet(subj, "urlhaus_report_dry", 0); ok {
-		return "dry", ""
-	}
-	return "", ""
-}
-
-// bazaarState: Stand einer Datei bei MalwareBazaar.
-func (h *Hive) bazaarState(sha string) string {
-	if v, _, ok := h.st.lookupGet("hash:"+sha, "bazaar_upload", 0); ok {
-		return v
-	}
-	if _, _, ok := h.st.lookupGet("hash:"+sha, "bazaar_wait", 0); ok {
-		return "wait"
-	}
-	if e, ok := h.share.lastFor("bazaar", func(e shareLogEntry) bool { return e.SHA256 == sha }); ok && e.Status == "error" {
-		return "error"
-	}
-	return ""
-}
-
-// abuseState: Stand einer IP bei AbuseIPDB.
-func (h *Hive) abuseState(ip string) (string, string) {
-	if _, _, ok := h.st.lookupGet("ip:"+ip, "abuse_report", 0); ok {
-		return "ok", ""
-	}
-	for _, w := range h.share.waitList("abuseipdb") {
-		if w.Subject == ip {
-			return "wait", w.Detail
-		}
-	}
-	h.abuse.mu.Lock()
-	defer h.abuse.mu.Unlock()
-	for _, e := range h.abuse.log {
-		if e.IP == ip {
-			if e.Status == "error" {
-				return "error", e.Error
-			}
-			break
-		}
-	}
-	if _, _, ok := h.st.lookupGet("ip:"+ip, "abuse_report_dry", 0); ok {
-		return "dry", ""
-	}
-	return "", ""
 }
 
 // lastFor: jüngster Protokolleintrag eines Kanals, der match erfüllt.
@@ -283,7 +249,7 @@ func (s *shareState) lastFor(kind string, match func(shareLogEntry) bool) (share
 }
 
 // fillFile ergänzt Merkmale aus der Untersuchung der Datei (sample.go, zwischengespeichert).
-func (h *Hive) fillFile(f *fundFile, analyze bool) *SampleInfo {
+func (h *Hive) fillFile(st *fundeState, f *fundFile, analyze bool) *SampleInfo {
 	f.IPs = f.IPs[:0]
 	for ip := range f.ipSet {
 		f.IPs = append(f.IPs, ip)
@@ -295,13 +261,13 @@ func (h *Hive) fillFile(f *fundFile, analyze bool) *SampleInfo {
 	}
 	f.URLhaus = ""
 	for _, u := range f.Sources {
-		if st, _ := h.urlhausState(u); rankState(st) > rankState(f.URLhaus) {
-			f.URLhaus = st
+		if s, _ := st.urlhaus(u); rankState(s) > rankState(f.URLhaus) {
+			f.URLhaus = s
 		}
 	}
-	f.Bazaar = h.bazaarState(f.SHA256)
+	f.Bazaar = st.bazaar(f.SHA256)
 	var si SampleInfo
-	v, _, cached := h.st.lookupGet("sample:"+f.SHA256, "sample", 0)
+	v, cached := st.lk["sample"]["sample:"+f.SHA256]
 	switch {
 	case cached && json.Unmarshal([]byte(v), &si) == nil:
 	case analyze:
@@ -391,7 +357,7 @@ func (h *Hive) funde(w http.ResponseWriter, r *http.Request) {
 	infra := map[string]*fundInfra{}
 	analyzed := 0
 	for _, f := range files {
-		si := h.fillFile(f, analyzed < 20) // höchstens 20 neue Untersuchungen je Aufruf
+		si := h.fillFile(d.st, f, analyzed < 20) // höchstens 20 neue Untersuchungen je Aufruf
 		if f.Missing == "" {
 			analyzed++
 		}
@@ -430,10 +396,7 @@ func (h *Hive) funde(w http.ResponseWriter, r *http.Request) {
 	atts := make([]*fundAttacker, 0, len(d.atts))
 	for _, a := range d.atts {
 		a.URLs, a.Files = len(a.urlSet), len(a.fileSet)
-		a.Abuse, a.Note = h.abuseState(a.IP)
-		var cc, org string
-		h.st.db.QueryRowContext(ctx, `SELECT COALESCE(country,''), COALESCE(as_org,'') FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 1`, a.IP).Scan(&cc, &org)
-		a.Country, a.ASOrg = cc, org
+		a.Abuse, a.Note = d.st.abuse(a.IP)
 		atts = append(atts, a)
 	}
 	sort.Slice(atts, func(i, j int) bool { return atts[i].Last > atts[j].Last })
@@ -616,7 +579,7 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	si := h.fillFile(f, true)
+	si := h.fillFile(d.st, f, true)
 	out := map[string]any{"file": f}
 	if si != nil {
 		out["info"] = si
@@ -661,18 +624,18 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 				if x := d.urls[u]; x != nil {
 					st.Seen = x.Uses
 				}
-				if v, _, ok := h.st.lookupGet(urlSubject(u), "sample_fetch", 0); ok {
+				if v, ok := d.st.lk["sample_fetch"][urlSubject(u)]; ok {
 					var fr sampleFetchResult
 					json.Unmarshal([]byte(v), &fr)
 					st.Fetch, st.Error, st.SHA256 = fr.Status, fr.Error, fr.SHA256
-					if v, _, ok := h.st.lookupGet("sample:"+fr.SHA256, "sample", 0); ok {
+					if v, ok := d.st.lk["sample"]["sample:"+fr.SHA256]; ok {
 						var s2 SampleInfo
 						if json.Unmarshal([]byte(v), &s2) == nil {
 							st.Type, st.Arch = s2.Type, s2.Arch
 						}
 					}
 				}
-				st.URLhaus, _ = h.urlhausState(u)
+				st.URLhaus, _ = d.st.urlhaus(u)
 			}
 			stages = append(stages, st)
 		}
@@ -686,8 +649,10 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 			a = &fundAttacker{IP: ip}
 		}
 		a.URLs, a.Files = len(a.urlSet), len(a.fileSet)
-		a.Abuse, a.Note = h.abuseState(ip)
-		h.st.db.QueryRowContext(ctx, `SELECT COALESCE(country,''), COALESCE(as_org,'') FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 1`, ip).Scan(&a.Country, &a.ASOrg)
+		a.Abuse, a.Note = d.st.abuse(ip)
+		if a.Country == "" && a.ASOrg == "" {
+			h.st.db.QueryRowContext(ctx, `SELECT COALESCE(country,''), COALESCE(as_org,'') FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 1`, ip).Scan(&a.Country, &a.ASOrg)
+		}
 		atts = append(atts, a)
 	}
 	out["attackers"] = atts
@@ -698,7 +663,7 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		e := map[string]any{"url": x.URL, "sha256": x.SHA256}
-		if v, _, ok := h.st.lookupGet("sample:"+x.SHA256, "sample", 0); ok {
+		if v, ok := d.st.lk["sample"]["sample:"+x.SHA256]; ok {
 			var s2 SampleInfo
 			if json.Unmarshal([]byte(v), &s2) == nil {
 				e["type"], e["arch"] = s2.Type, s2.Arch

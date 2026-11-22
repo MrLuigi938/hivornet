@@ -126,3 +126,35 @@ func TestURLhausLogSentWithoutKey(t *testing.T) {
 		t.Fatalf("%+v", e)
 	}
 }
+
+// Zwischenspeicher: Zeitraum je Eintrag (auch verspätet eingetroffene), Neues wird nachgelesen.
+func TestFundeCacheRangeAndIncrement(t *testing.T) {
+	allowDoc(t)
+	setOwnNets(OwnNets{Private: true})
+	h := shareHive(t)
+	ins := func(age time.Duration, u string) {
+		d, _ := json.Marshal(map[string]any{"input": "wget " + u})
+		h.st.db.Exec(`INSERT INTO events(ts,type,src_ip,service,data) VALUES(?,?,?,?,?)`, time.Now().Add(-age).UnixMilli(), "command", "203.0.113.70", "ssh", string(d))
+	}
+	ins(time.Hour, "http://198.51.100.20/a")
+	ins(10*24*time.Hour, "http://198.51.100.20/alt") // verspätet eingetroffen: höhere id, ältere Zeit
+	count := func(rng string) int {
+		rec := httptest.NewRecorder()
+		h.funde(rec, httptest.NewRequest("GET", "/api/funde?range="+rng, nil))
+		var d struct {
+			URLs []fundURL `json:"urls"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &d)
+		return len(d.URLs)
+	}
+	if n := count("24h"); n != 1 {
+		t.Fatalf("24 h: %d Adressen", n)
+	}
+	if n := count("30d"); n != 2 {
+		t.Fatalf("30 Tage: %d Adressen", n)
+	}
+	ins(time.Minute, "http://198.51.100.20/neu")
+	if n := count("24h"); n != 2 {
+		t.Fatalf("nach neuem Befehl: %d Adressen", n)
+	}
+}
