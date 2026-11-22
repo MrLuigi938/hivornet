@@ -92,6 +92,7 @@ Regeln, die jeder Handler einhalten muss:
 | `probe.go` | Prüft auf dem Pi die Cowrie-Ports (`HIVE_COWRIE_PROBE`), Hinweis aus dem Journal; `listenerWarnings` für Honeypot-Ports mit Fehler |
 | `deobf.go` | Verschleierung aufdecken: `revealHidden` (Base64 auch verschachtelt, Hex-/Oktal-Escapes, URL-Kodierung; nur lesbarer Text), `analysisText`, `matchAll` (Muster auch im Klartext, Muster `obfuscation`), `allURLs` |
 | `attacks.go` | `/api/attacks`: bündelt Ereignisse einer IP zu Angriffen (Lücke unter `attackGap` = 15 Min), `Attack` mit Zählern, Zugangsdaten, Pfaden, Befehlen, Mustern, Zeitstreifen, Stufe (0 Abtasten … 4 Download) und vermuteter Art (`classify`); liest höchstens `attackScanMax` Ereignisse. `/api/stats/series`: Verläufe und Vorperiode für die Kennzahlen |
+| `funde.go` | Tab „Funde“: `GET /api/funde` (Trichter, Anbieter, Fundbuch) und `GET /api/funde/file` (Fallakte mit Inhalt von Skripten als Text, Nachlade-Stufen, Prüfprotokoll aus `shareLogEntry.Sent`); Adressen über `scanURLs` (share.go), dieselben Regeln wie die Weitergabe |
 | `delay.go` | Verzögerung der Meldungen (`report_delay_min`, Standard 15 Minuten) für AbuseIPDB, URLhaus, MalwareBazaar und DShield; Wartelisten je Dienst im Speicher (`setWaits`, `waitList`), vorgemerkte Proben für MalwareBazaar in `lookups` (`bazaar_wait`) |
 | `report.go` | `/api/report`, KI-Auswertung (`askAI`, `reportAI`), AbuseIPDB (`intel`), `loadEvents` |
 | `notify.go` | `Notifier` (ntfy, Telegram, Webhook; Abklingzeit, Stundenlimit), `webhookBody` (Felder der Meldung plus `content` für Discord), `watchWarnings`, Testnachricht |
@@ -146,6 +147,7 @@ Web-UI (Sitzungs-Cookie; schreibende Aufrufe brauchen den Header `X-Requested-Wi
 | `GET/PUT /api/extras`, `POST /api/extras/test-notify` | Zusatzfunktionen |
 | `GET /api/campaigns`, `GET /api/chain`, `GET /api/weekly` | Kampagnen, Angriffskette, Vorschau des Wochenberichts |
 | `GET /api/lookup/urlhaus?url=…`, `GET /api/lookup/malwarebazaar?hash=…` | abuse.ch auf Knopfdruck (nur Adressen und Hashes aus den eigenen Daten) |
+| `GET /api/funde`, `GET /api/funde/file?sha=` | Tab „Funde“: Übersicht und Fallakte einer Datei (nur lesen) |
 | `POST /api/share/dshield/check` | DShield-Zugang prüfen (E-Mail und API-Schlüssel bei isc.sans.edu), trägt die Benutzer-ID ein (nur Admin) |
 | `GET /api/abuse/log` | Protokoll der AbuseIPDB-Meldungen, Kontingent, letzter Fehler (nur Admin) |
 | `GET /api/tarpit`, `GET /api/system`, `GET /healthz`, `GET /metrics` | Tarpit (mit `held`: gerade festgehaltene Verbindungen aus den Lebenszeichen, Herkunft aus `attackers`), System, Überwachung |
@@ -188,6 +190,7 @@ Reines JavaScript in ES-Modulen, kein Build-Schritt, per `go:embed` im Binary (i
 | `attacks.js` | Seite „Angriffe“ (`viewAttacks`), Karte je Angriff (`attackCard`), Zeile für „Gerade aktiv“ (`attackRow`), `liveAttacks` (sammelt IPs aus dem Live-Strom und holt alle 2 s deren Angriffe), Umschalter zur Einzelansicht |
 | `world.js` | Landumrisse (`COUNTRIES`) und deutsche Ländernamen (`COUNTRY_NAMES`), erzeugt von `tools/build_world.py`; Länder über der Datumsgrenze sind abgewickelt |
 | `app.js` | Anmeldung, Live-Stream, Kopfleiste mit Navigation und Benutzermenü, Router (`routes`, `route()`), Ansichten Dashboard (`viewDashboard`), Einzelne Ereignisse (`viewFeed`, fasst Wiederholungen zusammen), Sitzungen, Angreifer, Zugangsdaten, Tarpit, Einstellungen, System (mit `updateCard`), Protokolle (`viewLogs`, nur Pi) |
+| `funde.js` | Tab „Funde“: Trichter, Anbieter-Tabelle, Fundbuch mit Reitern, Fallakte einer Datei (Inhalt, Nachlade-Stufen, Ziele, Verknüpfungen, Prüfprotokoll, externe Daten, KI-Antworten) |
 | `extra.js` | Ansicht Analyse; Bausteine `reportCard`, `ttyCard`, `intelCard`, `extrasCards` |
 
 Regeln für die UI:

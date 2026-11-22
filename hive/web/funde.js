@@ -62,7 +62,7 @@ function funnel(d, go) {
   const steps = [
     ["Nachlade-Adressen", f.seen || 0, "in Befehlen und Downloads", "urls", ""],
     ["zulässig", f.allowed || 0, reasons.length ? `${fmtNum((f.seen || 0) - (f.allowed || 0))} verworfen: ${reasons.slice(0, 2).map(([w]) => w.replace(/^Adresse nicht zulässig: /, "")).join(", ")}` : "nichts verworfen", "skip", ""],
-    ["geholt", f.fetched || 0, [f.fetch_error ? `${fmtNum(f.fetch_error)} Fehler` : "", f.not_tried ? `${fmtNum(f.not_tried)} nicht versucht` : ""].filter(Boolean).join(" · ") || "alle versucht", "urls", "fetched"],
+    ["geholt", f.fetched || 0, [f.fetch_error ? `${fmtNum(f.fetch_error)} Fehler` : "", f.not_tried ? `${fmtNum(f.not_tried)} nicht versucht` : ""].filter(Boolean).join(" · ") || (f.allowed ? "alle versucht" : "–"), "urls", "fetched"],
     ["Schadsoftware", f.malware || 0, f.fetched ? `${fmtNum((f.fetched || 0) - (f.malware || 0))} harmlos oder unklar` : "–", "urls", "malware"],
     ["an URLhaus", reported, [f.urlhaus_wait ? `${fmtNum(f.urlhaus_wait)} wartet` : "", f.urlhaus_dry ? `${fmtNum(f.urlhaus_dry)} Probe` : ""].filter(Boolean).join(" · ") || "gesendet", "urls", "reported"],
     ["angenommen", f.urlhaus_ok || 0, f.urlhaus_error ? `${fmtNum(f.urlhaus_error)} abgelehnt` : "keine Ablehnung", "urls", f.urlhaus_error ? "rejected" : "accepted"],
@@ -80,8 +80,8 @@ function providers(d) {
   const row = (p) => {
     const c = p.counts || {}, [name, col] = PROV[p.kind];
     const sent = Object.values(c).reduce((a, b) => a + b, 0);
-    const mode = !p.enabled ? h("span", { class: "muted" }, "aus", p.disabled ? " (" + p.disabled + ")" : "") : p.dry_run ? h("span", { class: "chip" }, "Probemodus") : h("span", { class: "chip ok" }, "aktiv");
-    const note = p.pause_until ? "pausiert bis " + new Date(p.pause_until).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
+    const mode = !p.enabled ? h("span", { class: "chip", title: p.disabled ? "aus: " + p.disabled : "in den Einstellungen ausgeschaltet" }, "aus") : p.dry_run ? h("span", { class: "chip" }, "Probemodus") : h("span", { class: "chip ok" }, "aktiv");
+    const note = !p.enabled && p.disabled ? "aus: " + p.disabled : p.pause_until ? "pausiert bis " + new Date(p.pause_until).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" })
       : p.last_error || (p.last_run ? "zuletzt geprüft " + relTime(p.last_run) : "");
     const maxDay = Math.max(1, ...p.days);
     return h("tr", null,

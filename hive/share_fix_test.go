@@ -74,7 +74,7 @@ func TestURLhausUserUnknownIsError(t *testing.T) {
 	t.Cleanup(func() { urlhausSubmitURL = old })
 	q := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Auth-Key") != "k" {
-			http.Error(w, `{"error":"Unauthorized"}`, 401)
+			http.Error(w, `{"error":"Unauthorized"}`, http.StatusUnauthorized)
 			return
 		}
 		io.WriteString(w, `{"query_status":"ok","urls":[]}`)
