@@ -48,7 +48,10 @@ var patterns = []Pattern{
 	pat("miner", "Krypto-Miner", "Hinweise auf Mining-Software oder Mining-Pools.", "cmd", 3,
 		`xmrig|minerd|cpuminer|stratum\+(tcp|ssl)|monero|c3pool|nanopool|kinsing|kdevtmpfsi|\bxmr\b`),
 	pat("iot_botnet", "IoT-Botnetz (Mirai-Art)", "Typische Probe- und Ladebefehle von Mirai, Gafgyt und Verwandten.", "cmd", 3,
-		`/bin/busybox\s+[A-Z0-9]{4,}\b|\bbusybox\s+(wget|tftp)\b|\b(mirai|gafgyt|mozi|bashlite|sora|ecchi)\b|\.(mips|mpsl|arm[4-7]?|x86|sh4|ppc|m68k|spc)\b`),
+		// Neben Probe-Applets ("/bin/busybox ECCHI") und Ladern: die Ausbruchsfolge aus Router-CLIs
+		// (enable, system, shell, linuxshell, "ping ;sh"), nacktes "/bin/busybox" als Existenzprüfung
+		// und die Gafgyt-Kennung GAYFGT, die als Hex-Echo geschickt wird.
+		`/bin/busybox\s+[A-Z0-9]{4,}\b|^\s*/bin/busybox\s*$|\bbusybox\s+(wget|tftp)\b|\b(mirai|gafgyt|gayfgt|mozi|bashlite|sora|ecchi)\b|\.(mips|mpsl|arm[4-7]?|x86(_64)?|sh4|ppc|m68k|spc)\b|^\s*(enable\s*)?linuxshell\s*$|^\s*ping\s*;\s*sh\s*$|echo\s+-e\s+["']?\\x47\\x41\\x59\\x46\\x47\\x54`),
 	pat("persist_ssh", "SSH-Schlüssel hinterlegen", "Trägt einen eigenen Schlüssel in authorized_keys ein, um dauerhaft Zugang zu behalten.", "cmd", 3,
 		`authorized_keys|ssh-(rsa|ed25519)\s+AAAA`),
 	pat("persist_cron", "Cron-Persistenz", "Richtet einen wiederkehrenden Auftrag ein.", "cmd", 3,
@@ -104,6 +107,10 @@ var patterns = []Pattern{
 
 	// Köder (bait.go): kein Textmuster, sondern Abgleich mit den Köder-Zugangsdaten. Die Regel
 	// passt nur auf ihren eigenen Platzhalter und steht hier für Name, Text und Schweregrad.
+	// Datei per SCP/SFTP hochgeladen (Cowrie: file_upload): kein Textmuster, gesetzt in eventPatterns (bait.go).
+	pat("file_upload", "Datei hochgeladen", "Hat eine Datei per SCP oder SFTP auf den Honeypot kopiert, meist Schadsoftware ohne einen einzigen Shell-Befehl; Prüfsumme und Name stehen unter Downloads.", "meta", 3, `^hivornet:upload$`),
+	// SSH-Weiterleitung (Cowrie: direct-tcpip): den Honeypot als Proxy benutzen, gesetzt in eventPatterns (bait.go).
+	pat("ssh_tunnel", "Tunnel über SSH", "Will den Honeypot nach dem Login als Proxy benutzen (SSH-Weiterleitung zu fremden Servern, oft Web- oder Mail-Server); Cowrie leitet nichts weiter.", "meta", 2, `^hivornet:tunnel$`),
 	pat("bait_used", "Köder benutzt", "Hat Zugangsdaten aus einer Köderdatei des Web-Honeypots (.env, .git/config …) benutzt; hat die Datei also gelesen und gezielt ausprobiert.", "meta", 3, `^hivornet:koeder$`),
 	pat("tls_on_plain", "TLS auf Klartext-Port", "TLS-Handshake auf einem Port ohne TLS.", "raw", 1, `^\\x16\\x03`),
 	pat("smb_probe", "SMB-Probe", "SMB-Verhandlung (z. B. EternalBlue-Scanner).", "raw", 2, `\\xffSMB|\\xfeSMB`),
@@ -460,6 +467,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	repeat := 0
 	tags := map[string]*TagHit{}
 	okSess := map[string]bool{} // Sitzungen mit angenommenem Login (einstufung.go)
+	var drop dropperSteps       // Laden und Starten in getrennten Befehlen (attacks.go)
 	condSess := 0               // Verbindungen in Sammelzeilen (bruteforce.go)
 	maxSev := 0
 	for _, e := range evs {
@@ -569,8 +577,8 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 				creds.add(e.Username + " / " + e.Password)
 			}
 		case "command":
-			if kind == kindTLSPlain || kind == kindForeign {
-				break
+			if kind == kindTLSPlain || kind == kindForeign || strings.TrimSpace(text) == "" {
+				break // leere Eingabe (einstufung.go, Regel 1c)
 			}
 			if kind != kindExec {
 				cmds.add("vor der Anmeldung: " + clip(strings.TrimSpace(text), reportMaxText))
@@ -578,6 +586,11 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 				break
 			}
 			cmds.add(clip(strings.TrimSpace(text), reportMaxText))
+			if drop.note(text) && tags["download_exec"] == nil {
+				p := patternByID["download_exec"]
+				tags["download_exec"] = &TagHit{ID: p.ID, Name: p.Name, Desc: p.Desc, Sev: p.Sev, N: 1, Example: clip(strings.TrimSpace(text), reportMaxText), Mitre: patternMitre[p.ID]}
+				maxSev = max(maxSev, p.Sev)
+			}
 			for _, m := range outFileRe.FindAllStringSubmatch(text, 6) {
 				if f := m[1]; f != "/dev/null" && f != "-" && !strings.HasPrefix(f, "/dev/") {
 					files.add(f)

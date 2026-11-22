@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -56,6 +57,7 @@ type Attack struct {
 	Commands      []string       `json:"commands,omitempty"`       // ausgeführte Befehle (einstufung.go)
 	ProtoCommands []string       `json:"proto_commands,omitempty"` // Protokoll-Befehle vor der Anmeldung, Eingaben an der Login-Abfrage
 	URLs          []string       `json:"urls,omitempty"`
+	Forwards      []string       `json:"forwards,omitempty"`   // Ziele von SSH-Weiterleitungen (direct-tcpip)
 	Wallets       []string       `json:"wallets,omitempty"`    // Krypto-Wallets aus Miner-Befehlen (indicators.go)
 	Pools         []string       `json:"pools,omitempty"`      // Mining-Pools
 	Sensors       []string       `json:"sensors,omitempty"`    // meldende Sensoren (feed.go: Vertrauen)
@@ -90,6 +92,7 @@ type Attack struct {
 	okSess                       map[string]bool // Sitzungen mit angenommenem Login
 	credOrder                    []string        // die ersten credOrderMax Kombinationen in Reihenfolge
 	stripStride, stripSeen       int             // Ausdünnung des Zeitstreifens (addStrip)
+	dropper                      dropperSteps    // Laden und Starten in getrennten Befehlen
 }
 
 type stripEvent struct {
@@ -153,6 +156,28 @@ func newAttack(e *Event) *Attack {
 // als "command", wenn sie ausgeführt wurden; sonst unter "proto_command" bzw. "prompt".
 var kindCount = map[evKind]string{kindTLSPlain: "tls_plain", kindForeign: "foreign", kindPrompt: "prompt", kindProbe: "probe_command", kindProto: "proto_command", kindExec: "command"}
 
+// Dropper in Einzelschritten: "tftp -g -r x86 -l q host", dann "chmod 777 q", dann "./q".
+// download_exec (analyze.go) prüft je Befehl; Bots schicken die Schritte aber oft einzeln.
+var (
+	dropFetchRe = regexp.MustCompile(`(?i)\b(wget|curl|tftp|ftpget)\b`)
+	dropRunRe   = regexp.MustCompile(`(?i)\bchmod\s+(\+x|[0-7]*[157][0-7]*)\b|(^|[;&|\s])\./[\w.-]+|\b(ba)?sh\s+[\w./][\w./-]*`)
+)
+
+// dropperSteps merkt sich Laden und Starten über mehrere ausgeführte Befehle (Angriffe,
+// Bericht, Angriffskette).
+type dropperSteps struct{ fetch, run, done bool }
+
+// note liefert true bei dem Befehl, mit dem Laden und Starten erstmals beide gesehen sind.
+func (d *dropperSteps) note(cmd string) bool {
+	d.fetch = d.fetch || dropFetchRe.MatchString(cmd)
+	d.run = d.run || dropRunRe.MatchString(cmd)
+	if d.fetch && d.run && !d.done {
+		d.done = true
+		return true
+	}
+	return false
+}
+
 func (a *Attack) addCommand(list *[]string, c string) {
 	c = clip(c, 500)
 	if c != "" && !a.seenCmd[c] && len(*list) < 30 {
@@ -171,8 +196,11 @@ func (a *Attack) add(e *Event) {
 	a.Last = ms
 	a.Events++
 	kind := eventKind(e, a.okSess[e.Session])
+	fwd := e.Type == "request" && dataString(e.Data, "forward_to") != ""
 	if k, ok := kindCount[kind]; ok {
 		a.Counts[k]++
+	} else if fwd { // SSH-Weiterleitung: keine Web-Anfrage
+		a.Counts["forward"]++
 	} else {
 		a.Counts[e.Type]++
 	}
@@ -218,6 +246,7 @@ func (a *Attack) add(e *Event) {
 	case e.Type == "command":
 		if kind == kindExec {
 			a.addCommand(&a.Commands, str("input"))
+			a.dropper.note(str("input"))
 		} else {
 			a.addCommand(&a.ProtoCommands, str("input"))
 		}
@@ -255,6 +284,12 @@ func (a *Attack) add(e *Event) {
 		}
 		return
 	case "request":
+		if fwd {
+			if t := clip(dataString(e.Data, "forward_to"), 120); len(a.Forwards) < 10 && !slices.Contains(a.Forwards, t) {
+				a.Forwards = append(a.Forwards, t)
+			}
+			break
+		}
 		a.paths[clip(requestKey(e), 300)]++
 		if ua := str("user_agent"); ua != "" && len(a.userAgents) < 5 && !slices.Contains(a.userAgents, ua) {
 			a.userAgents = append(a.userAgents, clip(ua, 200))
@@ -298,7 +333,7 @@ func (a *Attack) add(e *Event) {
 	}
 	// Nachlade-Adressen auch aus Befehlen (wget, curl …) und aus entschlüsselten Inhalten;
 	// bei Web-Anfragen nur entschlüsselte (Pfade sind oft nur Proben)
-	if e.Type == "command" || e.Type == "payload" || e.Type == "request" {
+	if e.Type == "command" || e.Type == "payload" || e.Type == "request" || kind == kindPrompt {
 		for _, u := range an.urls {
 			if len(a.URLs) < 10 && !slices.Contains(a.URLs, clip(u, 300)) {
 				a.URLs = append(a.URLs, clip(u, 300))
@@ -349,6 +384,9 @@ func (a *Attack) finish() {
 	sort.Ints(a.Ports)
 	a.Creds, a.CredsDistinct = topCounts(a.creds, 12), len(a.creds)
 	a.Paths, a.PathsDistinct = topCounts(a.paths, 12), len(a.paths)
+	if a.dropper.done && a.tags["download_exec"] == 0 {
+		a.tags["download_exec"] = 1 // Laden und Starten in getrennten Befehlen (dropperSteps)
+	}
 	a.Tags = topCounts(a.tags, 8)
 	for i := range a.Tags {
 		if p := patternByID[a.Tags[i].Key]; p != nil {
@@ -719,18 +757,38 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 	svc, terms := q.Get("service"), parseQuery(q.Get("q")) // Suchsprache (query.go)
 	onlyOK := q.Get("success") == "1"                      // nur Angriffe mit angenommenem Login
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
+	// Zeitfenster innerhalb des Zeitraums (Verlauf: Ziehen wählt einen Ausschnitt)
+	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+	to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
+	inTime := func(a *Attack) bool { return (from <= 0 || a.Last >= from) && (to <= 0 || a.First <= to) }
+	var ov *attackOverview
+	if q.Get("overview") == "1" {
+		ov = newOverview(since.UnixMilli(), time.Now().UnixMilli())
+	}
 	limit := qInt(r, "limit", 50, 500)
 	out := make([]*Attack, 0, limit)
 	matched := 0
 	for _, a := range list {
-		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matchQuery(terms) {
+		if svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matchQuery(terms) {
 			continue
 		}
-		if a.Brute {
-			nBrute++
-			if hideBrute {
-				continue
+		if a.Brute && (want == nil || want[a.Stufe]) && inTime(a) {
+			nBrute++ // auch ausgeblendete zählen (Schaltfläche "Dauer-Brute-Force ausblenden")
+		}
+		if hideBrute && a.Brute {
+			continue
+		}
+		if ov != nil {
+			ov.addHist(a) // Verlauf: alle Filter außer Stufe und Zeitfenster
+			if inTime(a) {
+				ov.Stufen[a.Stufe]++ // Trichter: alle Filter außer Stufe
 			}
+		}
+		if want != nil && !want[a.Stufe] || !inTime(a) {
+			continue
+		}
+		if ov != nil {
+			ov.addFields(a)
 		}
 		matched++
 		if before > 0 && a.Last >= before || len(out) >= limit {
@@ -754,9 +812,13 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
+	res := map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
 		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays(), "brute": nBrute,
-		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor(bruteIPs), "groups": groups})
+		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor(bruteIPs), "groups": groups}
+	if ov != nil {
+		res["overview"] = ov.finish()
+	}
+	writeJSON(w, res)
 }
 
 // series: Verläufe für die Kennzahlen des Dashboards und Vergleich zum Zeitraum davor.
@@ -821,10 +883,14 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 	pfrom := since.Add(-d)
 	// angenommene Logins: selten, darum je Ereignis gelesen (eigene Tests heraus, ownnet.go)
 	var okNow, okPrev int64
-	rs, _ = h.rows(ctx, `SELECT ts, src_ip FROM events WHERE ts >= ? AND `+succ+` LIMIT 100000`, pfrom.UnixMilli())
+	rs, _ = h.rows(ctx, `SELECT ts, src_ip, service, username FROM events WHERE ts >= ? AND `+succ+` LIMIT 100000`, pfrom.UnixMilli())
 	for _, row := range rs {
 		ts, _ := row["ts"].(int64)
 		if ownHidden(fmt.Sprint(row["src_ip"])) {
+			continue
+		}
+		// HTTP-Kopfzeile, die Cowrie vor 0.9.5 als Login annahm (einstufung.go, Regel 1b)
+		if foreignEvent(&Event{Type: "login", Service: fmt.Sprint(row["service"]), Username: fmt.Sprint(row["username"])}) {
 			continue
 		}
 		if ts < since.UnixMilli() {

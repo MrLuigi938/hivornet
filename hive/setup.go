@@ -548,8 +548,54 @@ var recountFields = []string{"username", "password", "cred", "command", "path", 
 // 0.7.0: neues Muster honeypot_check, Wallets und Pools (indicators.go);
 // 0.7.0-beta.3: Adressen mit Backslashes vollständig (deobf.go), Muster prompt_injection;
 // 0.7.5: Muster und CVE-Regel java4shell;
-// 0.7.6: viele neue Regeln für Produkte und Lücken (cverules.go), Muster known_exploit und product_probe
-const recountKey = "top_recounted_076"
+// 0.7.6: viele neue Regeln für Produkte und Lücken (cverules.go), Muster known_exploit und product_probe;
+// 0.9.5: Prüfung an einer echten Instanz (Nullbytes an der Login-Abfrage, Mirai-Telnet-Folgen,
+// URL-Kodierung keine Verschleierung, Muster file_upload und ssh_tunnel, Base64-gzip)
+const recountKey = "top_recounted_095"
+
+// forwardKey: Merker, dass SSH-Weiterleitungen in den Stundenzählern umgebucht sind (rebookForwards).
+const forwardKey = "hourly_forward_095"
+
+// rebookForwards bucht SSH-Weiterleitungen (Cowrie direct-tcpip) in hourly einmalig von
+// "request" nach "forward" um (hourlyType in store.go); vorher zählten sie als Web-Anfragen.
+// Läuft VOR dem Start des Schreibers, in einer Transaktion. Eigene Tests (ownnet.go) standen
+// nie in hourly, sind aber selten Weiterleitungen; der Zähler fällt nie unter null.
+func rebookForwards(st *Store) {
+	if _, done := st.GetKV(forwardKey); done {
+		return
+	}
+	tx, err := st.db.Begin()
+	if err != nil {
+		log.Printf("Weiterleitungen umbuchen: %v", err)
+		return
+	}
+	defer tx.Rollback()
+	const sel = `SELECT ts / 3600000 AS hour, service, country, COUNT(*) AS n FROM events
+		WHERE type = 'request' AND json_extract(data, '$.forward_to') IS NOT NULL GROUP BY 1, 2, 3`
+	if _, err = tx.Exec(`CREATE TEMP TABLE hv_fwd AS ` + sel); err == nil {
+		_, err = tx.Exec(`UPDATE hourly SET cnt = MAX(0, cnt - COALESCE((SELECT n FROM hv_fwd f WHERE f.hour = hourly.hour
+			AND f.service = hourly.service AND f.country = hourly.country), 0)) WHERE type = 'request'`)
+	}
+	if err == nil {
+		_, err = tx.Exec(`INSERT INTO hourly(hour, service, type, country, cnt, tarpit_ms)
+			SELECT hour, service, 'forward', country, n, 0 FROM hv_fwd WHERE true
+			ON CONFLICT(hour, service, type, country) DO UPDATE SET cnt = cnt + excluded.cnt`)
+	}
+	if err == nil {
+		_, err = tx.Exec(`DELETE FROM hourly WHERE type = 'request' AND cnt = 0 AND tarpit_ms = 0`)
+	}
+	if err == nil {
+		_, err = tx.Exec(`DROP TABLE hv_fwd`)
+	}
+	if err == nil {
+		err = tx.Commit()
+	}
+	if err != nil {
+		log.Printf("Weiterleitungen umbuchen: %v", err)
+		return
+	}
+	st.SetKV(forwardKey, "1")
+}
 
 // prepareRecount löscht die alten Zähler dieser Felder, einmalig und VOR dem Start des
 // Schreibers; danach zählt recountTop alle Ereignisse bis maxID im Hintergrund neu.

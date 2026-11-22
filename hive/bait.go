@@ -81,5 +81,11 @@ func eventPatterns(e *Event, text, on string, revealed []string) []string {
 	if baitUsed(e) {
 		ids = append(ids, "bait_used")
 	}
+	if e.Type == "download" && dataBool(e.Data, "upload") {
+		ids = append(ids, "file_upload")
+	}
+	if e.Type == "request" && dataString(e.Data, "forward_to") != "" {
+		ids = append(ids, "ssh_tunnel")
+	}
 	return ids
 }

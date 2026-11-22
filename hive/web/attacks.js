@@ -74,6 +74,7 @@ export function summary(a) {
   if (a.success) p.push("Login angenommen");
   const web = !a.services.every((s) => s === "sip" || s === "dns");
   if (c.request) p.push(web ? `${fmtNum(c.request)} Web-Anfrage${c.request > 1 ? "n" : ""}` : `${fmtNum(c.request)} Anfrage${c.request > 1 ? "n" : ""}`);
+  if (c.forward) p.push(`${fmtNum(c.forward)} Weiterleitungsversuch${c.forward > 1 ? "e" : ""} (SSH-Tunnel)`);
   if (c.payload) p.push(`${fmtNum(c.payload)}× Daten`);
   if (c.command) p.push(`${fmtNum(c.command)} Befehl${c.command > 1 ? "e" : ""} ausgeführt`);
   const proto = (c.proto_command || 0) + (c.probe_command || 0);
@@ -286,6 +287,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
     a.commands && a.commands.length ? ["Befehle (ausgeführt)", a.commands.slice(0, 6), a.commands.length > 6 ? `+${a.commands.length - 6}` : null] : null,
     a.proto_commands && a.proto_commands.length ? ["Protokoll-Befehle (ohne Anmeldung)", a.proto_commands.slice(0, 6), a.proto_commands.length > 6 ? `+${a.proto_commands.length - 6}` : null] : null,
     a.urls && a.urls.length ? ["Nachlade-Adressen (nicht aufrufen)", a.urls, null, "hot"] : null,
+    a.forwards && a.forwards.length ? ["Tunnel-Ziele (SSH-Weiterleitung, nicht ausgeführt)", a.forwards, null] : null,
     a.decoded && a.decoded.length ? ["Entschlüsselt (Base64, Hex …)", a.decoded, null, "decoded"] : null,
     a.tags && a.tags.length ? ["Erkannte Muster", a.tags.map((t) => t.label || t.key), null, "tag"] : null,
     a.cves && a.cves.length && !(a.exploits && a.exploits.length) ? ["Bekannte Lücken", a.cves.map((c) => `${c.key} ${c.label || ""}`.trim()), null, "hot"] : null,
@@ -391,6 +393,144 @@ export function liveAttacks(ctx, onUpdate) {
   });
 }
 
+// ---------- Ansicht der Seite "Angriffe": Lagebild (Standard) oder Klassisch ----------
+// Lagebild: Verlauf mit Stufen-Trichter, kompakte zweizeilige Angriffe (aufklappbar zur vollen
+// Karte), gleiche Abläufe gebündelt, Feldstatistik zum Filtern. Klassisch: große Karten wie bis 0.9.4.
+// Gewählt im Benutzermenü (layoutPicker), gemerkt im Browser.
+export const attLayout = () => (store("attLayout") === "klassisch" ? "klassisch" : "lagebild");
+
+export function layoutPicker(onChange) {
+  const box = h("div", { class: "layout-pick", role: "radiogroup", "aria-label": "Ansicht der Seite Angriffe" });
+  const opt = (k, label, sketch) => h("button", { class: "lp" + (attLayout() === k ? " on" : ""), role: "radio", "aria-checked": String(attLayout() === k), title: label,
+    onclick: (e) => { e.stopPropagation(); store("attLayout", k); box.querySelectorAll(".lp").forEach((b) => { const on = b === e.currentTarget; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); }); onChange?.(k); } },
+    h("span", { class: "sk" }, sketch), h("span", null, label));
+  const bars = h("span", { class: "sk-bars" }, [3, 5, 2, 6, 4, 7, 3, 5, 6, 2].map((n) => h("i", { style: { height: n * 2 + "px" } })));
+  mount(box,
+    opt("lagebild", "Lagebild", [bars, [1, 2, 3, 4].map((i) => h("span", { class: "sk-row", style: { "--c": sevColor(i % 4) } }))]),
+    opt("klassisch", "Klassisch", [1, 2].map((i) => h("span", { class: "sk-card", style: { "--c": sevColor(i + 1) } }))));
+  return box;
+}
+
+// Gleicher Ablauf: Art plus die ersten Befehle, sonst Pfade, sonst Dienste
+const ablaufKey = (a) => a.profile + "|" + ((a.commands || []).slice(0, 8).join("⏎") || (a.paths || []).slice(0, 3).map((p) => p.key).join("·") ||
+  ((a.forwards || []).length ? "tunnel" : a.services.join(",")));
+
+// Das Auffälligste eines Angriffs in einer Zeile: Login, Befehle, sonst Tunnel, Pfade, Zugangsdaten
+function kernLine(a) {
+  const out = [], sep = (s) => h("span", { class: "sep" }, s);
+  if (a.success && a.success_cred) out.push(h("span", { class: "ok" }, "✓ " + a.success_cred), sep("→"));
+  if ((a.commands || []).length) a.commands.slice(0, 10).forEach((c, i) => { if (i) out.push(sep("⏎")); out.push(c); });
+  else if ((a.forwards || []).length) out.push(h("span", { class: "hot" }, "⇄ " + a.forwards.join(", ")));
+  else if ((a.proto_commands || []).length) out.push(a.proto_commands.slice(0, 6).join(" ⏎ "));
+  else if ((a.paths || []).length) out.push(counted(a.paths, 6).join("  ·  "));
+  else if ((a.creds || []).length) out.push(counted(a.creds, 10).join("  ·  "));
+  else out.push(h("span", { class: "muted" }, summary(a)));
+  if ((a.urls || []).length) out.push(sep("·"), h("span", { class: "hot" }, a.urls[0]));
+  return out;
+}
+
+// Zweizeilige Zeile; Klick klappt die volle Karte (attackCard) darunter auf
+export function attackLine(a, { fresh = false, open = null, brief = null, extra = null } = {}) {
+  const now = Date.now(), span = Math.max(1, a.last - a.first);
+  const det = h("div", { class: "ar-det", hidden: true });
+  const row = h("div", { class: "ar-row", tabindex: 0, role: "button", "aria-expanded": "false" },
+    h("div", { class: "who" },
+      h("div", null, flag(a.country), " ", h("a", { class: "ip mono", href: "#/attacker/" + encodeURIComponent(a.ip), onclick: (e) => e.stopPropagation() }, a.ip)),
+      h("div", { class: "w", title: where(a) }, where(a))),
+    h("div", { class: "what" },
+      h("div", { class: "l1" }, h("span", { class: "badge stufe" }, STUFE[a.stufe]), h("span", { class: "prof" }, a.profile), svcBadges(a), h("span", { class: "cnt" }, summary(a)),
+        a.own ? h("span", { class: "badge" }, "eigener Test") : null,
+        a.brute ? h("span", { class: "badge", title: BRUTE_TITLE }, "Dauer-Brute-Force") : null,
+        groupBadge(a),
+        a.scanner ? h("span", { class: "badge" }, "Scanner: " + a.scanner) : null,
+        a.ai_replies && a.ai_replies.length ? h("span", { class: "badge ai" }, "KI") : null,
+        a.tarpit_ms > 1000 ? h("span", { class: "badge tarpit" }, `festgehalten ${fmtDur(a.tarpit_ms)}`) : null,
+        a.seen > 1 ? h("span", { class: "badge" }, `${a.seen}. Angriff`) : null, extra),
+      h("div", { class: "l2", title: (a.commands || []).join("\n") }, kernLine(a)),
+      (a.tags || []).length ? h("div", { class: "tagline" }, a.tags.map((t) => h("span", { class: "pill tag" }, t.label || t.key)), (a.mitre || []).map((m) => h("span", { class: "chip mitre" }, m))) : null),
+    h("div", { class: "when" },
+      h("span", { class: "num" }, h("b", null, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)}`), " · ", fmtDur(span)),
+      now - a.last < 60e3 ? h("span", { class: "badge active" }, "● aktiv") : h("span", { "data-rel": a.last }, relTime(a.last)),
+      a.strip && a.strip.length > 1 ? h("span", { class: "mini" }, a.strip.map((e) => h("i", { style: { left: `calc(${((e.t - a.first) / span) * 100}% - 1px)`, background: TYPCOL[e.type] || "var(--other)" } }))) : null));
+  const el = h("article", { class: "ar" + (fresh ? " fresh" : ""), style: { "--c": sevColor(a.stufe) } }, row, det);
+  const toggle = (on) => {
+    det.hidden = !on;
+    row.setAttribute("aria-expanded", String(on));
+    el.classList.toggle("open", on);
+    if (open) on ? open.add(a.id) : open.delete(a.id);
+    if (on && !det.firstChild) mount(det, attackCard(a, { open, brief: typeof brief === "function" ? brief() : brief, showIP: false }));
+  };
+  row.addEventListener("click", (e) => { if (!e.target.closest("a")) toggle(det.hidden); });
+  row.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === row) { e.preventDefault(); toggle(det.hidden); } });
+  if (open && open.has(a.id)) toggle(true);
+  return el;
+}
+
+// Verlauf (gestapelt nach Stufe, Ziehen wählt ein Zeitfenster) und Stufen-Trichter
+function overviewCard(ov, f, reload) {
+  const B = ov.hist.length, W = 960, H = 80;
+  const tot = ov.hist.map((c) => c.reduce((p, q) => p + q, 0));
+  const mx = Math.max(1, ...tot), bw = W / B, span = ov.step * B;
+  const NS = "http://www.w3.org/2000/svg";
+  const mk = (tag, at) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
+  const svg = mk("svg", { viewBox: `0 0 ${W} ${H + 12}`, preserveAspectRatio: "none", role: "img", "aria-label": "Verlauf der Angriffe nach Stufe" });
+  const lbl = (ms) => (span > 2 * 86400e3 ? new Date(ms).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " " : "") + fmtTime(ms).slice(0, 5);
+  ov.hist.forEach((col, i) => {
+    let y = H;
+    col.forEach((n, s) => {
+      if (!n) return;
+      const hh = Math.max(1.5, (n / mx) * (H - 4));
+      y -= hh;
+      const r = mk("rect", { x: i * bw + 0.5, y, width: Math.max(0.5, bw - 1), height: hh, fill: sevColor(s) });
+      const t = mk("title", {});
+      t.textContent = `${lbl(ov.from + i * ov.step)}–${lbl(ov.from + (i + 1) * ov.step)}: ${fmtNum(tot[i])} Angriffe` + col.map((c, k) => (c ? `\n${STUFE[k]}: ${fmtNum(c)}` : "")).join("");
+      r.append(t);
+      svg.append(r);
+    });
+  });
+  for (let k = 0; k <= 8; k++) {
+    const t = mk("text", { x: Math.min(W - 2, Math.max(2, (k / 8) * W)), y: H + 11, class: "ax", "text-anchor": k === 0 ? "start" : k === 8 ? "end" : "middle" });
+    t.textContent = k === 8 ? "jetzt" : lbl(ov.from + (k / 8) * span);
+    svg.append(t);
+  }
+  if (f.win) svg.append(mk("rect", { class: "sel", x: ((f.win[0] - ov.from) / span) * W, y: 0, width: Math.max(2, ((f.win[1] - f.win[0]) / span) * W), height: H }));
+  let start = null, sel = null;
+  const xr = (ev) => { const r = svg.getBoundingClientRect(); return Math.min(1, Math.max(0, (ev.clientX - r.left) / r.width)); };
+  svg.addEventListener("pointerdown", (ev) => { start = xr(ev); svg.setPointerCapture(ev.pointerId); sel = mk("rect", { class: "sel", x: start * W, y: 0, width: 1, height: H }); svg.append(sel); });
+  svg.addEventListener("pointermove", (ev) => { if (start == null) return; const x = xr(ev); sel.setAttribute("x", Math.min(start, x) * W); sel.setAttribute("width", Math.max(1, Math.abs(x - start) * W)); });
+  svg.addEventListener("pointerup", (ev) => {
+    if (start == null) return;
+    let a = start, b = xr(ev);
+    start = null;
+    if (Math.abs(b - a) < 0.006) { const i = Math.floor(a * B); a = i / B; b = (i + 1) / B; } // Klick = eine Säule
+    f.win = [Math.round(ov.from + Math.min(a, b) * span), Math.round(ov.from + Math.max(a, b) * span)];
+    reload();
+  });
+  const st = ov.stufen, all = st.reduce((p, q) => p + q, 0), ab = (s) => st.slice(s).reduce((p, q) => p + q, 0);
+  const funnel = h("div", { class: "stz" }, STUFE.map((name, s) => h("button", { class: f.stufe.has(s) ? "on" : null, style: { "--c": sevColor(s) }, "aria-pressed": String(f.stufe.has(s)),
+    title: s ? `${fmtNum(ab(s))} von ${fmtNum(all)} Angriffen kamen mindestens so weit. Strg+Klick wählt mehrere Stufen.` : "Strg+Klick wählt mehrere Stufen.",
+    onclick: (ev) => { if (!ev.ctrlKey && !ev.metaKey && !f.stufe.has(s)) f.stufe.clear(); f.stufe.has(s) ? f.stufe.delete(s) : f.stufe.add(s); reload(); } },
+  h("b", null, fmtNum(st[s])), h("span", null, name), h("small", null, s ? `≥ hier: ${all ? Math.round((ab(s) / all) * 100) : 0} %` : `${fmtNum(all)} gesamt`))));
+  return h("section", { class: "card ov" },
+    h("div", { class: "head" }, h("h2", null, "Verlauf und Stufen"), h("span", { class: "hint" }, "Farbe = wie weit der Angreifer kam · Ziehen oder Klick wählt einen Zeitabschnitt"), h("div", { class: "grow" }),
+      f.win ? h("button", { class: "btn small", onclick: () => { f.win = null; reload(); } }, `${lbl(f.win[0])}–${lbl(f.win[1])} ✕`) : null),
+    h("div", { class: "vl" }, svg, funnel));
+}
+
+// Feldstatistik: häufigste Werte im Zeitraum, Klick hängt den Suchbegriff an (oder nimmt ihn heraus)
+function fieldStats(ov, f, setQ) {
+  const has = (q) => f.q.split(/\s+(?=(?:[^"]*"[^"]*")*[^"]*$)/).includes(q);
+  return h("div", { class: "fs" }, (ov.fields || []).map((fd) => {
+    const top = fd.top[0]?.n || 1;
+    return [h("h3", null, h("span", null, fd.title), h("span", { class: "muted" }, fmtNum(fd.distinct))),
+      h("ol", null, fd.top.slice(0, 6).map((v) => h("li", { class: has(v.q) ? "on" : null, title: `${v.l || v.v}\nKlick: Suche „${v.q}“`,
+        onclick: () => setQ(has(v.q) ? f.q.replace(v.q, "").replace(/\s+/g, " ").trim() : [f.q, v.q].filter(Boolean).join(" ")) },
+      h("span", { class: "k" + (["cred", "cmd", "host"].includes(fd.key) ? " mono" : "") },
+        fd.key === "country" ? [flag(v.v), " ", v.l || countryName(v.v)] : fd.key === "service" ? svcName(v.v) : v.l || v.v),
+      h("span", { class: "n" }, fmtNum(v.n)), h("span", { class: "bar" }, h("i", { style: { width: (v.n / top) * 100 + "%" } })))))];
+  }));
+}
+
 // ---------- Seite "Angriffe" ----------
 
 export async function viewAttacks(el, ctx, query = "") {
@@ -404,7 +544,11 @@ export async function viewAttacks(el, ctx, query = "") {
     own: params.get("own") === "1",
     // Dauer-Brute-Forcer ausblenden (hive/bruteforce.go); gemerkt im Browser
     hideBrute: params.has("brute") ? params.get("brute") === "0" : store("attHideBrute") === "1",
+    win: null, // Zeitfenster aus dem Verlauf [von, bis] (nur Lagebild)
+    group: store("attGroup") === "1", // gleiche Abläufe bündeln (nur Lagebild)
   };
+  const lage = attLayout() === "lagebild";
+  let ov = null; // Übersicht des Hive (hive/attackoverview.go)
   let nBrute = 0;
   let nOwn = 0;
   const open = new Set();
@@ -413,7 +557,7 @@ export async function viewAttacks(el, ctx, query = "") {
 
   const rangeSeg = rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); load(); });
   const pauseBtn = h("button", { class: "btn", onclick: () => { f.paused = !f.paused; pauseBtn.textContent = f.paused ? "Fortsetzen" : "Pausieren"; if (!f.paused) load(); } }, "Pausieren");
-  header("Angriffe", { extra: [viewSwitch("gruppen"), rangeSeg, pauseBtn] });
+  header("Angriffe", { extra: [viewSwitch("gruppen", () => sharedQS(f)), rangeSeg, pauseBtn] });
 
   let qTimer;
   const search = h("input", { type: "search", placeholder: "Suche: Text oder z. B. service:ssh stufe>=3 cmd:*wget* -scanner:ja", value: f.q, "aria-label": "Suche",
@@ -452,8 +596,8 @@ export async function viewAttacks(el, ctx, query = "") {
       color ? h("i", { style: { background: color } }) : null, label, n != null ? h("b", null, fmtNum(n)) : null);
     mount(chips,
       f.success ? chip(true, "Nur angenommene Logins ✕", null, sevColor(2), () => { f.success = false; load(); }) : null,
-      STUFE.map((st, i) => chip(f.stufe.has(i), st, stufen[i], sevColor(i), () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); load(); })),
-      h("span", { class: "fsep" }),
+      lage ? null : [STUFE.map((st, i) => chip(f.stufe.has(i), st, stufen[i], sevColor(i), () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); load(); })),
+        h("span", { class: "fsep" })], // im Lagebild über den Trichter
       ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"].map((sv) => chip(f.service === sv, svcName(sv), null, svcColor(sv), () => { f.service = f.service === sv ? "" : sv; load(); })),
       h("span", { class: "fsep" }),
       chip(f.ai, "Beantwortet durch KI", null, "var(--s7)", () => { f.ai = !f.ai; load(); }),
@@ -461,8 +605,24 @@ export async function viewAttacks(el, ctx, query = "") {
         chip(f.hideBrute, "Dauer-Brute-Force ausblenden", nBrute, null, () => { f.hideBrute = !f.hideBrute; store("attHideBrute", f.hideBrute ? "1" : "0"); load(); }))] : null,
       nOwn || f.own ? [h("span", { class: "fsep" }), chip(f.own, "Eigene Tests zeigen", nOwn, null, () => { f.own = !f.own; load(); })] : null);
   }
+  const ovBox = h("div");
+  const actList = h("div", { class: "act-list" });
+  const fsBox = h("div");
+  const groupSeg = h("div", { class: "seg", role: "group", "aria-label": "Bündelung" });
+  function renderOverview() {
+    if (!lage) return;
+    mount(ovBox, ov ? overviewCard(ov, f, () => load()) : null);
+    mount(fsBox, ov && (ov.fields || []).length ? fieldStats(ov, f, setQ) : h("div", { class: "empty" }, "–"));
+    mount(groupSeg, [[false, "Einzeln"], [true, "Gleiche Abläufe bündeln"]].map(([v, l]) => h("button", { class: f.group === v ? "on" : "", "aria-pressed": String(f.group === v),
+      onclick: () => { if (f.group === v) return; f.group = v; store("attGroup", v ? "1" : "0"); load(); } }, l)));
+  }
   function renderSide() {
     const now = Date.now();
+    if (lage) {
+      const act = list.filter((a) => now - a.last < 15 * 60e3);
+      mount(actList, act.length ? act.slice(0, 8).map((a) => h("a", { class: "act-row", href: "#/attacker/" + encodeURIComponent(a.ip), style: { "--c": sevColor(a.stufe) } },
+        h("i"), flag(a.country), h("span", { class: "mono" }, a.ip), h("span", { class: "muted p" }, a.profile), h("span", { class: "muted", "data-rel": a.last }, relTime(a.last)))) : h("div", { class: "empty" }, "Gerade niemand."));
+    }
     nAct.textContent = fmtNum(list.filter((a) => now - a.last < 15 * 60e3).length);
     const by = new Map();
     for (const a of list) if (a.country) by.set(a.country, (by.get(a.country) || 0) + 1);
@@ -477,13 +637,29 @@ export async function viewAttacks(el, ctx, query = "") {
   };
   const els = new Map(); // Angriff -> Element, damit Live-Updates nur die geänderte Karte ersetzen
   const setInfo = () => { info.textContent = `${fmtNum(list.length)} von ${fmtNum(matched)} Angriffen angezeigt` + (truncated ? " · sehr viele Daten: nur die neuesten 500.000 Ereignisse ausgewertet" : ""); };
+  const make = (a, o) => (lage ? attackLine(a, { ...o, brief: () => briefs[a.id] }) : attackCard(a, o));
+  const groupOpen = new Set();
+  function renderFeed() {
+    els.clear();
+    if (!list.length) { mount(feed, h("div", { class: "card empty" }, "Keine Angriffe für diese Auswahl.")); return; }
+    if (!(lage && f.group)) { mount(feed, list.map((a) => { const e = make(a, { open, brief: briefs[a.id] }); els.set(a.id, e); return e; })); return; }
+    // gleiche Abläufe: der neueste Angriff steht für alle, die übrigen auf Klick
+    const g = new Map();
+    for (const a of list) { const k = ablaufKey(a); if (!g.has(k)) g.set(k, []); g.get(k).push(a); }
+    mount(feed, [...g].map(([k, items]) => {
+      const auf = groupOpen.has(k), ips = new Set(items.map((a) => a.ip)).size;
+      const chip = items.length > 1 ? h("button", { class: "grp-same", "aria-expanded": String(auf), onclick: (e) => { e.stopPropagation(); auf ? groupOpen.delete(k) : groupOpen.add(k); renderFeed(); } },
+        `${auf ? "▾" : "▸"} +${fmtNum(items.length - 1)} gleiche · ${fmtNum(ips)} IP${ips > 1 ? "s" : ""}`) : null;
+      return h("div", { class: "grp" }, attackLine(items[0], { open, brief: () => briefs[items[0].id], extra: chip }), auf ? items.slice(1).map((a) => attackLine(a, { open, brief: () => briefs[a.id] })) : null);
+    }));
+  }
   function render() {
     seenCount();
     renderChips();
     setInfo();
-    els.clear();
-    mount(feed, list.length ? list.map((a) => { const e = attackCard(a, { open, brief: briefs[a.id] }); els.set(a.id, e); return e; }) : h("div", { class: "card empty" }, "Keine Angriffe für diese Auswahl."));
+    renderFeed();
     renderSide();
+    renderOverview();
   }
   // Hält den Inhalt an der Stelle, die man gerade liest: Ist man heruntergescrollt, wird
   // nach dem Einfügen um die Höhenänderung oberhalb des Ankers nachgescrollt.
@@ -499,7 +675,8 @@ export async function viewAttacks(el, ctx, query = "") {
   }
   function upsert(a) {
     seenCount();
-    const old = els.get(a.id), el = attackCard(a, { fresh: true, open, brief: briefs[a.id] });
+    if (lage && f.group) { keepAnchor(renderFeed); return; }
+    const old = els.get(a.id), el = make(a, { fresh: true, open, brief: briefs[a.id] });
     keepAnchor(() => {
       els.set(a.id, el);
       if (old) old.remove();
@@ -508,7 +685,11 @@ export async function viewAttacks(el, ctx, query = "") {
     });
   }
   const qs = (before) => {
-    const p = new URLSearchParams({ range: f.range, limit: "40" });
+    const p = new URLSearchParams({ range: f.range, limit: lage ? (f.group ? "300" : "60") : "40" });
+    if (lage) {
+      if (!before) p.set("overview", "1");
+      if (f.win) { p.set("from", String(f.win[0])); p.set("to", String(f.win[1])); }
+    }
     if (f.stufe.size) p.set("stufe", [...f.stufe].join(","));
     if (f.service) p.set("service", f.service);
     if (f.success) p.set("success", "1");
@@ -525,6 +706,7 @@ export async function viewAttacks(el, ctx, query = "") {
     if (!ctx.current()) return;
     list = older ? [...list, ...d.attacks] : d.attacks;
     matched = d.matched; stufen = d.stufen; truncated = d.truncated; nOwn = d.own || 0; nBrute = d.brute || 0;
+    if (d.overview) ov = d.overview;
     more.hidden = list.length >= matched;
     render();
     fillBriefs(d.attacks);
@@ -538,14 +720,23 @@ export async function viewAttacks(el, ctx, query = "") {
     for (const [id, b] of Object.entries(got)) {
       briefs[id] = b;
       const a = list.find((x) => x.id === id), old = els.get(id);
-      if (!a || !old) continue;
+      if (!a || !old || lage) continue; // Lagebild: Kurzanalyse erst in der aufgeklappten Karte
       const el = attackCard(a, { open, brief: b });
       old.replaceWith(el);
       els.set(id, el);
     }
   }
 
-  mount(el, h("div", { class: "angriffe" },
+  if (lage) mount(el, h("div", { class: "stack" },
+    h("div", { class: "filters" }, search, info),
+    aiSearch((q, range) => { location.hash = "#/attacks?" + new URLSearchParams({ range, q }); }, RANGES),
+    saved, chips, ovBox,
+    h("div", { class: "angriffe" },
+      h("div", { class: "stack" }, h("div", { class: "filters" }, groupSeg), h("div", { class: "al" }, feed), more),
+      h("aside", { class: "side" },
+        card("Gerade aktiv", nAct, actList),
+        card("Im gewählten Zeitraum", h("div", { class: "note-box", style: { marginBottom: "8px" } }, "Häufigste Werte; Klick filtert, nochmal Klick hebt auf."), fsBox)))));
+  else mount(el, h("div", { class: "angriffe" },
     h("div", { class: "stack" },
       h("div", { class: "filters" }, search, info),
       aiSearch((q, range) => { location.hash = "#/attacks?" + new URLSearchParams({ range, q }); }, RANGES), // Suche in Alltagssprache (hive/aiplus.go)
@@ -574,13 +765,62 @@ export async function viewAttacks(el, ctx, query = "") {
     setInfo();
   });
   ctx.every(30000, () => { if (!f.paused && !document.hidden) renderSide(); });
+  // Lagebild: Verlauf und Feldstatistik jede Minute neu, solange man oben liest
+  if (lage) ctx.every(60000, () => { if (!f.paused && !document.hidden && window.scrollY < 300 && !open.size) load(); });
 }
 
-// Umschalter der Seite "Angriffe": gebündelt, einzelne Ereignisse, Sitzungen (drei Routen)
-export function viewSwitch(cur) {
+// Umschalter der Seite "Angriffe": gebündelt, einzelne Ereignisse, Sitzungen (drei Routen).
+// qs: liefert die gemeinsamen Filter als Adressteil; sie gelten in der neuen Ansicht weiter.
+export function viewSwitch(cur, qs) {
   return h("div", { class: "seg", role: "group", "aria-label": "Ansicht" },
     [["gruppen", "#/attacks", "Gebündelt"], ["einzeln", "#/feed", "Einzelne Ereignisse"], ["sitzungen", "#/sessions", "Sitzungen"]].map(([k, href, label]) =>
-      h("button", { class: cur === k ? "on" : "", "aria-pressed": String(cur === k), onclick: () => { location.hash = href; } }, label)));
+      h("button", { class: cur === k ? "on" : "", "aria-pressed": String(cur === k), onclick: () => { const q = qs ? qs() : ""; location.hash = href + (q ? "?" + q : ""); } }, label)));
+}
+
+// ---------- Gemeinsame Filter der drei Ansichten (hive/attackfilter.go) ----------
+// Zeitraum, Suche (Suchsprache), Stufe und Dienst; Sitzungen und Ereignisse filtert der Hive
+// über die passenden Angriffe.
+export function sharedFromQuery(params) {
+  return {
+    range: rangeOK(params.get("range")) ? params.get("range") : rangeOK(store("attRange")) ? store("attRange") : "24h",
+    q: params.get("q") || "",
+    stufe: new Set((params.get("stufe") || "").split(",").filter((x) => /^[0-4]$/.test(x)).map(Number)),
+    service: params.get("service") || "",
+  };
+}
+export function sharedQS(f) {
+  const p = new URLSearchParams();
+  if (f.range && f.range !== "24h") p.set("range", f.range);
+  if (f.q) p.set("q", f.q);
+  if (f.stufe && f.stufe.size) p.set("stufe", [...f.stufe].join(","));
+  if (f.service) p.set("service", f.service);
+  return p.toString();
+}
+// Parameter für /api/sessions und /api/events (Suche heißt dort aq, weil q die Textsuche ist)
+export function sharedParams(f, p = new URLSearchParams()) {
+  p.set("range", f.range);
+  if (f.q) p.set("aq", f.q);
+  if (f.stufe.size) p.set("stufe", [...f.stufe].join(","));
+  if (f.service) p.set("service", f.service);
+  return p;
+}
+export const sharedRange = (f, onChange) => rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); onChange(); });
+const CHIP_SERVICES = ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"];
+export function sharedBar(f, onChange, extra = null, allServices = []) {
+  let t;
+  const search = h("input", { type: "search", value: f.q, placeholder: "Suche: Text oder z. B. service:ssh stufe>=3 cmd:*wget* -scanner:ja", "aria-label": "Suche",
+    style: { minWidth: "320px", flex: "1" }, oninput: (e) => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); onChange(); }, 350); } });
+  const chips = h("div", { class: "filters" });
+  const render = () => mount(chips,
+    STUFE.map((st, i) => h("button", { class: "fchip" + (f.stufe.has(i) ? " on" : ""), "aria-pressed": String(f.stufe.has(i)), onclick: () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); render(); onChange(); } },
+      h("i", { style: { background: sevColor(i) } }), st)),
+    h("span", { class: "fsep" }),
+    CHIP_SERVICES.map((sv) => h("button", { class: "fchip" + (f.service === sv ? " on" : ""), "aria-pressed": String(f.service === sv),
+      onclick: () => { f.service = f.service === sv ? "" : sv; render(); onChange(); } }, h("i", { style: { background: svcColor(sv) } }), svcName(sv))),
+    allServices.length ? h("select", { "aria-label": "Weitere Dienste", onchange: (e) => { f.service = e.target.value; render(); onChange(); } },
+      h("option", { value: "" }, "Weitere Dienste …"), allServices.filter((sv) => !CHIP_SERVICES.includes(sv)).map((sv) => h("option", { value: sv, selected: f.service === sv }, svcName(sv)))) : null);
+  render();
+  return h("div", { class: "stack" }, h("div", { class: "filters" }, search, extra), chips);
 }
 
 

@@ -250,7 +250,9 @@ func (m ruleHits) list(n int) []ExploitHit {
 var patternMitre = map[string][]string{
 	"download_exec":    {"T1105", "T1059.004"},
 	"miner":            {"T1496"},
-	"iot_botnet":       {"T1105", "T1059.004"},
+	"iot_botnet":       {"T1059.004"}, // Nachladen (T1105) erst mit download_exec oder Download
+	"file_upload":      {"T1105"},
+	"ssh_tunnel":       {"T1090"},
 	"persist_ssh":      {"T1098.004"},
 	"persist_cron":     {"T1053.003"},
 	"docker_escape":    {"T1610", "T1611"},
@@ -290,5 +292,5 @@ var mitreNames = map[string]string{
 	"T1082": "System Information Discovery", "T1033": "System Owner/User Discovery", "T1552.001": "Credentials In Files",
 	"T1005": "Data from Local System", "T1595.003": "Wordlist Scanning", "T1083": "File and Directory Discovery",
 	"T1497.001": "System Checks", "AML.T0051": "LLM Prompt Injection (MITRE ATLAS)", "T1110": "Brute Force", "T1595": "Active Scanning", "T1078": "Valid Accounts",
-	"T1595.002": "Vulnerability Scanning",
+	"T1595.002": "Vulnerability Scanning", "T1090": "Proxy",
 }

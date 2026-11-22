@@ -54,6 +54,14 @@ function section(title, { intro, save, saveLabel = "Speichern", id } = {}, ...ki
       status.className = "save-status";
       status.textContent = "";
     },
+    // offer: Speichern anbieten, ohne den Bereich als geändert zu markieren (Vorschläge,
+    // die beim Verlassen der Seite nicht nachfragen sollen)
+    offer(text) {
+      if (!canSave) return;
+      btn.disabled = false;
+      status.className = "save-status";
+      status.textContent = text || "";
+    },
     markClean() {
       dirtyCards.delete(sec);
       el.classList.remove("is-dirty");
@@ -657,7 +665,7 @@ function zoneCard(ex) {
       : x.time_zone ? `Wirksam: ${eff}.` : `Nicht eingestellt; der Hive rechnet in ${eff} (Umgebungsvariable TZ, sonst UTC).`),
   browser && browser !== x.time_zone ? h("p", { class: "help" }, `Dein Browser nutzt ${browser}. `,
     h("button", { class: "btn small", type: "button", onclick: () => { input.value = browser; x.time_zone = browser; sec.markDirty(); } }, "Übernehmen")) : null);
-  if (suggest) sec.markDirty();
+  if (suggest) sec.offer("Vorschlag – mit Speichern übernehmen"); // kein Nachfragen beim Verlassen
   return sec;
 }
 

@@ -15,6 +15,10 @@ package main
 //     HTTP-Anfragezeile, HTTP-Kopfzeile ("Host: …") oder Binärdaten. Honeypots ab 0.7.6
 //     melden das als ein "payload" (foreign=http/binary); ältere meldeten jede Zeile als
 //     Befehl bzw. Login. Kein Befehl, keine Zugangsdaten. Stufe: Abtasten.
+//     Cowrie nimmt bei der Anmelderegel "nach N Versuchen" auch eine Kopfzeile als Login an
+//     ("User-Agent: …" / "Accept: */*"); die übrigen Kopfzeilen landen dann als Befehle in
+//     der Schein-Shell. HTTP-Zeilen an Telnet und SSH sind deshalb ebenfalls fremd.
+//     1c. Leere Eingabe (nur Enter) in der Schein-Shell ist kein ausgeführter Befehl.
 //  2. Eingabe an der Login-Abfrage (nur Telnet, Honeypot und Cowrie): Ist der Benutzername
 //     ein Befehlswort (enable, system, shell, sh, /bin/busybox …) oder beginnt das Passwort
 //     mit busybox, hat ein Bot seine Befehle blind in die Anmeldung getippt. Das sind keine
@@ -72,6 +76,9 @@ func foreignEvent(e *Event) bool {
 		switch e.Service {
 		case "redis", "ftp", "smtp":
 			return foreignLine(dataString(e.Data, "input"))
+		case "telnet", "ssh": // nach einer fälschlich angenommenen Kopfzeile (Regel 1b)
+			in := strings.TrimSpace(dataString(e.Data, "input"))
+			return httpLineRe.MatchString(in) || httpHeaderRe.MatchString(in)
 		}
 	case "login":
 		if e.Service == "telnet" { // Benutzername = Anfragezeile, Passwort = erste Kopfzeile
@@ -123,6 +130,8 @@ func eventKind(e *Event, loggedIn bool) evKind {
 			return kindTLSPlain
 		case foreignEvent(e):
 			return kindForeign
+		case strings.TrimSpace(input) == "" && (e.Service == "ssh" || e.Service == "telnet"):
+			return kindProbe // Regel 1c: nur Enter
 		case commandExecuted(e.Service, input, loggedIn):
 			return kindExec
 		case probeCommand(input):
@@ -265,8 +274,20 @@ var promptWords = map[string]bool{
 	"curl": true, "exit": true, "ls": true, "ps": true, "uname": true, "chmod": true,
 }
 
+// trimNul entfernt angehängte Nullbytes: Mirai-Varianten schicken "enable\x00"; Cowrie
+// schreibt das Nullbyte als Text "\x00" ins Protokoll.
+func trimNul(s string) string {
+	for {
+		t := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(s, `\x00`), "\x00"))
+		if t == s {
+			return s
+		}
+		s = t
+	}
+}
+
 func promptWord(s string) bool {
-	s = strings.ToLower(strings.TrimSpace(s))
+	s = strings.ToLower(trimNul(strings.TrimSpace(s)))
 	if s == "" {
 		return false
 	}
@@ -283,12 +304,12 @@ func promptLines(e *Event) ([]string, bool) {
 		return nil, false
 	}
 	u, p := strings.TrimSpace(e.Username), strings.TrimSpace(e.Password)
-	lp := strings.ToLower(p)
+	lp := strings.ToLower(trimNul(p))
 	if !promptWord(u) && !strings.HasPrefix(lp, "/bin/busybox") && !strings.HasPrefix(lp, "busybox ") {
 		return nil, false
 	}
 	var out []string
-	for _, s := range []string{u, p} {
+	for _, s := range []string{trimNul(u), trimNul(p)} {
 		if s != "" {
 			out = append(out, s)
 		}

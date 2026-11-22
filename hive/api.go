@@ -473,8 +473,58 @@ func (h *Hive) events(w http.ResponseWriter, r *http.Request) {
 		defer release()
 	}
 	where, args := eventFilter(r)
-	args = append(args, qInt(r, "limit", 100, 500))
-	h.sendRows(w, r, `SELECT `+evCols+` FROM events WHERE `+where+` ORDER BY id DESC LIMIT ?`, args...)
+	limit := qInt(r, "limit", 100, 500)
+	// Gemeinsame Filter der Seite "Angriffe" (attackfilter.go): nur Ereignisse passender Angriffe
+	f := parseAttackFilter(r, "aq")
+	f.service, f.from, f.to = "", 0, 0 // Dienst und Zeitfenster filtert eventFilter schon je Ereignis
+	f.active = len(f.terms) > 0 || len(f.stufe) > 0
+	if !f.active {
+		args = append(args, limit)
+		h.sendRows(w, r, `SELECT `+evCols+` FROM events WHERE `+where+` ORDER BY id DESC LIMIT ?`, args...)
+		return
+	}
+	ctx, cancel := qctx(r)
+	defer cancel()
+	attacks, err := h.matchingAttacks(ctx, r, f)
+	if errors.Is(err, errBusy) {
+		httpErr(w, 503, err.Error())
+		return
+	}
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	win := attackWindows(attacks)
+	if len(win) == 0 {
+		writeJSON(w, []map[string]any{})
+		return
+	}
+	ips := make([]any, 0, len(win))
+	for ip := range win {
+		if len(ips) >= 900 { // Grenze der SQL-Parameter; die neuesten Angriffe zuerst
+			break
+		}
+		ips = append(ips, ip)
+	}
+	args = append(args, ips...)
+	args = append(args, limit*5)
+	rows, err := h.rows(ctx, `SELECT `+evCols+` FROM events WHERE `+where+` AND src_ip IN (`+
+		strings.TrimSuffix(strings.Repeat("?,", len(ips)), ",")+`) ORDER BY id DESC LIMIT ?`, args...)
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	out := rows[:0]
+	for _, row := range rows {
+		ts, _ := row["ts"].(int64)
+		if win.has(fmt.Sprint(row["src_ip"]), ts) {
+			out = append(out, row)
+			if len(out) >= limit {
+				break
+			}
+		}
+	}
+	writeJSON(w, out)
 }
 
 func (h *Hive) attacker(w http.ResponseWriter, r *http.Request) {
@@ -509,14 +559,74 @@ func (h *Hive) attacker(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Hive) sessionsList(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := qctx(r)
+	defer cancel()
 	since, _ := rangeSince(r)
-	h.sendRows(w, r, `SELECT session, MIN(ts) AS start, MAX(ts) AS last, MAX(src_ip) AS src_ip, MAX(service) AS service,
+	if r.URL.Query().Get("range") == "all" {
+		since = time.Now().AddDate(0, 0, -max(h.retentionDays(), 1))
+	}
+	// Gemeinsame Filter der Seite "Angriffe" (attackfilter.go); die Angriffe liefern auch Stufe und Art
+	f := parseAttackFilter(r, "aq")
+	attacks, err := h.matchingAttacks(ctx, r, f)
+	if errors.Is(err, errBusy) {
+		httpErr(w, 503, err.Error())
+		return
+	}
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	bySess := sessionAttacks(attacks)
+	limit := qInt(r, "limit", 200, 1000)
+	scan := limit
+	if f.active {
+		scan = 5000
+	}
+	rows, err := h.rows(ctx, `SELECT session, MIN(ts) AS start, MAX(ts) AS last, MAX(src_ip) AS src_ip, MAX(service) AS service,
 		MAX(dst_port) AS dst_port, MAX(country) AS country,
 		SUM(type='login') AS logins, SUM(type='command') AS commands, SUM(type='download') AS downloads,
 		MAX(CASE WHEN type='login' AND json_extract(data,'$.success') = 1 THEN 1 ELSE 0 END) AS success,
 		MAX(tarpit) AS tarpit
 		FROM events WHERE session IN (SELECT DISTINCT session FROM events WHERE ts >= ? AND session != '' AND type IN ('login','command','download'))
-		GROUP BY session ORDER BY last DESC LIMIT ?`, since.UnixMilli(), qInt(r, "limit", 200, 1000))
+		GROUP BY session ORDER BY last DESC LIMIT ?`, since.UnixMilli(), scan)
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	out := rows[:0]
+	var ids []any
+	for _, row := range rows {
+		id := fmt.Sprint(row["session"])
+		a := bySess[id]
+		if f.active && a == nil {
+			continue
+		}
+		if a != nil {
+			row["profile"], row["attack_stufe"], row["attack"] = a.Profile, a.Stufe, a.ID
+		}
+		out = append(out, row)
+		ids = append(ids, id)
+		if len(out) >= limit {
+			break
+		}
+	}
+	// Befehle je Sitzung (die ersten 8), damit die Liste zeigt, was getippt wurde
+	if len(ids) > 0 {
+		cmds := map[string][]string{}
+		if rs, err := h.rows(ctx, `SELECT session, json_extract(data, '$.input') AS input FROM events WHERE type = 'command' AND session IN (`+
+			strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")+`) ORDER BY id`, ids...); err == nil {
+			for _, c := range rs {
+				id, in := fmt.Sprint(c["session"]), strings.TrimSpace(fmt.Sprint(c["input"]))
+				if in != "" && in != "<nil>" && len(cmds[id]) < 8 {
+					cmds[id] = append(cmds[id], clip(in, 200))
+				}
+			}
+		}
+		for _, row := range out {
+			row["cmds"] = cmds[fmt.Sprint(row["session"])]
+		}
+	}
+	writeJSON(w, out)
 }
 
 func (h *Hive) sessionDetail(w http.ResponseWriter, r *http.Request) {
