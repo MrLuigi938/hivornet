@@ -64,7 +64,8 @@ type BazaarConfig struct {
 type DShieldConfig struct {
 	Enabled  bool   `json:"enabled"`
 	DryRun   bool   `json:"dry_run"`
-	UserID   int    `json:"user_id"`
+	UserID   int    `json:"user_id"` // numerische ISC-Benutzer-ID, nicht der Anmeldename
+	Email    string `json:"email"`   // Anmeldung bei isc.sans.edu; nur für "Zugang prüfen"
 	APIKey   string `json:"api_key"`
 	Firewall bool   `json:"firewall"` // Verbindungsversuche
 	Web      bool   `json:"web"`      // Web-Anfragen
@@ -82,6 +83,8 @@ var userAgentRe = regexp.MustCompile(`^[\x20-\x7e]{1,120}$`)
 
 func (x *Extras) validateShare() error {
 	u, s, d := &x.URLhausReport, &x.Samples, &x.DShield
+	// Eingefügte Schlüssel tragen oft Leerzeichen oder Zeilenumbrüche am Rand
+	d.APIKey, d.Email = strings.TrimSpace(d.APIKey), strings.TrimSpace(d.Email)
 	switch {
 	case u.DailyLimit < 1 || u.DailyLimit > 150:
 		return fmt.Errorf("URLhaus: Meldungen pro Tag 1 bis 150")
@@ -98,11 +101,13 @@ func (x *Extras) validateShare() error {
 	case !userAgentRe.MatchString(s.UserAgent):
 		return fmt.Errorf("Dateien sammeln: User-Agent 1 bis 120 druckbare Zeichen")
 	case d.UserID < 0 || d.UserID > 999999999:
-		return fmt.Errorf("DShield: Benutzernummer ungültig")
+		return fmt.Errorf("DShield: Benutzer-ID ist eine Zahl (isc.sans.edu → My Account), nicht der Anmeldename")
 	case d.Enabled && (d.UserID == 0 || d.APIKey == ""):
-		return fmt.Errorf("DShield braucht Benutzernummer und API-Schlüssel")
+		return fmt.Errorf("DShield braucht die ISC-Benutzer-ID (Zahl) und den API-Schlüssel. „Zugang prüfen“ ermittelt die ID aus E-Mail-Adresse und Schlüssel")
 	case d.APIKey != "" && !dshieldKeyRe.MatchString(d.APIKey):
-		return fmt.Errorf("DShield: API-Schlüssel enthält unerlaubte Zeichen")
+		return fmt.Errorf("DShield: API-Schlüssel enthält unerlaubte Zeichen (erlaubt: Buchstaben, Ziffern, + / =)")
+	case len(d.Email) > 200 || d.Email != "" && !strings.Contains(d.Email, "@"):
+		return fmt.Errorf("DShield: E-Mail-Adresse ungültig")
 	}
 	return nil
 }
@@ -329,7 +334,10 @@ func (h *Hive) urlFindings(ctx context.Context, since time.Time, skip func(u, wh
 		e.Data = data
 		var urls []string
 		if e.Type == "download" {
-			urls = []string{dataString(e.Data, "url")}
+			// Hochgeladene Dateien (SFTP/scp, data.upload) haben keine Adresse: nichts zu holen
+			if u := dataString(e.Data, "url"); u != "" {
+				urls = []string{u}
+			}
 		} else if text, on := eventText(&e); on == "cmd" {
 			urls = analyzeText(text, on).urls
 		}
@@ -535,8 +543,36 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 		logAll("error", "", msg+" "+clip(answer, 150))
 		return
 	}
+	// URLhaus meldet Kontoprobleme mit Status 200 und Klartext. Bis 0.9.4 stand das als
+	// "gesendet" im Protokoll, und die Adressen galten als gemeldet.
+	if msg := urlhausRefusal(answer); msg != "" {
+		h.share.setErr("urlhaus", msg, time.Hour)
+		logAll("error", "", msg)
+		return
+	}
 	h.share.setErr("urlhaus", "", 0)
 	logAll("ok", clip(answer, 200), "")
+}
+
+// urlhausRefusal: verständliche Meldung, wenn URLhaus die Einreichung trotz Status 200
+// ablehnt; leer, wenn die Antwort nach Erfolg aussieht.
+//
+// "User unknown, please visit https://urlhaus.abuse.ch/ and try again": Der Schlüssel ist
+// gültig (sonst 401), aber das abuse.ch-Konto dahinter war noch nie bei URLhaus angemeldet.
+// Abfragen (urlhaus-api.abuse.ch) gehen dann schon, Einreichen noch nicht.
+func urlhausRefusal(answer string) string {
+	a := strings.ToLower(answer)
+	switch {
+	case strings.Contains(a, "user unknown"):
+		return "URLhaus kennt das Konto zu diesem abuse.ch-Schlüssel noch nicht. Einmal unter https://urlhaus.abuse.ch/login/ mit demselben abuse.ch-Konto anmelden, dann nimmt URLhaus Meldungen an (Antwort: " + clip(answer, 120) + ")"
+	case strings.Contains(a, "unknown_auth_key"), strings.Contains(a, "invalid_auth_key"), strings.Contains(a, "missing_auth_key"), strings.Contains(a, "no_api_key"):
+		return "URLhaus lehnt den abuse.ch-Schlüssel ab. Schlüssel unter https://auth.abuse.ch/ prüfen und neu eintragen (Antwort: " + clip(answer, 120) + ")"
+	case strings.Contains(a, "blacklist"), strings.Contains(a, "banned"), strings.Contains(a, "blocked"):
+		return "URLhaus hat das Konto gesperrt (Antwort: " + clip(answer, 120) + ")"
+	case strings.Contains(a, "error"), strings.Contains(a, "invalid"), strings.Contains(a, "expected"):
+		return "URLhaus lehnt die Meldung ab: " + clip(answer, 150)
+	}
+	return ""
 }
 
 // shareHTTP: Verbindungen zu den Diensten selbst (URLhaus, MalwareBazaar, DShield).

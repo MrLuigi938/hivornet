@@ -8,7 +8,15 @@ package main
 //   Kopf X-ISC-Authorization: "ISC-HMAC-SHA256 Credentials=<b64> Userid=<id> Nonce=<b64>"
 //   mit Credentials = Base64(HMAC-SHA256(Schlüssel = Nonce + Benutzernummer, Nachricht =
 //   API-Schlüssel)), Nonce = Base64 von 8 Zufallsbytes; dazu X-ISC-LogType: <type>.
-//   Erfolg ist jede Antwort 2xx.
+//   Erfolg ist jede Antwort 2xx. Der API-Schlüssel geht als Text in die HMAC, nicht
+//   Base64-dekodiert (so auch Cowrie seit 2026). Userid ist die numerische ISC-Benutzer-ID.
+//
+// Zugang prüfen wie das Installationsprogramm des DShield-Sensors (bin/install.sh):
+//   GET https://isc.sans.edu/api/checkapikey/<E-Mail>/<Nonce>/<Hash>/<Version>/<piid>
+//   mit Hash = hex(HMAC-SHA512(Schlüssel = Nonce, Nachricht = "<E-Mail>:<API-Schlüssel>")),
+//   Nonce = 10 Zufallsbytes hex. Antwort XML mit <result>ok</result> und <id>…</id>: das ist
+//   die Benutzer-ID für die Einreichung. Bis 0.9.4 musste man sie selbst finden, und oft
+//   stand dort der Anmeldename.
 //   - "firewall": je Verbindungsversuch {time (Unix-Sekunden), sip, dip, sport, dport,
 //     proto (6/17), flags, version}.
 //   - "webhoneypot": je Web-Anfrage {time, sip, dip, method, url, useragent, version, headers}.
@@ -26,12 +34,15 @@ import (
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
+	"crypto/sha512"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/netip"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -40,6 +51,7 @@ import (
 
 var (
 	dshieldSubmitURL = "https://www.dshield.org/submitapi/"
+	dshieldCheckURL  = "https://isc.sans.edu/api/checkapikey/"
 	dshieldKeyRe     = regexp.MustCompile(`^[A-Za-z0-9=+/]{1,200}$`)
 )
 
@@ -200,9 +212,9 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 		logs []map[string]any
 	}{{"firewall", b.firewall}, {"webhoneypot", b.web}, {"cowrie", b.logins}} {
 		for i := 0; i < len(part.logs); i += 1000 {
-			if err := dshieldPost(ctx, cfg, part.typ, part.logs[i:min(i+1000, len(part.logs))]); err != nil {
+			if code, err := dshieldPost(ctx, cfg, part.typ, part.logs[i:min(i+1000, len(part.logs))]); err != nil {
 				e.Status, e.Error = "error", err.Error()
-				h.share.setErr("dshield", err.Error(), 0)
+				h.share.setErr("dshield", err.Error(), pauseFor(code))
 				h.share.add("dshield", e)
 				return // lastID bleibt: beim nächsten Lauf noch einmal (DShield erkennt Doppeltes)
 			}
@@ -214,7 +226,7 @@ func (h *Hive) dshieldRound(ctx context.Context) {
 	h.st.SetKV("dshield_last_id", strconv.FormatInt(b.lastID, 10))
 }
 
-func dshieldPost(ctx context.Context, cfg DShieldConfig, typ string, logs []map[string]any) error {
+func dshieldPost(ctx context.Context, cfg DShieldConfig, typ string, logs []map[string]any) (int, error) {
 	nonce := make([]byte, 8)
 	rand.Read(nonce)
 	auth := dshieldAuth(cfg.UserID, cfg.APIKey, nonce)
@@ -226,12 +238,121 @@ func dshieldPost(ctx context.Context, cfg DShieldConfig, typ string, logs []map[
 	req.Header.Set("X-ISC-LogType", typ)
 	resp, err := shareHTTP.Do(req)
 	if err != nil {
-		return fmt.Errorf("DShield nicht erreichbar")
+		return 0, fmt.Errorf("DShield nicht erreichbar")
 	}
 	defer resp.Body.Close()
-	io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("DShield antwortet %s", resp.Status)
+		return resp.StatusCode, dshieldError(resp.StatusCode, resp.Status, raw)
 	}
-	return nil
+	return resp.StatusCode, nil
+}
+
+// dshieldError: verständliche Meldung zu einer Ablehnung durch DShield.
+func dshieldError(code int, status string, raw []byte) error {
+	answer := clip(strings.Join(strings.Fields(htmlTagRe.ReplaceAllString(strings.ToValidUTF8(string(raw), "?"), " ")), " "), 150)
+	if answer != "" {
+		answer = " (Antwort: " + answer + ")"
+	}
+	if code == 401 || code == 403 {
+		return fmt.Errorf("DShield lehnt Benutzer-ID oder API-Schlüssel ab: %s. Die Benutzer-ID ist die Zahl unter isc.sans.edu → My Account, nicht der Anmeldename; „Zugang prüfen“ trägt sie selbst ein%s", status, answer)
+	}
+	return fmt.Errorf("DShield antwortet %s%s", status, answer)
+}
+
+var (
+	htmlTagRe    = regexp.MustCompile(`<[^>]*>`)
+	iscResultRe  = regexp.MustCompile(`<result>\s*([^<]*?)\s*</result>`)
+	iscIDRe      = regexp.MustCompile(`<id>\s*([0-9]{1,9})\s*</id>`)
+	dshieldEmail = regexp.MustCompile(`^[^\s/@]{1,100}@[^\s/@]{1,100}$`)
+)
+
+// dshieldCheck fragt bei isc.sans.edu, ob E-Mail-Adresse und API-Schlüssel zusammenpassen,
+// und liefert die numerische Benutzer-ID.
+func dshieldCheck(ctx context.Context, email, key string) (int, error) {
+	if !dshieldEmail.MatchString(email) {
+		return 0, fmt.Errorf("Bitte die E-Mail-Adresse angeben, mit der du dich bei isc.sans.edu anmeldest")
+	}
+	if !dshieldKeyRe.MatchString(key) {
+		return 0, fmt.Errorf("API-Schlüssel fehlt oder enthält unerlaubte Zeichen (erlaubt: Buchstaben, Ziffern, + / =)")
+	}
+	nb := make([]byte, 10)
+	rand.Read(nb)
+	nonce := hex.EncodeToString(nb)
+	m := hmac.New(sha512.New, []byte(nonce))
+	m.Write([]byte(email + ":" + key))
+	pb := make([]byte, 10)
+	rand.Read(pb)
+	// Pfad wie install.sh: Version 102 des Sensors, piid eine Zufallskennung
+	u := dshieldCheckURL + url.PathEscape(email) + "/" + nonce + "/" + hex.EncodeToString(m.Sum(nil)) + "/102/" + hex.EncodeToString(pb)
+	req, _ := http.NewRequestWithContext(ctx, "GET", u, nil)
+	req.Header.Set("User-Agent", "Hivornet")
+	resp, err := shareHTTP.Do(req)
+	if err != nil {
+		return 0, fmt.Errorf("isc.sans.edu nicht erreichbar")
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 64<<10))
+	if resp.StatusCode != 200 {
+		return 0, dshieldError(resp.StatusCode, resp.Status, raw)
+	}
+	res := iscResultRe.FindSubmatch(raw)
+	if res == nil || !strings.EqualFold(string(res[1]), "ok") {
+		why := "keine Antwort"
+		if res != nil {
+			why = clip(string(res[1]), 80)
+		}
+		return 0, fmt.Errorf("isc.sans.edu kennt diese Kombination aus E-Mail-Adresse und API-Schlüssel nicht (%s). Schlüssel unter isc.sans.edu → My Account → API Key neu kopieren", why)
+	}
+	id := iscIDRe.FindSubmatch(raw)
+	if id == nil {
+		return 0, fmt.Errorf("isc.sans.edu bestätigt den Schlüssel, nennt aber keine Benutzer-ID. Bitte die Zahl unter My Account selbst eintragen")
+	}
+	n, _ := strconv.Atoi(string(id[1]))
+	return n, nil
+}
+
+// dshieldCheckAPI: POST /api/share/dshield/check {email, api_key} – prüft den Zugang und
+// trägt E-Mail-Adresse, Benutzer-ID und Schlüssel ein. Ohne api_key gilt der gespeicherte.
+func (h *Hive) dshieldCheckAPI(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Email  string `json:"email"`
+		APIKey string `json:"api_key"`
+	}
+	if err := readJSON(w, r, &in); err != nil {
+		httpErr(w, 400, "ungültige Anfrage")
+		return
+	}
+	in.Email, in.APIKey = strings.TrimSpace(in.Email), strings.TrimSpace(in.APIKey)
+	key := in.APIKey
+	if key == "" {
+		key = h.Extras().DShield.APIKey
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	defer cancel()
+	id, err := dshieldCheck(ctx, in.Email, key)
+	if err != nil {
+		httpErr(w, 400, err.Error())
+		return
+	}
+	h.extras.mu.Lock()
+	x := h.extras.x
+	x.DShield.UserID, x.DShield.Email, x.DShield.APIKey = id, in.Email, key
+	err = x.Validate()
+	if err == nil {
+		b, _ := json.Marshal(x)
+		if err = h.st.SetKV("extras", string(b)); err == nil {
+			h.extras.x = x
+		}
+	}
+	h.extras.mu.Unlock()
+	if err != nil {
+		httpErr(w, 500, err.Error())
+		return
+	}
+	h.share.mu.Lock()
+	c := h.share.channel("dshield")
+	c.LastErr, c.PauseUntil = "", time.Time{}
+	h.share.mu.Unlock()
+	writeJSON(w, map[string]any{"ok": true, "user_id": id})
 }

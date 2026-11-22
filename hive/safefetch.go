@@ -349,12 +349,20 @@ func hostProblem(u *url.URL, own string) string {
 	return ""
 }
 
+// shareURLMax: längste Nachlade-Adresse. Bis 0.9.4 waren es 1024 Zeichen, und hochgeladene
+// Dateien ohne Adresse (SFTP/scp) landeten als "Länge" in der Liste der nicht geholten.
+// Cowrie kürzt Adressen auf 2048 Zeichen (cowrie.go); das ist zugleich die Grenze.
+const shareURLMax = 2048
+
 // shareURLProblem: Darf die Adresse als Nachlade-Adresse gemeldet werden? Erlaubt sind
 // http, https, ftp und tftp.
 func shareURLProblem(raw, own string) (string, string) {
 	raw = strings.TrimSpace(raw)
-	if raw == "" || len(raw) > 1024 {
-		return "", "Länge"
+	switch {
+	case raw == "":
+		return "", "leer"
+	case len(raw) > shareURLMax:
+		return "", fmt.Sprintf("länger als %d Zeichen", shareURLMax)
 	}
 	u, err := url.Parse(raw)
 	if err != nil {

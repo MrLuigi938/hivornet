@@ -350,7 +350,7 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 		return
 	case "hash_not_found":
 	default:
-		e.Error = "MalwareBazaar: " + clip(qs, 60)
+		e.Error = bazaarStatusText(qs)
 		h.share.setErr("bazaar", e.Error, 0)
 		finish("error", "")
 		return
@@ -403,10 +403,21 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 	case "file_already_known":
 		finish("known", "bei MalwareBazaar schon bekannt")
 	default:
-		e.Error = "MalwareBazaar: " + clip(qs, 60)
+		e.Error = bazaarStatusText(qs)
 		h.share.setErr("bazaar", e.Error, 0)
 		finish("error", "")
 	}
+}
+
+// bazaarStatusText: verständliche Meldung zu einem query_status von MalwareBazaar.
+func bazaarStatusText(qs string) string {
+	switch qs {
+	case "no_api_key", "unknown_auth_key", "invalid_auth_key", "missing_auth_key":
+		return "MalwareBazaar lehnt den abuse.ch-Schlüssel ab (" + qs + "). Schlüssel unter https://auth.abuse.ch/ prüfen"
+	case "user_blacklisted":
+		return "MalwareBazaar hat das Konto gesperrt (user_blacklisted)"
+	}
+	return "MalwareBazaar: " + clip(qs, 60)
 }
 
 func bazaarCall(ctx context.Context, key, ctype string, body io.Reader) (map[string]any, int, error) {
@@ -421,6 +432,9 @@ func bazaarCall(ctx context.Context, key, ctype string, body io.Reader) (map[str
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 	var out map[string]any
+	if resp.StatusCode == 401 || resp.StatusCode == 403 {
+		return nil, resp.StatusCode, errors.New("MalwareBazaar lehnt den abuse.ch-Schlüssel ab (" + resp.Status + "). Schlüssel unter https://auth.abuse.ch/ prüfen")
+	}
 	if resp.StatusCode != 200 || json.Unmarshal(raw, &out) != nil {
 		return nil, resp.StatusCode, errors.New("MalwareBazaar antwortet " + resp.Status)
 	}

@@ -706,7 +706,7 @@ async function tabAuswertung() {
       save: () => ex.save([], ["greynoise_key", "abusech_key"]),
     },
     row("GreyNoise", ex.secret("greynoise_key"), "Zeigt, ob eine IP als Massen-Scanner oder harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
-    row("URLhaus und MalwareBazaar", ex.secret("abusech_key"), "Auth-Key von auth.abuse.ch: schlägt Nachlade-Adressen und Datei-Hashes nach. Es wird nichts hochgeladen; abuse.ch sieht nur die abgefragte Adresse bzw. den Hash.")).el,
+    row("URLhaus und MalwareBazaar", ex.secret("abusech_key"), "Auth-Key von auth.abuse.ch: schlägt Nachlade-Adressen und Datei-Hashes nach; derselbe Schlüssel dient zum Melden an URLhaus und MalwareBazaar. Zum Melden an URLhaus musst du dich mit demselben abuse.ch-Konto einmal unter urlhaus.abuse.ch/login angemeldet haben, sonst antwortet URLhaus „User unknown“.")).el,
 
     section("Lückendetails (CVE)", {
       intro: "Zeigt zu erkannten Lücken CVSS, Beschreibung, EPSS und ob die Lücke im CISA-Katalog der ausgenutzten Lücken (KEV) steht. Der Katalog wird einmal am Tag geladen; NVD und FIRST werden je Lücke gefragt und die Antworten zwischengespeichert. Hinaus gehen nur CVE-Nummern.",
@@ -915,7 +915,8 @@ async function shareCards(ex) {
   noKey(),
   h("p", { class: "sub" }, "Gemeldet werden nur Adressen aus ausgeführten Befehlen (wget, curl, tftp …) und aus Downloads, jede nur einmal. ",
     "Nie gemeldet werden private und eigene Adressen, Rückruf-Adressen von Scannern (interactsh, Burp …), Funde von Forschungsscannern und eigene Tests. ",
-    "URLhaus nimmt nur Adressen an, die gerade Schadsoftware ausliefern; wer wiederholt Falsches meldet, kann gesperrt werden."),
+    "URLhaus nimmt nur Adressen an, die gerade Schadsoftware ausliefern; wer wiederholt Falsches meldet, kann gesperrt werden. ",
+    "Vor der ersten Meldung einmal unter urlhaus.abuse.ch/login mit dem abuse.ch-Konto des Schlüssels anmelden; sonst antwortet URLhaus „User unknown“."),
   row("Aktiv", ex.check(uh, "enabled", "Nachlade-Adressen automatisch melden")),
   row("Probemodus", ex.check(uh, "dry_run", "Nur protokollieren, was gemeldet würde (nichts senden)")),
   row("Nur bestätigte", ex.check(uh, "verified_only", "Nur Adressen melden, deren Datei der Hive selbst geholt und als Schadsoftware erkannt hat (Programm oder eindeutiges Schadskript)"),
@@ -966,12 +967,35 @@ async function shareCards(ex) {
     saveLabel: "DShield speichern",
     save: () => ex.save(["dshield"], ["dshield_key"]),
   },
-  h("p", { class: "sub" }, "Konto unter isc.sans.edu anlegen; Benutzernummer und API-Schlüssel stehen dort unter „My Account“. ",
+  h("p", { class: "sub" }, "Konto unter isc.sans.edu anlegen. Den API-Schlüssel findest du dort unter „My Account“ → „API Key“. ",
+    "Trag E-Mail-Adresse und Schlüssel ein und klick „Zugang prüfen“: Der Hive fragt bei isc.sans.edu nach und trägt die Benutzer-ID (eine Zahl) selbst ein. ",
     "Die eigene Adresse wird nie gesendet (Ziel immer 0.0.0.0), ebenso keine Absender aus dem eigenen Netz. In Pfaden werden eigene IP und Hostnamen ersetzt."),
   row("Aktiv", ex.check(ds, "enabled", "Daten an DShield senden")),
   row("Probemodus", ex.check(ds, "dry_run", "Nur protokollieren, wie viel gesendet würde")),
-  row("Benutzernummer", ex.num(ds, "user_id", 0, 999999999, 1)),
-  row("API-Schlüssel", ex.secret("dshield_key")),
+  row("E-Mail-Adresse", ex.text(ds, "email", { type: "email", autocomplete: "off", placeholder: "Anmeldung bei isc.sans.edu" }), "Nur für die Prüfung; DShield-Daten tragen sie nicht."),
+  row("API-Schlüssel", ex.secret("dshield_key"), "Unter isc.sans.edu → My Account → API Key (Buchstaben und Ziffern, oft mit = am Ende). Nicht das Passwort."),
+  row("Benutzer-ID", (() => {
+    const idInput = ex.num(ds, "user_id", 0, 999999999, 1);
+    const out = h("span", { class: "save-status", role: "status" });
+    const btn = isAdmin() ? h("button", { class: "btn", type: "button", onclick: async () => {
+      btn.disabled = true;
+      out.className = "save-status";
+      out.textContent = "Frage isc.sans.edu …";
+      try {
+        const r = await api("share/dshield/check", { method: "POST", body: { email: ds.email || "", api_key: ex.inputs.dshield_key.value.trim() } });
+        ds.user_id = r.user_id;
+        idInput.value = r.user_id;
+        Object.assign(ex.saved.dshield, { user_id: r.user_id, email: ds.email });
+        if (ex.inputs.dshield_key.value.trim()) { ex.d.secrets.dshield_key = true; ex.inputs.dshield_key.value = ""; ex.inputs.dshield_key.placeholder = SECRET_HINT; }
+        out.className = "save-status ok";
+        out.textContent = `Zugang stimmt. Benutzer-ID ${r.user_id} ist eingetragen und gespeichert.`;
+      } catch (e) {
+        out.className = "save-status err";
+        out.textContent = e.message;
+      } finally { btn.disabled = false; }
+    } }, "Zugang prüfen") : null;
+    return h("div", null, idInput, " ", btn, " ", out);
+  })(), "Die Zahl unter My Account (z. B. 123456), nicht der Anmeldename. „Zugang prüfen“ ermittelt sie aus E-Mail-Adresse und Schlüssel."),
   row("Was senden", h("div", { class: "checklist" },
     ex.check(ds, "firewall", "Verbindungsversuche (wie ein Firewall-Protokoll)"),
     ex.check(ds, "web", "Web-Anfragen (ohne Host-Kopfzeile)"),

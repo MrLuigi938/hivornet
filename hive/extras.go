@@ -122,6 +122,7 @@ func (x *Extras) Validate() error {
 		return fmt.Errorf("Eingabe zu lang")
 	}
 	for name, p := range x.secretFields() {
+		*p = strings.TrimSpace(*p) // beim Einfügen kopierte Leerzeichen und Zeilenumbrüche
 		if len(*p) > 500 || strings.ContainsAny(*p, "\r\n") {
 			return fmt.Errorf("%s ist ungültig", name)
 		}
