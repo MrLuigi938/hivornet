@@ -5,8 +5,9 @@ package main
 // DShield (SANS ISC) senden (dshield.go). Alles ist standardmäßig aus.
 //
 // URLhaus (Stand der API-Dokumentation urlhaus.abuse.ch/api, November 2026):
-//   POST https://urlhaus.abuse.ch/api/ mit Kopf "Auth-Key" (derselbe abuse.ch-Schlüssel wie
-//   für die Abfragen) und JSON {"anonymous":"0","submission":[{"url","threat","tags"}]}.
+//   POST https://urlhaus.abuse.ch/api/ mit JSON {"Auth-Key","anonymous":"0","submission":
+//   [{"url","threat","tags"}]} und zusätzlich Kopf "Auth-Key" (derselbe abuse.ch-Schlüssel wie
+//   für die Abfragen; die Doku nennt ein Feld, das Beispielskript den Kopf).
 //   threat ist immer "malware_download"; Tags nur aus [A-Za-z0-9.- ].
 //   Regeln von URLhaus: nur Adressen, die gerade Schadsoftware ausliefern (online, HTTP 200),
 //   keine privaten oder besonderen IP-Adressen, keine Kurz-URLs, kein Phishing, keine Adware.
@@ -540,7 +541,10 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 		logAll("dry", "Tags: "+strings.Join(batch[0].Tags, ", "), "")
 		return
 	}
-	body, _ := json.Marshal(map[string]any{"anonymous": "0", "submission": batch})
+	// Die API-Seite verlangt den Schlüssel als Feld "Auth-Key" in der Anfrage, das Beispielskript
+	// von abuse.ch schickt ihn als Kopf. Bis 0.9.4 ging er nur im Kopf, und URLhaus antwortete
+	// "User unknown" trotz angemeldetem Konto. Jetzt an beiden Stellen (dasselbe Ziel).
+	body, _ := json.Marshal(map[string]any{"Auth-Key": x.AbuseChKey, "anonymous": "0", "submission": batch})
 	req, _ := http.NewRequestWithContext(ctx, "POST", urlhausSubmitURL, bytes.NewReader(body))
 	req.Header.Set("Auth-Key", x.AbuseChKey)
 	req.Header.Set("Content-Type", "application/json")
@@ -562,6 +566,9 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 	// URLhaus meldet Kontoprobleme mit Status 200 und Klartext. Bis 0.9.4 stand das als
 	// "gesendet" im Protokoll, und die Adressen galten als gemeldet.
 	if msg := urlhausRefusal(answer); msg != "" {
+		if strings.Contains(strings.ToLower(answer), "user unknown") {
+			msg += urlhausKeyCheck(ctx, x.AbuseChKey)
+		}
 		h.share.setErr("urlhaus", msg, time.Hour)
 		logAll("error", "", msg)
 		return
@@ -573,14 +580,15 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 // urlhausRefusal: verständliche Meldung, wenn URLhaus die Einreichung trotz Status 200
 // ablehnt; leer, wenn die Antwort nach Erfolg aussieht.
 //
-// "User unknown, please visit https://urlhaus.abuse.ch/ and try again": Der Schlüssel ist
-// gültig (sonst 401), aber das abuse.ch-Konto dahinter war noch nie bei URLhaus angemeldet.
-// Abfragen (urlhaus-api.abuse.ch) gehen dann schon, Einreichen noch nicht.
+// "User unknown, please visit https://urlhaus.abuse.ch/ and try again": URLhaus ordnet die
+// Einreichung keinem Konto zu. Bis 0.9.4 ging der Schlüssel nur im Kopf mit; die Doku
+// verlangt ihn als Feld der Anfrage (jetzt beides). urlhausKeyCheck sagt dazu, ob der
+// Schlüssel für Abfragen gilt.
 func urlhausRefusal(answer string) string {
 	a := strings.ToLower(answer)
 	switch {
 	case strings.Contains(a, "user unknown"):
-		return "URLhaus kennt das Konto zu diesem abuse.ch-Schlüssel noch nicht. Einmal unter https://urlhaus.abuse.ch/login/ mit demselben abuse.ch-Konto anmelden, dann nimmt URLhaus Meldungen an (Antwort: " + clip(answer, 120) + ")"
+		return "URLhaus ordnet die Meldung keinem Konto zu (Antwort: " + clip(answer, 120) + ")."
 	case strings.Contains(a, "unknown_auth_key"), strings.Contains(a, "invalid_auth_key"), strings.Contains(a, "missing_auth_key"), strings.Contains(a, "no_api_key"):
 		return "URLhaus lehnt den abuse.ch-Schlüssel ab. Schlüssel unter https://auth.abuse.ch/ prüfen und neu eintragen (Antwort: " + clip(answer, 120) + ")"
 	case strings.Contains(a, "blacklist"), strings.Contains(a, "banned"), strings.Contains(a, "blocked"):
@@ -589,6 +597,27 @@ func urlhausRefusal(answer string) string {
 		return "URLhaus lehnt die Meldung ab: " + clip(answer, 150)
 	}
 	return ""
+}
+
+var urlhausQueryURL = "https://urlhaus-api.abuse.ch/v1/urls/recent/limit/1/"
+
+// urlhausKeyCheck: Gilt der Schlüssel für Abfragen? Ergänzt die Meldung zu "User unknown".
+func urlhausKeyCheck(ctx context.Context, key string) string {
+	req, _ := http.NewRequestWithContext(ctx, "GET", urlhausQueryURL, nil)
+	req.Header.Set("Auth-Key", key)
+	resp, err := shareHTTP.Do(req)
+	if err != nil {
+		return " Ob der Schlüssel für Abfragen gilt, ließ sich nicht prüfen (urlhaus-api.abuse.ch nicht erreichbar)."
+	}
+	defer resp.Body.Close()
+	var out struct {
+		Status string `json:"query_status"`
+	}
+	json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&out)
+	if resp.StatusCode == 200 && out.Status == "ok" {
+		return " Der Schlüssel selbst ist gültig (Abfragen bei URLhaus gehen); abgelehnt wird nur das Einreichen. Prüfe unter https://urlhaus.abuse.ch/ (angemeldet, Profil), ob dasselbe Konto dort Meldungen abgeben darf, sonst bitte das Protokoll an abuse.ch melden."
+	}
+	return " Auch Abfragen mit diesem Schlüssel lehnt URLhaus ab (" + resp.Status + "): Schlüssel unter https://auth.abuse.ch/ neu erzeugen und eintragen."
 }
 
 // shareHTTP: Verbindungen zu den Diensten selbst (URLhaus, MalwareBazaar, DShield).

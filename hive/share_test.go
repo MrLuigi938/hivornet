@@ -370,7 +370,7 @@ func TestURLhausSubmit(t *testing.T) {
 	h.st.lookupPut(urlSubject(finds[1].URL), "sample_fetch", `{"status":"ok","file_tag":"elf","malware":true}`)
 	h.st.lookupPut(urlSubject(finds[2].URL), "sample_fetch", `{"status":"error"}`)
 	h.urlhausSubmit(context.Background(), x, finds)
-	if len(bodies) != 1 || keys[0] != "test-key" {
+	if len(bodies) != 1 || keys[0] != "test-key" || bodies[0]["Auth-Key"] != "test-key" {
 		t.Fatalf("Anfragen: %d", len(bodies))
 	}
 	sub := bodies[0]["submission"].([]any)

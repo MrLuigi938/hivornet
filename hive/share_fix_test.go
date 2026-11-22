@@ -50,7 +50,7 @@ func TestURLFindingsUploadsAndLongURLs(t *testing.T) {
 
 func TestURLhausRefusal(t *testing.T) {
 	for answer, want := range map[string]string{
-		"User unknown, please visit https://urlhaus.abuse.ch/ and try again": "einmal unter https://urlhaus.abuse.ch/login/",
+		"User unknown, please visit https://urlhaus.abuse.ch/ and try again": "keinem Konto zu",
 		"unknown_auth_key":                     "lehnt den abuse.ch-Schlüssel ab",
 		"user_blacklisted":                     "gesperrt",
 		"Thanks for your submission! inserted": "",
@@ -72,6 +72,17 @@ func TestURLhausUserUnknownIsError(t *testing.T) {
 	old := urlhausSubmitURL
 	urlhausSubmitURL = srv.URL
 	t.Cleanup(func() { urlhausSubmitURL = old })
+	q := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Auth-Key") != "k" {
+			http.Error(w, `{"error":"Unauthorized"}`, 401)
+			return
+		}
+		io.WriteString(w, `{"query_status":"ok","urls":[]}`)
+	}))
+	defer q.Close()
+	oldQ := urlhausQueryURL
+	urlhausQueryURL = q.URL
+	t.Cleanup(func() { urlhausQueryURL = oldQ })
 	h := shareHive(t)
 	x := h.Extras()
 	x.AbuseChKey = "k"
@@ -81,7 +92,7 @@ func TestURLhausUserUnknownIsError(t *testing.T) {
 	c := h.share.channel("urlhaus")
 	st, msg := c.Log[0].Status, c.LastErr
 	h.share.mu.Unlock()
-	if st != "error" || !strings.Contains(msg, "urlhaus.abuse.ch/login") {
+	if st != "error" || !strings.Contains(msg, "keinem Konto zu") || !strings.Contains(msg, "Schlüssel selbst ist gültig") {
 		t.Fatalf("Status %q, Fehler %q", st, msg)
 	}
 	if _, _, done := h.st.lookupGet(urlSubject("http://198.51.100.20/x"), "urlhaus_report", 0); done {

@@ -704,7 +704,7 @@ async function tabAuswertung() {
       save: () => ex.save([], ["greynoise_key", "abusech_key"]),
     },
     row("GreyNoise", ex.secret("greynoise_key"), "Zeigt, ob eine IP als Massen-Scanner oder harmloser Dienst (z. B. Suchmaschine) bekannt ist. Geht ohne Schlüssel mit kleinem Tageskontingent; ein kostenloser Schlüssel von greynoise.io erhöht es."),
-    row("URLhaus und MalwareBazaar", ex.secret("abusech_key"), "Auth-Key von auth.abuse.ch: schlägt Nachlade-Adressen und Datei-Hashes nach; derselbe Schlüssel dient zum Melden an URLhaus und MalwareBazaar. Zum Melden an URLhaus musst du dich mit demselben abuse.ch-Konto einmal unter urlhaus.abuse.ch/login angemeldet haben, sonst antwortet URLhaus „User unknown“.")).el,
+    row("URLhaus und MalwareBazaar", ex.secret("abusech_key"), "Auth-Key von auth.abuse.ch: schlägt Nachlade-Adressen und Datei-Hashes nach; derselbe Schlüssel dient zum Melden an URLhaus und MalwareBazaar.")).el,
 
     section("Lückendetails (CVE)", {
       intro: "Zeigt zu erkannten Lücken CVSS, Beschreibung, EPSS und ob die Lücke im CISA-Katalog der ausgenutzten Lücken (KEV) steht. Der Katalog wird einmal am Tag geladen; NVD und FIRST werden je Lücke gefragt und die Antworten zwischengespeichert. Hinaus gehen nur CVE-Nummern.",
@@ -944,8 +944,7 @@ async function shareCards(ex) {
   noKey(),
   h("p", { class: "sub" }, "Gemeldet werden nur Adressen aus ausgeführten Befehlen (wget, curl, tftp …) und aus Downloads, jede nur einmal. ",
     "Nie gemeldet werden private und eigene Adressen, Rückruf-Adressen von Scannern (interactsh, Burp …), Funde von Forschungsscannern und eigene Tests. ",
-    "URLhaus nimmt nur Adressen an, die gerade Schadsoftware ausliefern; wer wiederholt Falsches meldet, kann gesperrt werden. ",
-    "Vor der ersten Meldung einmal unter urlhaus.abuse.ch/login mit dem abuse.ch-Konto des Schlüssels anmelden; sonst antwortet URLhaus „User unknown“."),
+    "URLhaus nimmt nur Adressen an, die gerade Schadsoftware ausliefern; wer wiederholt Falsches meldet, kann gesperrt werden."),
   row("Aktiv", ex.check(uh, "enabled", "Nachlade-Adressen automatisch melden")),
   row("Probemodus", ex.check(uh, "dry_run", "Nur protokollieren, was gemeldet würde (nichts senden)")),
   row("Nur bestätigte", ex.check(uh, "verified_only", "Nur Adressen melden, deren Datei der Hive selbst geholt und als Schadsoftware erkannt hat (Programm oder eindeutiges Schadskript)"),
