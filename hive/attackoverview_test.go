@@ -3,7 +3,9 @@ package main
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -82,5 +84,62 @@ func TestAttacksOverviewAndTimeWindow(t *testing.T) {
 	}
 	if hist != 3 || win.Overview.Stufen[1] != 1 {
 		t.Errorf("Verlauf %d, Stufen %v", hist, win.Overview.Stufen)
+	}
+}
+
+// Sitzungen und Ereignisse teilen die Filter der Seite "Angriffe" (attackfilter.go).
+func TestSessionsAndEventsSharedFilter(t *testing.T) {
+	h := testHive(t)
+	w, wait := testWriter(t, h.st)
+	now := time.Now().Add(-20 * time.Minute)
+	ev := func(d time.Duration, typ, svc, ip, sess string, data map[string]any) *Event {
+		e := evAt(now.Add(d), typ, svc, ip, 23, data)
+		e.Session = sess
+		return e
+	}
+	for _, e := range []*Event{
+		ev(0, "connect", "telnet", "203.0.113.50", "m1", nil),
+		ev(time.Second, "login", "telnet", "203.0.113.50", "m1", map[string]any{"success": true}),
+		ev(2*time.Second, "command", "telnet", "203.0.113.50", "m1", map[string]any{"input": "/bin/busybox HISILICON"}),
+		ev(3*time.Second, "connect", "ssh", "198.51.100.60", "b1", nil),
+		ev(4*time.Second, "login", "ssh", "198.51.100.60", "b1", map[string]any{"success": false}),
+	} {
+		w.Submit(e)
+	}
+	wait()
+	get := func(path string, v any) {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest("GET", path, nil)
+		if strings.HasPrefix(path, "/api/sessions") {
+			h.sessionsList(rec, req)
+		} else {
+			h.events(rec, req)
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), v); err != nil {
+			t.Fatalf("%s: %v %s", path, err, rec.Body.String())
+		}
+	}
+	var all, bot []map[string]any
+	get("/api/sessions?range=24h", &all)
+	get("/api/sessions?range=24h&stufe=3", &bot)
+	if len(all) != 2 || len(bot) != 1 || bot[0]["session"] != "m1" || bot[0]["profile"] != "IoT-Botnetz (Mirai-Art)" {
+		t.Fatalf("Sitzungen: %v / %v", all, bot)
+	}
+	if c, _ := bot[0]["cmds"].([]any); len(c) != 1 {
+		t.Errorf("Befehle: %v", bot[0]["cmds"])
+	}
+	var evs []map[string]any
+	get("/api/events?range=24h&aq="+url.QueryEscape(`tag="iot_botnet"`), &evs)
+	if len(evs) != 3 {
+		t.Errorf("Ereignisse mit Suchbegriff: %d", len(evs))
+	}
+	for _, e := range evs {
+		if e["src_ip"] != "203.0.113.50" {
+			t.Errorf("falsche IP: %v", e["src_ip"])
+		}
+	}
+	get("/api/events?range=24h&stufe=1", &evs)
+	if len(evs) != 2 {
+		t.Errorf("Ereignisse mit Stufe: %d", len(evs))
 	}
 }

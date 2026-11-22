@@ -4,7 +4,7 @@ import {
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
-import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE, layoutPicker } from "./attacks.js";
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE, layoutPicker, sharedFromQuery, sharedQS, sharedParams, sharedRange, sharedBar, STUFE } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
 import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
@@ -306,7 +306,7 @@ function header(title, { range = false, extra = null } = {}) {
 }
 
 const routes = [
-  [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions$/, viewSessions],
+  [/^#?\/?$/, viewDashboard], [/^#\/attacks(\?.*)?$/, viewAttacks], [/^#\/feed(\?.*)?$/, viewFeed], [/^#\/sessions(\?.*)?$/, viewSessions],
   [/^#\/session\/(.+)$/, viewSession], [/^#\/attacker\/(.+)$/, viewAttacker], [/^#\/creds$/, viewCreds],
   [/^#\/tarpit$/, viewTarpit], [/^#\/settings(?:\/([a-z]+))?$/, viewSettings], [/^#\/system$/, viewSystem],
   [/^#\/live$/, viewLive], [/^#\/analysis$/, viewAnalysis], [/^#\/insights$/, viewInsights], [/^#\/logs(\?.*)?$/, viewLogs],
@@ -600,7 +600,9 @@ async function viewDashboard(el, ctx) {
 
 async function viewFeed(el, ctx, query = "") {
   const qp = new URLSearchParams(query.replace(/^\?/, ""));
-  const f = { service: qp.get("service") || "", type: TYPE_NAME[qp.get("type")] ? qp.get("type") : "", q: "", country: "", port: "", hideNoise: store("hideNoise") !== "0", paused: false };
+  // Gemeinsame Filter der Seite "Angriffe" (Zeitraum, Suchsprache, Stufe, Dienst) plus eigene der Ereignisse
+  const sf = sharedFromQuery(qp);
+  const f = { type: TYPE_NAME[qp.get("type")] ? qp.get("type") : "", q: "", country: "", port: "", hideNoise: store("hideNoise") !== "0", paused: false };
   const body = h("tbody");
   const info = h("span", { class: "muted" });
   const more = h("button", { class: "btn", onclick: () => load(true) }, "Ältere laden");
@@ -608,8 +610,7 @@ async function viewFeed(el, ctx, query = "") {
   let lastId = 0;
 
   const params = (before) => {
-    const p = new URLSearchParams({ limit: "100" });
-    if (f.service) p.set("service", f.service);
+    const p = sharedParams(sf, new URLSearchParams({ limit: "100" }));
     if (f.type) p.set("type", f.type);
     if (f.q) p.set("q", f.q);
     if (f.country) p.set("country", f.country);
@@ -644,7 +645,8 @@ async function viewFeed(el, ctx, query = "") {
     more.hidden = rows.length < 100;
     setInfo();
   }
-  const matches = (e) => (!f.service || e.service === f.service) && (!f.type || e.type === f.type) && !(f.hideNoise && isNoise(e))
+  // Suchsprache und Stufe gelten für Angriffe: neue Ereignisse erst nach dem nächsten Laden
+  const matches = (e) => !sf.q && !sf.stufe.size && (!sf.service || e.service === sf.service) && (!f.type || e.type === f.type) && !(f.hideNoise && isNoise(e))
     && (!f.country || e.country === f.country) && (!f.port || String(e.dst_port) === f.port)
     && (!f.q || JSON.stringify(e).toLowerCase().includes(f.q.toLowerCase()));
 
@@ -654,24 +656,25 @@ async function viewFeed(el, ctx, query = "") {
   // Export mit den aktuellen Filtern (Download über den angemeldeten Browser)
   const exRange = h("select", { "aria-label": "Zeitraum für den Export" },
     [["24h", "24 Std"], ["7d", "7 Tage"], ["30d", "30 Tage"], ["90d", "90 Tage"]].map(([v, l]) => h("option", { value: v, selected: v === "7d" }, l)));
+  // Export: eigener Zeitraum; Dienst, Typ, Text, Land und Port wie in der Liste
+  const exParams = (format) => { const p = new URLSearchParams(params()); p.delete("aq"); p.delete("stufe"); p.delete("limit"); p.set("range", exRange.value); p.set("format", format); return p; };
   const download = (path) => { const a = h("a", { href: path, download: "" }); document.body.append(a); a.click(); a.remove(); };
   const exportBox = h("div", { class: "filters" },
     h("span", { class: "muted" }, "Export:"), exRange,
-    h("button", { class: "btn small", onclick: () => download(`api/export/events?${params()}&format=csv&range=${exRange.value}`) }, "CSV"),
-    h("button", { class: "btn small", onclick: () => download(`api/export/events?${params()}&format=json&range=${exRange.value}`) }, "JSON"),
+    h("button", { class: "btn small", onclick: () => download(`api/export/events?${exParams("csv")}`) }, "CSV"),
+    h("button", { class: "btn small", onclick: () => download(`api/export/events?${exParams("json")}`) }, "JSON"),
     h("button", { class: "btn small", title: "Öffentliche Angreifer-IPs, eine pro Zeile (z. B. für Firewall-Regeln)", onclick: () => download(`api/export/blocklist?range=${exRange.value}`) }, "Blockliste"),
     h("button", { class: "btn small", title: "Angreifer-IPs, Nachlade-Adressen und Datei-Hashes als STIX 2.1 (für MISP, OpenCTI, Firewalls)", onclick: () => download(`api/export/stix?range=${exRange.value}`) }, "STIX"));
-  header("Angriffe", { extra: [viewSwitch("einzeln"), pauseBtn] });
+  header("Angriffe", { extra: [viewSwitch("einzeln", () => sharedQS(sf)), sharedRange(sf, () => load()), pauseBtn] });
   mount(el, h("div", { class: "stack" },
-    exportBox,
+    sharedBar(sf, () => load(), info, SERVICES),
     h("div", { class: "filters" },
-      sel(SERVICES.map((v) => [v, svcName(v)]), "service", "Alle Dienste"),
       sel(Object.entries(TYPE_NAME), "type", "Alle Typen"),
-      h("input", { type: "search", placeholder: "Suche: IP, Passwort, Befehl …", oninput: (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { f.q = e.target.value.trim(); load(); }, 350); } }),
+      h("input", { type: "search", placeholder: "Text in Ereignissen: Passwort, Befehl …", oninput: (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { f.q = e.target.value.trim(); load(); }, 350); } }),
       h("input", { "aria-label": "Land", placeholder: "Land (z. B. CN)", maxlength: 3, style: { width: "120px" }, onchange: (e) => { f.country = e.target.value.trim().toUpperCase(); e.target.value = f.country; load(); } }),
       h("input", { "aria-label": "Port", type: "number", placeholder: "Port", min: 1, max: 65535, style: { width: "90px" }, onchange: (e) => { f.port = e.target.value.trim(); load(); } }),
-      h("label", { class: "inline" }, h("input", { type: "checkbox", checked: f.hideNoise, onchange: (e) => { f.hideNoise = e.target.checked; store("hideNoise", f.hideNoise ? "1" : "0"); load(); } }), "Verbindungsauf- und -abbau ausblenden"),
-      info),
+      h("label", { class: "inline" }, h("input", { type: "checkbox", checked: f.hideNoise, onchange: (e) => { f.hideNoise = e.target.checked; store("hideNoise", f.hideNoise ? "1" : "0"); load(); } }), "Verbindungsauf- und -abbau ausblenden")),
+    exportBox,
     card(null, h("div", { class: "tablewrap" }, h("table", null,
       h("thead", null, h("tr", null, ["Zeit", "Dienst", "Typ", "Quelle", "Details"].map((t) => h("th", null, t)))), body))),
     more));
@@ -697,22 +700,42 @@ async function viewFeed(el, ctx, query = "") {
 
 // ---------- Sitzungen ----------
 
-async function viewSessions(el) {
-  header("Angriffe", { range: true, extra: viewSwitch("sitzungen") });
-  const rows = await api("sessions?range=" + state.range);
+async function viewSessions(el, ctx, query = "") {
+  // Gemeinsame Filter der Seite "Angriffe" (hive/attackfilter.go); Stufe und Art kommen vom Angriff
+  const sf = sharedFromQuery(new URLSearchParams(query.replace(/^\?/, "")));
+  const box = h("div");
+  const info = h("span", { class: "muted" });
   const yes = (n, cls = "") => (n ? h("span", { class: "badge " + cls }, fmtNum(n)) : h("span", { class: "muted" }, "–"));
+  const stufeOf = (r) => (r.downloads ? 4 : r.commands ? 3 : r.success ? 2 : 1);
+  async function load() {
+    mount(box, h("p", { class: "muted" }, "Lade …"));
+    const rows = await api("sessions?" + sharedParams(sf));
+    if (!ctx.current()) return;
+    info.textContent = `${fmtNum(rows.length)} Sitzungen` + (rows.length >= 200 ? " (die neuesten 200)" : "");
+    mount(box, card(null, rows.length ? h("div", { class: "tablewrap" }, h("table", null,
+      h("thead", null, h("tr", null, ["Start", "Dienst", "Quelle", "Stufe", "Art", "Logins", "Befehle", "Was getippt wurde", "Dauer", "Status"].map((t) => h("th", null, t)))),
+      h("tbody", null, rows.map((r) => {
+        const st = stufeOf(r);
+        return h("tr", { class: "click", onclick: (e) => { if (!e.target.closest("a")) location.hash = "#/session/" + encodeURIComponent(r.session); } },
+          h("td", { class: "num", style: { whiteSpace: "nowrap" } }, fmtDateTime(r.start)),
+          h("td", null, svcBadge(r.service, r.dst_port)),
+          h("td", { style: { whiteSpace: "nowrap" } }, ipLink(r.src_ip), " ", cc(r.country)),
+          h("td", null, h("span", { class: "badge stufe", style: { "--c": `var(--sev${st})` } }, STUFE[st])),
+          h("td", { style: { whiteSpace: "nowrap" } }, r.profile || h("span", { class: "muted" }, "–")),
+          h("td", null, yes(r.logins)), h("td", null, yes(r.commands)),
+          h("td", { class: "det mono", title: (r.cmds || []).join("\n") }, (r.cmds || []).join(" ⏎ ") || h("span", { class: "muted" }, "–")),
+          h("td", { class: "num" }, fmtDur(r.last - r.start)),
+          h("td", null, r.success ? h("span", { class: "badge ok" }, "Login erfolgreich") : null, r.downloads ? h("span", { class: "badge err" }, `${fmtNum(r.downloads)} Datei`) : null,
+            r.tarpit ? h("span", { class: "badge tarpit" }, "festgehalten") : null));
+      }))))
+      : h("div", { class: "empty" }, "Keine Sitzungen mit Logins, Befehlen oder Dateien für diese Auswahl.")));
+  }
+  header("Angriffe", { extra: [viewSwitch("sitzungen", () => sharedQS(sf)), sharedRange(sf, () => load())] });
   mount(el, h("div", { class: "stack" },
+    sharedBar(sf, () => load(), info, SERVICES),
     h("p", { class: "sub" }, "Einzelne Verbindungen, in denen sich ein Angreifer angemeldet, Befehle getippt oder Dateien geladen hat. Klick öffnet den Ablauf mit Angriffsbericht und, bei Cowrie, dem Terminal-Mitschnitt."),
-    card(null, rows.length ? h("div", { class: "tablewrap" }, h("table", null,
-      h("thead", null, h("tr", null, ["Start", "Dienst", "Quelle", "Dauer", "Logins", "Befehle", "Downloads", "Status"].map((t) => h("th", null, t)))),
-      h("tbody", null, rows.map((r) => h("tr", { class: "click", onclick: (e) => { if (!e.target.closest("a")) location.hash = "#/session/" + encodeURIComponent(r.session); } },
-        h("td", { class: "num" }, fmtDateTime(r.start)),
-        h("td", null, svcBadge(r.service, r.dst_port)),
-        h("td", null, ipLink(r.src_ip), " ", cc(r.country)),
-        h("td", { class: "num" }, fmtDur(r.last - r.start)),
-        h("td", null, yes(r.logins)), h("td", null, yes(r.commands)), h("td", null, yes(r.downloads)),
-        h("td", null, r.success ? h("span", { class: "badge ok" }, "Login erfolgreich") : null, r.tarpit ? h("span", { class: "badge tarpit" }, "festgehalten") : null))))))
-      : h("div", { class: "empty" }, "Noch keine Sitzungen mit Logins oder Befehlen in diesem Zeitraum."))));
+    box));
+  await load();
 }
 
 async function viewSession(el, ctx, id) {

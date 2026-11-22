@@ -557,7 +557,7 @@ export async function viewAttacks(el, ctx, query = "") {
 
   const rangeSeg = rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); load(); });
   const pauseBtn = h("button", { class: "btn", onclick: () => { f.paused = !f.paused; pauseBtn.textContent = f.paused ? "Fortsetzen" : "Pausieren"; if (!f.paused) load(); } }, "Pausieren");
-  header("Angriffe", { extra: [viewSwitch("gruppen"), rangeSeg, pauseBtn] });
+  header("Angriffe", { extra: [viewSwitch("gruppen", () => sharedQS(f)), rangeSeg, pauseBtn] });
 
   let qTimer;
   const search = h("input", { type: "search", placeholder: "Suche: Text oder z. B. service:ssh stufe>=3 cmd:*wget* -scanner:ja", value: f.q, "aria-label": "Suche",
@@ -769,11 +769,58 @@ export async function viewAttacks(el, ctx, query = "") {
   if (lage) ctx.every(60000, () => { if (!f.paused && !document.hidden && window.scrollY < 300 && !open.size) load(); });
 }
 
-// Umschalter der Seite "Angriffe": gebündelt, einzelne Ereignisse, Sitzungen (drei Routen)
-export function viewSwitch(cur) {
+// Umschalter der Seite "Angriffe": gebündelt, einzelne Ereignisse, Sitzungen (drei Routen).
+// qs: liefert die gemeinsamen Filter als Adressteil; sie gelten in der neuen Ansicht weiter.
+export function viewSwitch(cur, qs) {
   return h("div", { class: "seg", role: "group", "aria-label": "Ansicht" },
     [["gruppen", "#/attacks", "Gebündelt"], ["einzeln", "#/feed", "Einzelne Ereignisse"], ["sitzungen", "#/sessions", "Sitzungen"]].map(([k, href, label]) =>
-      h("button", { class: cur === k ? "on" : "", "aria-pressed": String(cur === k), onclick: () => { location.hash = href; } }, label)));
+      h("button", { class: cur === k ? "on" : "", "aria-pressed": String(cur === k), onclick: () => { const q = qs ? qs() : ""; location.hash = href + (q ? "?" + q : ""); } }, label)));
+}
+
+// ---------- Gemeinsame Filter der drei Ansichten (hive/attackfilter.go) ----------
+// Zeitraum, Suche (Suchsprache), Stufe und Dienst; Sitzungen und Ereignisse filtert der Hive
+// über die passenden Angriffe.
+export function sharedFromQuery(params) {
+  return {
+    range: rangeOK(params.get("range")) ? params.get("range") : rangeOK(store("attRange")) ? store("attRange") : "24h",
+    q: params.get("q") || "",
+    stufe: new Set((params.get("stufe") || "").split(",").filter((x) => /^[0-4]$/.test(x)).map(Number)),
+    service: params.get("service") || "",
+  };
+}
+export function sharedQS(f) {
+  const p = new URLSearchParams();
+  if (f.range && f.range !== "24h") p.set("range", f.range);
+  if (f.q) p.set("q", f.q);
+  if (f.stufe && f.stufe.size) p.set("stufe", [...f.stufe].join(","));
+  if (f.service) p.set("service", f.service);
+  return p.toString();
+}
+// Parameter für /api/sessions und /api/events (Suche heißt dort aq, weil q die Textsuche ist)
+export function sharedParams(f, p = new URLSearchParams()) {
+  p.set("range", f.range);
+  if (f.q) p.set("aq", f.q);
+  if (f.stufe.size) p.set("stufe", [...f.stufe].join(","));
+  if (f.service) p.set("service", f.service);
+  return p;
+}
+export const sharedRange = (f, onChange) => rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); onChange(); });
+const CHIP_SERVICES = ["ssh", "telnet", "http", "https", "mysql", "redis", "rdp", "vnc", "ftp", "smtp"];
+export function sharedBar(f, onChange, extra = null, allServices = []) {
+  let t;
+  const search = h("input", { type: "search", value: f.q, placeholder: "Suche: Text oder z. B. service:ssh stufe>=3 cmd:*wget* -scanner:ja", "aria-label": "Suche",
+    style: { minWidth: "320px", flex: "1" }, oninput: (e) => { clearTimeout(t); t = setTimeout(() => { f.q = e.target.value.trim(); onChange(); }, 350); } });
+  const chips = h("div", { class: "filters" });
+  const render = () => mount(chips,
+    STUFE.map((st, i) => h("button", { class: "fchip" + (f.stufe.has(i) ? " on" : ""), "aria-pressed": String(f.stufe.has(i)), onclick: () => { f.stufe.has(i) ? f.stufe.delete(i) : f.stufe.add(i); render(); onChange(); } },
+      h("i", { style: { background: sevColor(i) } }), st)),
+    h("span", { class: "fsep" }),
+    CHIP_SERVICES.map((sv) => h("button", { class: "fchip" + (f.service === sv ? " on" : ""), "aria-pressed": String(f.service === sv),
+      onclick: () => { f.service = f.service === sv ? "" : sv; render(); onChange(); } }, h("i", { style: { background: svcColor(sv) } }), svcName(sv))),
+    allServices.length ? h("select", { "aria-label": "Weitere Dienste", onchange: (e) => { f.service = e.target.value; render(); onChange(); } },
+      h("option", { value: "" }, "Weitere Dienste …"), allServices.filter((sv) => !CHIP_SERVICES.includes(sv)).map((sv) => h("option", { value: sv, selected: f.service === sv }, svcName(sv)))) : null);
+  render();
+  return h("div", { class: "stack" }, h("div", { class: "filters" }, search, extra), chips);
 }
 
 
