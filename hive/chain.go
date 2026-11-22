@@ -147,6 +147,7 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 		nodes: map[string]*ChainNode{}, edges: map[[2]string]*ChainEdge{}}
 	last := map[string]*ChainNode{} // letzter bedeutsamer Knoten je Sitzung
 	okSess := map[string]bool{}
+	var drop dropperSteps // Laden und Starten in getrennten Befehlen (attacks.go)
 	sessions := map[string]bool{}
 	condSess := 0 // Verbindungen in Sammelzeilen (bruteforce.go)
 	step := func(e *Event, n *ChainNode) {
@@ -337,6 +338,12 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 				setMitre(pn, id)
 				b.edge(n, pn, "")
 			}
+		}
+		if e.Type == "command" && kind == kindExec && drop.note(text) && !contains(ids, "download_exec") {
+			p := patternByID["download_exec"]
+			pn := b.node("pat:download_exec", patternPhase["download_exec"], "pattern", p.Name, 3, e, text)
+			setMitre(pn, "download_exec")
+			b.edge(n, pn, "")
 		}
 		for _, c := range cves[min(1, len(cves)):] {
 			cn := b.node("cve:"+c.CVE, phAccess, "exploit", c.CVE, 3, e, requestKey(e))

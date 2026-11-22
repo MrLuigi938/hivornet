@@ -92,7 +92,7 @@ type Attack struct {
 	okSess                       map[string]bool // Sitzungen mit angenommenem Login
 	credOrder                    []string        // die ersten credOrderMax Kombinationen in Reihenfolge
 	stripStride, stripSeen       int             // Ausdünnung des Zeitstreifens (addStrip)
-	dropFetch, dropRun           bool            // Laden bzw. Starten gesehen (noteDropper)
+	dropper                      dropperSteps    // Laden und Starten in getrennten Befehlen
 }
 
 type stripEvent struct {
@@ -163,13 +163,19 @@ var (
 	dropRunRe   = regexp.MustCompile(`(?i)\bchmod\s+(\+x|[0-7]*[157][0-7]*)\b|(^|[;&|\s])\./[\w.-]+|\b(ba)?sh\s+[\w./][\w./-]*`)
 )
 
-func (a *Attack) noteDropper(cmd string) {
-	if dropFetchRe.MatchString(cmd) {
-		a.dropFetch = true
+// dropperSteps merkt sich Laden und Starten über mehrere ausgeführte Befehle (Angriffe,
+// Bericht, Angriffskette).
+type dropperSteps struct{ fetch, run, done bool }
+
+// note liefert true bei dem Befehl, mit dem Laden und Starten erstmals beide gesehen sind.
+func (d *dropperSteps) note(cmd string) bool {
+	d.fetch = d.fetch || dropFetchRe.MatchString(cmd)
+	d.run = d.run || dropRunRe.MatchString(cmd)
+	if d.fetch && d.run && !d.done {
+		d.done = true
+		return true
 	}
-	if dropRunRe.MatchString(cmd) {
-		a.dropRun = true
-	}
+	return false
 }
 
 func (a *Attack) addCommand(list *[]string, c string) {
@@ -240,7 +246,7 @@ func (a *Attack) add(e *Event) {
 	case e.Type == "command":
 		if kind == kindExec {
 			a.addCommand(&a.Commands, str("input"))
-			a.noteDropper(str("input"))
+			a.dropper.note(str("input"))
 		} else {
 			a.addCommand(&a.ProtoCommands, str("input"))
 		}
@@ -378,8 +384,8 @@ func (a *Attack) finish() {
 	sort.Ints(a.Ports)
 	a.Creds, a.CredsDistinct = topCounts(a.creds, 12), len(a.creds)
 	a.Paths, a.PathsDistinct = topCounts(a.paths, 12), len(a.paths)
-	if a.dropFetch && a.dropRun && a.tags["download_exec"] == 0 {
-		a.tags["download_exec"] = 1 // Laden und Starten in getrennten Befehlen (noteDropper)
+	if a.dropper.done && a.tags["download_exec"] == 0 {
+		a.tags["download_exec"] = 1 // Laden und Starten in getrennten Befehlen (dropperSteps)
 	}
 	a.Tags = topCounts(a.tags, 8)
 	for i := range a.Tags {
@@ -853,10 +859,14 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 	pfrom := since.Add(-d)
 	// angenommene Logins: selten, darum je Ereignis gelesen (eigene Tests heraus, ownnet.go)
 	var okNow, okPrev int64
-	rs, _ = h.rows(ctx, `SELECT ts, src_ip FROM events WHERE ts >= ? AND `+succ+` LIMIT 100000`, pfrom.UnixMilli())
+	rs, _ = h.rows(ctx, `SELECT ts, src_ip, service, username FROM events WHERE ts >= ? AND `+succ+` LIMIT 100000`, pfrom.UnixMilli())
 	for _, row := range rs {
 		ts, _ := row["ts"].(int64)
 		if ownHidden(fmt.Sprint(row["src_ip"])) {
+			continue
+		}
+		// HTTP-Kopfzeile, die Cowrie vor 0.9.5 als Login annahm (einstufung.go, Regel 1b)
+		if foreignEvent(&Event{Type: "login", Service: fmt.Sprint(row["service"]), Username: fmt.Sprint(row["username"])}) {
 			continue
 		}
 		if ts < since.UnixMilli() {

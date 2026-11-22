@@ -378,7 +378,8 @@ func main() {
 	go h.runHW(bgStop)    // Hardware-Monitor (hwmon.go)
 	go h.runCVEDB(bgStop) // KEV-Katalog, NVD und EPSS (cvedb.go)
 	upgradeSensorConfigs(st)
-	var maxID int64 // vor dem Start des Schreibers: alles bis hierher ist "alt"
+	rebookForwards(st) // SSH-Weiterleitungen sind keine Web-Anfragen (0.9.5)
+	var maxID int64    // vor dem Start des Schreibers: alles bis hierher ist "alt"
 	st.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM events`).Scan(&maxID)
 	if prepareRecount(st) { // neue Zählregeln (0.5.3); ersetzt backfillPatterns
 		go recountTop(st, maxID)

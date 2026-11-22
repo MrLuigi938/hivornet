@@ -53,8 +53,9 @@ trap finish EXIT
 #  3. Modell für Unbekanntes: Cowrie fragt bei einem unbekannten Befehl den Hive (nur Loopback,
 #     Port 8089, eigenes Token in $TOKFILE; die Firewall erlaubt Cowrie nichts anderes). Neue Datei
 #     shell/hivornet_ai.py, dazu drei kleine Einhängestellen.
+#  4. Fremdprotokoll: HTTP-Anfrage- und Kopfzeilen an der Anmeldung nimmt AuthRandom nie an.
 # Läuft auch bei schon fertiger Installation (siehe unten). Tests: pi/test_cowrie_proc_self.py,
-# pi/test_cowrie_persona.py, pi/test_cowrie_hiveai.py.
+# pi/test_cowrie_persona.py, pi/test_cowrie_hiveai.py, pi/test_cowrie_auth.py.
 TOKFILE=/etc/hivornet/cowrie-mimic.token
 ensure_token() {
   [ -s "$TOKFILE" ] && return 0
@@ -70,6 +71,7 @@ patches_missing() {
   for m in "Hivornet: /proc/self" "Hivornet: Persona" "Hivornet: Modell"; do
     grep -q "$m" "$DEST/src/cowrie/shell/protocol.py" 2>/dev/null || return 0
   done
+  grep -q "Hivornet: Fremdprotokoll" "$DEST/src/cowrie/core/auth.py" 2>/dev/null || return 0
   return 1
 }
 apply_patches() {
@@ -553,8 +555,30 @@ if "Hivornet: Modell" not in s:
         "honeypot: not cmdclass",
     )
     save(hp, h)
+
+# ---- 4. Fremdprotokoll: HTTP-Zeilen sind keine Anmeldung ----
+# Web-Scanner schicken "GET / HTTP/1.1" an Telnet; Cowrie liest die Anfragezeile als Benutzer,
+# die erste Kopfzeile als Passwort. AuthRandom nahm nach einigen Zeilen eine Kopfzeile
+# ("User-Agent: …" / "Accept: */*") als Login an, die übrigen Kopfzeilen kamen als Befehle.
+au = "src/cowrie/core/auth.py"
+a = load(au)
+if "Hivornet: Fremdprotokoll" not in a:
+    a = once(
+        a,
+        """        userpass: str = login + ":" + passwd
+""",
+        r"""        userpass: str = login + ":" + passwd
+        if re.match(  # Hivornet: Fremdprotokoll
+            r"(GET|POST|HEAD|PUT|DELETE|OPTIONS|CONNECT|PATCH|TRACE|PRI) \S+ HTTP/\d|[A-Za-z][A-Za-z0-9-]{0,40}:(\s|$)",
+            login.strip(),
+        ):
+            return False
+""",
+        "AuthRandom userpass",
+    )
+    save(au, a)
 PYEOF
-  for f in shell/protocol.py shell/honeypot.py shell/hivornet_ai.py commands/uname.py commands/base.py; do
+  for f in shell/protocol.py shell/honeypot.py shell/hivornet_ai.py commands/uname.py commands/base.py core/auth.py; do
     "$VENV/bin/python3" -m compileall -q -f "$DEST/src/cowrie/$f" || true
   done
 }

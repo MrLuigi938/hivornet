@@ -467,6 +467,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 	repeat := 0
 	tags := map[string]*TagHit{}
 	okSess := map[string]bool{} // Sitzungen mit angenommenem Login (einstufung.go)
+	var drop dropperSteps       // Laden und Starten in getrennten Befehlen (attacks.go)
 	condSess := 0               // Verbindungen in Sammelzeilen (bruteforce.go)
 	maxSev := 0
 	for _, e := range evs {
@@ -585,6 +586,11 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 				break
 			}
 			cmds.add(clip(strings.TrimSpace(text), reportMaxText))
+			if drop.note(text) && tags["download_exec"] == nil {
+				p := patternByID["download_exec"]
+				tags["download_exec"] = &TagHit{ID: p.ID, Name: p.Name, Desc: p.Desc, Sev: p.Sev, N: 1, Example: clip(strings.TrimSpace(text), reportMaxText), Mitre: patternMitre[p.ID]}
+				maxSev = max(maxSev, p.Sev)
+			}
 			for _, m := range outFileRe.FindAllStringSubmatch(text, 6) {
 				if f := m[1]; f != "/dev/null" && f != "-" && !strings.HasPrefix(f, "/dev/") {
 					files.add(f)
