@@ -4,6 +4,11 @@ Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen 
 
 ## [Unveröffentlicht]
 
+### Neu
+- **Seite „Angriffe“ als Lagebild** (neuer Standard): oben der Verlauf des Zeitraums als Säulen nach Stufe (Ziehen oder Klick wählt einen Zeitabschnitt) und ein Stufen-Trichter („wie viele kamen wie weit“, Klick filtert, Strg+Klick wählt mehrere). Die Angriffe stehen als zweizeilige Zeilen mit Login, Befehlen bzw. Pfaden, Mustern und Zeitstreifen direkt sichtbar, etwa dreimal so viele je Bildschirm; ein Klick klappt die volle Karte wie bisher auf. „Gleiche Abläufe bündeln“ fasst Angriffe mit derselben Befehlsfolge zusammen („+22 gleiche · 17 IPs“). Rechts „Gerade aktiv“ als Liste und die häufigsten Werte im Zeitraum (Art, Muster, Dienste, Länder, Netzbetreiber, Zugangsdaten, Befehle, Nachlade-Hosts); ein Klick filtert über die Suchsprache, ein zweiter hebt den Filter auf.
+- **Ansicht wählbar:** Im Benutzermenü (oben rechts) unter „Seite Angriffe“ mit kleiner Vorschau zwischen „Lagebild“ und „Klassisch“ (große Karten wie bisher) umschalten; gemerkt im Browser.
+- `/api/attacks` kennt `from`/`to` (Zeitabschnitt) und `overview=1` (Verlauf, Stufen nach Filtern, Feldstatistik mit Suchbegriffen).
+
 ### Behoben (Erkennung, geprüft an einer echten Instanz)
 - **HTTP-Anfrage an Telnet galt als „TELNET-Einbruch“ (Stufe 3).** Cowrie nahm bei der Anmelderegel „nach N Versuchen“ auch eine Kopfzeile als Login an („User-Agent: …“ / „Accept: */*“); die restlichen Kopfzeilen kamen als Befehle. Cowrie lehnt HTTP-Anfrage- und Kopfzeilen an der Anmeldung jetzt immer ab (neue Cowrie-Anpassung, der Updater trägt sie nach). Schon gespeicherte Fälle zählen als fremdes Protokoll (Abtasten, Merkmal „HTTP auf fremdem Port“), nicht als Login, Befehl oder in der Kennzahl „Logins angenommen“.
 - **Leere Eingaben (nur Enter) zählten als ausgeführte Befehle** und hoben einen Login auf Stufe 3. Cowrie-Ereignisse ohne Eingabe werden verworfen; vorhandene zählen nicht mehr mit.

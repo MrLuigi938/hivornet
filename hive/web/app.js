@@ -4,7 +4,7 @@ import {
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
-import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE } from "./attacks.js";
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE, layoutPicker } from "./attacks.js";
 // Live-Karte, Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
 import { viewLive, reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
@@ -227,6 +227,8 @@ function renderShell() {
     state.user.logs ? h("a", { href: "#/logs" }, "Protokolle") : null,
     h("hr"),
     h("label", { class: "row" }, "Darstellung", theme),
+    h("div", { class: "row" }, "Seite Angriffe"),
+    layoutPicker(() => { if ((location.hash || "").startsWith("#/attacks")) route(); }),
     h("hr"),
     h("button", { class: "item", onclick: logout }, "Abmelden"),
     h("div", { class: "info" }, "Version ", state.user.version));

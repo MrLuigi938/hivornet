@@ -757,18 +757,38 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 	svc, terms := q.Get("service"), parseQuery(q.Get("q")) // Suchsprache (query.go)
 	onlyOK := q.Get("success") == "1"                      // nur Angriffe mit angenommenem Login
 	before, _ := strconv.ParseInt(q.Get("before"), 10, 64)
+	// Zeitfenster innerhalb des Zeitraums (Verlauf: Ziehen wählt einen Ausschnitt)
+	from, _ := strconv.ParseInt(q.Get("from"), 10, 64)
+	to, _ := strconv.ParseInt(q.Get("to"), 10, 64)
+	inTime := func(a *Attack) bool { return (from <= 0 || a.Last >= from) && (to <= 0 || a.First <= to) }
+	var ov *attackOverview
+	if q.Get("overview") == "1" {
+		ov = newOverview(since.UnixMilli(), time.Now().UnixMilli())
+	}
 	limit := qInt(r, "limit", 50, 500)
 	out := make([]*Attack, 0, limit)
 	matched := 0
 	for _, a := range list {
-		if want != nil && !want[a.Stufe] || svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matchQuery(terms) {
+		if svc != "" && !a.svc[svc] || onlyOK && !a.Success || !a.matchQuery(terms) {
 			continue
 		}
-		if a.Brute {
-			nBrute++
-			if hideBrute {
-				continue
+		if a.Brute && (want == nil || want[a.Stufe]) && inTime(a) {
+			nBrute++ // auch ausgeblendete zählen (Schaltfläche "Dauer-Brute-Force ausblenden")
+		}
+		if hideBrute && a.Brute {
+			continue
+		}
+		if ov != nil {
+			ov.addHist(a) // Verlauf: alle Filter außer Stufe und Zeitfenster
+			if inTime(a) {
+				ov.Stufen[a.Stufe]++ // Trichter: alle Filter außer Stufe
 			}
+		}
+		if want != nil && !want[a.Stufe] || !inTime(a) {
+			continue
+		}
+		if ov != nil {
+			ov.addFields(a)
 		}
 		matched++
 		if before > 0 && a.Last >= before || len(out) >= limit {
@@ -792,9 +812,13 @@ func (h *Hive) attacks(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	writeJSON(w, map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
+	res := map[string]any{"attacks": out, "total": len(list), "matched": matched, "stufen": stufen, "truncated": truncated, "own": nOwn,
 		"gap_ms": attackGap.Milliseconds(), "retention_days": h.retentionDays(), "brute": nBrute,
-		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor(bruteIPs), "groups": groups})
+		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor(bruteIPs), "groups": groups}
+	if ov != nil {
+		res["overview"] = ov.finish()
+	}
+	writeJSON(w, res)
 }
 
 // series: Verläufe für die Kennzahlen des Dashboards und Vergleich zum Zeitraum davor.
