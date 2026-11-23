@@ -265,7 +265,8 @@ export function aiReplies(list, { max = 3 } = {}) {
 }
 
 // Große Karte (Seite "Angriffe", Angreifer-Profil)
-export function attackCard(a, { fresh = false, open = null, showIP = true, brief = null } = {}) {
+// profileLink: Schaltfläche zum Angreifer-Profil (Standard wie showIP; im Lagebild an, obwohl die IP schon in der Zeile steht)
+export function attackCard(a, { fresh = false, open = null, showIP = true, brief = null, profileLink = showIP } = {}) {
   const now = Date.now(), active = now - a.last < 60e3, span = Math.max(1, a.last - a.first);
   const evBox = h("div", { class: "evs", hidden: true });
   const toggle = h("button", null, `${fmtNum(a.events)} Ereignisse anzeigen`);
@@ -327,7 +328,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
     a.ai_replies && a.ai_replies.length ? h("div", { class: "fact ai-fact" }, h("div", { class: "k" }, "Antworten der KI (vom Honeypot ausgeliefert, nichts ausgeführt)"), aiReplies(a.ai_replies)) : null,
     h("div", { class: "foot" },
       toggle,
-      showIP ? h("a", { href: "#/attacker/" + encodeURIComponent(a.ip) }, "Angreifer-Profil und Bericht") : null,
+      profileLink ? h("a", { class: "btn small", href: "#/attacker/" + encodeURIComponent(a.ip) }, "Angreifer-Profil und Bericht") : null,
       (a.sessions || []).length && (a.counts.command || a.counts.tty) ? h("a", { href: "#/session/" + encodeURIComponent(a.sessions[a.sessions.length - 1]) }, "Sitzung ansehen") : null),
     evBox);
   if (open && open.has(a.id)) setOpen(true);
@@ -451,6 +452,7 @@ export function attackLine(a, { fresh = false, open = null, brief = null, extra 
     h("div", { class: "when" },
       h("span", { class: "num" }, h("b", null, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)}`), " · ", fmtDur(span)),
       now - a.last < 60e3 ? h("span", { class: "badge active" }, "● aktiv") : h("span", { "data-rel": a.last }, relTime(a.last)),
+      h("a", { class: "ar-prof", href: "#/attacker/" + encodeURIComponent(a.ip), title: "Angreifer-Profil mit allen Angriffen, Bericht und Angriffskette", onclick: (e) => e.stopPropagation() }, "Profil →"),
       a.strip && a.strip.length > 1 ? h("span", { class: "mini" }, a.strip.map((e) => h("i", { style: { left: `calc(${((e.t - a.first) / span) * 100}% - 1px)`, background: TYPCOL[e.type] || "var(--other)" } }))) : null));
   const el = h("article", { class: "ar" + (fresh ? " fresh" : ""), style: { "--c": sevColor(a.stufe) } }, row, det);
   const toggle = (on) => {
@@ -458,7 +460,7 @@ export function attackLine(a, { fresh = false, open = null, brief = null, extra 
     row.setAttribute("aria-expanded", String(on));
     el.classList.toggle("open", on);
     if (open) on ? open.add(a.id) : open.delete(a.id);
-    if (on && !det.firstChild) mount(det, attackCard(a, { open, brief: typeof brief === "function" ? brief() : brief, showIP: false }));
+    if (on && !det.firstChild) mount(det, attackCard(a, { open, brief: typeof brief === "function" ? brief() : brief, showIP: false, profileLink: true }));
   };
   row.addEventListener("click", (e) => { if (!e.target.closest("a")) toggle(det.hidden); });
   row.addEventListener("keydown", (e) => { if ((e.key === "Enter" || e.key === " ") && e.target === row) { e.preventDefault(); toggle(det.hidden); } });

@@ -408,6 +408,9 @@ func (h *Hive) funde(w http.ResponseWriter, r *http.Request) {
 	if evs, err := h.loadEvents(ctx, "type = 'ai_reply' AND ts >= ?", []any{since.UnixMilli()}, "DESC", 300); err == nil {
 		for _, e := range evs {
 			x := aiReplyFrom(e)
+			if x.Kind == "web" { // ältere Einträge: doppelt maskierte Zeilenumbrüche lesbar machen
+				x.Output = unescapeBody(x.Output)
+			}
 			ai = append(ai, fundAI{T: x.T, IP: e.SrcIP, Session: e.Session, Kind: x.Kind, Input: x.Input, Output: clip(x.Output, 800), Cached: x.Cached})
 		}
 	}
@@ -736,6 +739,9 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 		if evs, err := h.loadEvents(ctx, "type = 'ai_reply' AND ts >= ? AND src_ip IN ("+strings.Join(ph, ",")+")", args, "DESC", 100); err == nil {
 			for _, e := range evs {
 				x := aiReplyFrom(e)
+				if x.Kind == "web" {
+					x.Output = unescapeBody(x.Output)
+				}
 				ai = append(ai, fundAI{T: x.T, IP: e.SrcIP, Session: e.Session, Kind: x.Kind, Input: x.Input, Output: clip(x.Output, 1200), Cached: x.Cached})
 			}
 		}

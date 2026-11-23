@@ -57,9 +57,9 @@ var (
 
 const dshieldMaxEvents = 20000
 
-func dshieldAuth(userID int, key string, nonce []byte) string {
+func dshieldAuth(userID int64, key string, nonce []byte) string {
 	n := base64.StdEncoding.EncodeToString(nonce)
-	m := hmac.New(sha256.New, []byte(n+strconv.Itoa(userID)))
+	m := hmac.New(sha256.New, []byte(n+strconv.FormatInt(userID, 10)))
 	m.Write([]byte(key))
 	return fmt.Sprintf("ISC-HMAC-SHA256 Credentials=%s Userid=%d Nonce=%s", base64.StdEncoding.EncodeToString(m.Sum(nil)), userID, n)
 }
@@ -288,13 +288,13 @@ func dshieldError(code int, status string, raw []byte) error {
 var (
 	htmlTagRe    = regexp.MustCompile(`<[^>]*>`)
 	iscResultRe  = regexp.MustCompile(`<result>\s*([^<]*?)\s*</result>`)
-	iscIDRe      = regexp.MustCompile(`<id>\s*([0-9]{1,9})\s*</id>`)
+	iscIDRe      = regexp.MustCompile(`<id>\s*([0-9]{1,12})\s*</id>`) // ISC-IDs haben heute 10 Stellen
 	dshieldEmail = regexp.MustCompile(`^[^\s/@]{1,100}@[^\s/@]{1,100}$`)
 )
 
 // dshieldCheck fragt bei isc.sans.edu, ob E-Mail-Adresse und API-Schlüssel zusammenpassen,
 // und liefert die numerische Benutzer-ID.
-func dshieldCheck(ctx context.Context, email, key string) (int, error) {
+func dshieldCheck(ctx context.Context, email, key string) (int64, error) {
 	if !dshieldEmail.MatchString(email) {
 		return 0, fmt.Errorf("Bitte die E-Mail-Adresse angeben, mit der du dich bei isc.sans.edu anmeldest")
 	}
@@ -333,7 +333,7 @@ func dshieldCheck(ctx context.Context, email, key string) (int, error) {
 	if id == nil {
 		return 0, fmt.Errorf("isc.sans.edu bestätigt den Schlüssel, nennt aber keine Benutzer-ID. Bitte die Zahl unter My Account selbst eintragen")
 	}
-	n, _ := strconv.Atoi(string(id[1]))
+	n, _ := strconv.ParseInt(string(id[1]), 10, 64)
 	return n, nil
 }
 

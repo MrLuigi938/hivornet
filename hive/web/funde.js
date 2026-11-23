@@ -178,7 +178,7 @@ function regTable(d, openFile) {
       h("td", null, h("span", { class: "chip" }, KIND[x.kind] || x.kind)),
       h("td", { class: "mono wrap" }, x.value),
       h("td", null, x.files.slice(0, 4).map((s) => h("button", { type: "button", class: "btn small", onclick: () => openFile(s, "ziele") }, (byName[s] && byName[s].name) || shortSha(s)))),
-      h("td", null, h("a", { class: "small", href: "#/attacks?q=" + encodeURIComponent(x.value) }, "Angriffe suchen"))));
+      h("td", null, h("a", { class: "small", href: attSearch(x.value), title: "Sucht über den ganzen gespeicherten Zeitraum in Befehlen, Adressen und entschlüsselten Inhalten" }, "In Angriffen suchen"))));
     if (!rows.length) rows = [empty("In den untersuchten Dateien stehen keine Adressen, Pools oder Wallets.")];
     rows.unshift(h("tr", null, h("td", { colspan: 4, class: "muted small" }, "Ziele, die in den Dateien stehen (Steuerserver, weitere Adressen, Mining-Pools, Wallets). Sie werden nie aufgerufen und nie gemeldet.")));
   } else if (V.tab === "ai") {
@@ -188,7 +188,7 @@ function regTable(d, openFile) {
       h("td", null, h("a", { class: "mono", href: "#/attacker/" + encodeURIComponent(x.ip) }, x.ip)),
       h("td", null, x.kind === "web" ? "Web" : "Shell", x.cached ? h("div", { class: "muted small" }, "aus dem Speicher") : null),
       h("td", { class: "mono wrap" }, x.input),
-      h("td", { class: "mono fd-out" }, x.output)));
+      h("td", null, outCell(x.output))));
     if (!rows.length) rows = [empty("Im Zeitraum keine Antworten des Sprachmodells an Angreifer (Einstellungen → Auswertung und KI → Sprachmodell-Antworten).")];
   } else if (V.tab === "skip") {
     head = ["Adresse", "Grund", "Benutzt", "Angreifer", "Zuletzt"];
@@ -202,6 +202,24 @@ function regTable(d, openFile) {
     if (!rows.length) rows = [empty("Nichts verworfen.")];
   }
   return h("table", { class: "fd-reg" }, h("thead", null, h("tr", null, head.map((t) => h("th", null, t)))), h("tbody", null, rows));
+}
+
+// Link zur Seite Angriffe: über alles Gespeicherte (sonst gilt der zuletzt gewählte Zeitraum,
+// oft 24 Stunden, und ältere Funde liefern nichts); in Anführungszeichen als ein Suchbegriff.
+const attSearch = (v) => "#/attacks?range=all&q=" + encodeURIComponent('"' + String(v).replace(/"/g, "") + '"');
+
+// Antwort des Sprachmodells: drei Zeilen als Vorschau, umgebrochen; Klick zeigt alles.
+function outCell(text) {
+  const t = String(text || "");
+  if (!t) return h("span", { class: "muted" }, "leer (404 vom Server)");
+  const box = h("div", { class: "fd-out", title: "Klicken zeigt die ganze Antwort" }, t);
+  const long = t.length > 220 || t.split("\n").length > 4;
+  if (!long) { box.classList.add("open"); return box; }
+  const more = h("button", { type: "button", class: "linklike small" }, "ganz zeigen");
+  const toggle = () => { const on = box.classList.toggle("open"); more.textContent = on ? "einklappen" : "ganz zeigen"; };
+  box.addEventListener("click", toggle);
+  more.addEventListener("click", toggle);
+  return h("div", null, box, more);
 }
 
 // ---------- Fallakte ----------
@@ -257,7 +275,7 @@ function caseBody(k, d) {
   if (k === "stufen") {
     const src = h("div", { class: "fd-box" }, h("h3", null, "Woher die Datei kam", h("span", { class: "r" }, `${d.sources.length} Adresse${d.sources.length === 1 ? "" : "n"}`)),
       d.sources.length ? h("table", { class: "fd-mini" }, h("thead", null, h("tr", null, ["Adresse", "Benutzt", "Angreifer", "Zuletzt", "URLhaus"].map((t) => h("th", null, t)))),
-        h("tbody", null, d.sources.map((u) => h("tr", null, h("td", { class: "mono wrap" }, u.url), h("td", { class: "num" }, u.uses ? fmtNum(u.uses) + "×" : "–"),
+        h("tbody", null, d.sources.map((u) => h("tr", null, h("td", { class: "mono wrap" }, u.url, h("div", null, h("a", { class: "small", href: attSearch(u.url) }, "Angriffe mit dieser Adresse"))), h("td", { class: "num" }, u.uses ? fmtNum(u.uses) + "×" : "–"),
           h("td", { class: "num" }, u.n_ips || "–"), h("td", { class: "muted" }, ago(u.last)), h("td", { title: u.note || "" }, stBadge(u.urlhaus || "")))))) : h("div", { class: "muted" }, "Keine Adresse bekannt (z. B. per SFTP hochgeladen)."));
     if (!d.stages.length) return src;
     const got = d.stages.filter((s) => s.fetch === "ok").length;
@@ -278,7 +296,7 @@ function caseBody(k, d) {
     }
     return h("div", { class: "fd-box" }, h("h3", null, "Eingebettete Ziele", h("span", { class: "r" }, "aus Zeichenketten und Inhalt der Datei")),
       list.length ? list.map(([kind, v]) => h("div", { class: "fd-ioc" }, h("span", { class: "t" }, KIND[kind]), h("span", { class: "mono wrap" }, v),
-        h("a", { class: "small", href: "#/attacks?q=" + encodeURIComponent(v) }, "Angriffe suchen"))) : h("div", { class: "muted" }, si ? "Keine Adressen, IPs, Pools oder Wallets gefunden." : "Datei nicht untersucht."),
+        h("a", { class: "small", href: attSearch(v), title: "Sucht über den ganzen gespeicherten Zeitraum in Befehlen, Adressen und entschlüsselten Inhalten" }, "In Angriffen suchen"))) : h("div", { class: "muted" }, si ? "Keine Adressen, IPs, Pools oder Wallets gefunden." : "Datei nicht untersucht."),
       h("p", { class: "muted small", style: { margin: "10px 0 0" } }, "Eingebettete Ziele werden nie aufgerufen und nie gemeldet, nur angezeigt."));
   }
   if (k === "netz") {

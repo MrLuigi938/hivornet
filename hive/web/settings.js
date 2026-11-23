@@ -1013,7 +1013,7 @@ async function shareCards(ex) {
   row("E-Mail-Adresse", ex.text(ds, "email", { type: "email", autocomplete: "off", placeholder: "Anmeldung bei isc.sans.edu" }), "Nur für die Prüfung; DShield-Daten tragen sie nicht."),
   row("API-Schlüssel", ex.secret("dshield_key"), "Unter isc.sans.edu → My Account → API Key (Buchstaben und Ziffern, oft mit = am Ende). Nicht das Passwort."),
   row("Benutzer-ID", (() => {
-    const idInput = ex.num(ds, "user_id", 0, 999999999, 1);
+    const idInput = ex.num(ds, "user_id", 0, 999999999999, 1); // ISC-IDs haben heute 10 Stellen
     const out = h("span", { class: "save-status", role: "status" });
     const btn = isAdmin() ? h("button", { class: "btn", type: "button", onclick: async () => {
       btn.disabled = true;

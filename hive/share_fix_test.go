@@ -117,7 +117,7 @@ func TestDShieldCheck(t *testing.T) {
 		m := hmac.New(sha512.New, []byte(p[1]))
 		m.Write([]byte(p[0] + ":" + key))
 		if p[0] == email && p[2] == hex.EncodeToString(m.Sum(nil)) {
-			io.WriteString(w, "<?xml version=\"1.0\"?><checkapikey><result>ok</result><id>123456</id></checkapikey>")
+			io.WriteString(w, "<?xml version=\"1.0\"?><checkapikey><result>ok</result><id>3000012345</id></checkapikey>")
 			return
 		}
 		io.WriteString(w, "<?xml version=\"1.0\"?><checkapikey><result>failed</result></checkapikey>")
@@ -128,7 +128,7 @@ func TestDShieldCheck(t *testing.T) {
 	t.Cleanup(func() { dshieldCheckURL = old })
 
 	id, err := dshieldCheck(context.Background(), email, key)
-	if err != nil || id != 123456 {
+	if err != nil || id != 3000012345 {
 		t.Fatalf("ID %d, %v", id, err)
 	}
 	if !strings.Contains(paths[0], "ich@example.org/") && !strings.Contains(paths[0], "ich%40example.org/") {
@@ -141,15 +141,15 @@ func TestDShieldCheck(t *testing.T) {
 		t.Fatalf("Anmeldename statt E-Mail: %v", err)
 	}
 
-	// über die API: trägt ID, E-Mail und Schlüssel ein
+	// über die API: trägt ID (heute 10 Stellen), E-Mail und Schlüssel ein
 	h := shareHive(t)
 	body, _ := json.Marshal(map[string]string{"email": " " + email + " ", "api_key": key + "\n"})
 	rec := httptest.NewRecorder()
 	h.dshieldCheckAPI(rec, httptest.NewRequest("POST", "/api/share/dshield/check", strings.NewReader(string(body))))
-	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "123456") {
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), "3000012345") {
 		t.Fatalf("%d %s", rec.Code, rec.Body)
 	}
-	if d := h.Extras().DShield; d.UserID != 123456 || d.Email != email || d.APIKey != key {
+	if d := h.Extras().DShield; d.UserID != 3000012345 || d.Email != email || d.APIKey != key {
 		t.Fatalf("gespeichert: %+v", d)
 	}
 }

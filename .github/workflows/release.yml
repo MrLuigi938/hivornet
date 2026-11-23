@@ -100,6 +100,11 @@ jobs:
             cp pi/rootfs/usr/local/sbin/hivornet-* "$sys/usr/local/sbin/"
             cp pi/rootfs/usr/lib/sysusers.d/hivornet.conf "$sys/usr/lib/sysusers.d/"
             cp pi/rootfs/etc/NetworkManager/conf.d/hivornet-*.conf "$sys/etc/NetworkManager/conf.d/"
+            # Schutz gegen Hänger (Protokoll auf der Karte, Watchdog, wenig Auslagern)
+            mkdir -p "$sys/etc/systemd/journald.conf.d" "$sys/etc/systemd/system.conf.d" "$sys/etc/sysctl.d"
+            cp pi/rootfs/etc/systemd/journald.conf.d/hivornet.conf "$sys/etc/systemd/journald.conf.d/"
+            cp pi/rootfs/etc/systemd/system.conf.d/hivornet-watchdog.conf "$sys/etc/systemd/system.conf.d/"
+            cp pi/rootfs/etc/sysctl.d/90-hivornet.conf "$sys/etc/sysctl.d/"
             chmod 755 "$sys"/usr/local/sbin/*
             tar -czf "out/hivornet-$tag-linux-$arch.tar.gz" -C "dist/$arch" hive honeypot VERSION system
           done

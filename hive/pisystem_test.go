@@ -123,3 +123,34 @@ func TestCowrieAuthAPI(t *testing.T) {
 		t.Fatalf("Anfrage: %q", b)
 	}
 }
+
+func TestEnsureMemCgroup(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cmdline.txt")
+	os.WriteFile(p, []byte("console=serial0,115200 root=PARTUUID=1234-02 rootwait\n"), 0o644)
+	ch, got, err := ensureMemCgroup([]string{filepath.Join(dir, "fehlt.txt"), p})
+	if err != nil || !ch || got != p {
+		t.Fatalf("%v %s %v", ch, got, err)
+	}
+	b, _ := os.ReadFile(p)
+	if string(b) != "console=serial0,115200 root=PARTUUID=1234-02 rootwait cgroup_enable=memory cgroup_memory=1\n" {
+		t.Fatalf("cmdline: %q", b)
+	}
+	if old, _ := os.ReadFile(p + ".hivornet-alt"); !strings.Contains(string(old), "rootwait\n") {
+		t.Errorf("keine Kopie: %q", old)
+	}
+	if ch, _, _ := ensureMemCgroup([]string{p}); ch {
+		t.Error("zweites Mal darf nichts ändern")
+	}
+	if ch, _, err := ensureMemCgroup([]string{filepath.Join(dir, "x")}); ch || err != nil {
+		t.Error("ohne cmdline.txt: nichts tun")
+	}
+	for _, rel := range []string{"etc/systemd/journald.conf.d/hivornet.conf", "etc/systemd/system.conf.d/hivornet-watchdog.conf", "etc/sysctl.d/90-hivornet.conf"} {
+		if _, ok := systemFileAllowed(rel); !ok {
+			t.Errorf("%s nicht erlaubt", rel)
+		}
+	}
+	if _, ok := systemFileAllowed("etc/sysctl.d/99-fremd.conf"); ok {
+		t.Error("fremde sysctl-Datei erlaubt")
+	}
+}

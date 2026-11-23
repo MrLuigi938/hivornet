@@ -139,10 +139,15 @@ func webInputPath(input string) string {
 }
 
 // unescapeBody: Manche Modelle maskieren im JSON-Feld body doppelt; nach dem Dekodieren stehen
-// dann wörtlich \n, \t und \" im HTML. Nur wenn kein echter Zeilenumbruch vorkommt (sonst ist
-// "\n" gewollter Text, etwa in einem Skript).
+// dann wörtlich \n, \t und \" im HTML. Entmaskiert wird, wenn kein echter Zeilenumbruch
+// vorkommt oder die wörtlichen \n deutlich überwiegen (gemischte Antworten mancher Modelle);
+// ein einzelnes "\n" neben echten Umbrüchen ist gewollter Text, etwa in einem Skript.
 func unescapeBody(s string) string {
-	if strings.ContainsAny(s, "\n\r") || !strings.Contains(s, `\n`) && !strings.Contains(s, `\t`) && !strings.Contains(s, `\"`) {
+	if !strings.Contains(s, `\n`) && !strings.Contains(s, `\t`) && !strings.Contains(s, `\"`) {
+		return s
+	}
+	lit, real := strings.Count(s, `\n`), strings.Count(s, "\n")+strings.Count(s, "\r")
+	if real > 0 && lit <= real*2 {
 		return s
 	}
 	return bodyUnescaper.Replace(s)

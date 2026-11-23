@@ -69,6 +69,7 @@ type hwSnapshot struct {
 	Services  []hwService `json:"services,omitempty"`
 	// Speichergrenzen der Dienste (MemoryMax=) greifen nicht: Speicherverwaltung der cgroups aus
 	MemLimitsOff bool         `json:"mem_limits_off,omitempty"`
+	MemLimitsSet bool         `json:"mem_limits_set,omitempty"` // eingeschaltet, wirkt nach dem nächsten Neustart (pisystem.go)
 	DiskTotal    int64        `json:"disk_total,omitempty"`
 	DiskFree     int64        `json:"disk_free,omitempty"`
 	DB           *dbLimitInfo `json:"db,omitempty"` // Datenbank auf diesem Datenträger (dblimit.go)
@@ -331,6 +332,10 @@ func (m *hwMonitor) sample(now time.Time) {
 	s.Throttled = throttled()
 	s.HiveRSS = selfRSS()
 	s.Services, s.MemLimitsOff = hwServices()
+	if s.MemLimitsOff {
+		_, err := os.Stat("/var/lib/hivornet-status/reboot-needed")
+		s.MemLimitsSet = err == nil
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

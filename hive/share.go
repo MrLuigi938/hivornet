@@ -66,7 +66,7 @@ type BazaarConfig struct {
 type DShieldConfig struct {
 	Enabled  bool   `json:"enabled"`
 	DryRun   bool   `json:"dry_run"`
-	UserID   int    `json:"user_id"` // numerische ISC-Benutzer-ID, nicht der Anmeldename
+	UserID   int64  `json:"user_id"` // numerische ISC-Benutzer-ID, nicht der Anmeldename (heute 10 Stellen, z. B. 3000012345)
 	Email    string `json:"email"`   // Anmeldung bei isc.sans.edu; nur für "Zugang prüfen"
 	APIKey   string `json:"api_key"`
 	Firewall bool   `json:"firewall"` // Verbindungsversuche
@@ -102,7 +102,7 @@ func (x *Extras) validateShare() error {
 		return fmt.Errorf("Dateien sammeln: Platz insgesamt 10 bis 10000 MB")
 	case !userAgentRe.MatchString(s.UserAgent):
 		return fmt.Errorf("Dateien sammeln: User-Agent 1 bis 120 druckbare Zeichen")
-	case d.UserID < 0 || d.UserID > 999999999:
+	case d.UserID < 0 || d.UserID > 999999999999:
 		return fmt.Errorf("DShield: Benutzer-ID ist eine Zahl (isc.sans.edu → My Account), nicht der Anmeldename")
 	case d.Enabled && (d.UserID == 0 || d.APIKey == ""):
 		return fmt.Errorf("DShield braucht die ISC-Benutzer-ID (Zahl) und den API-Schlüssel. „Zugang prüfen“ ermittelt die ID aus E-Mail-Adresse und Schlüssel")
@@ -462,6 +462,9 @@ func (h *Hive) shareSince(now time.Time) time.Time {
 }
 
 func (h *Hive) runSharing(stop <-chan struct{}) {
+	if !waitStartupQuiet(stop, 2*time.Hour) { // erst nach der Neuzählung (setup.go)
+		return
+	}
 	t := time.NewTicker(5 * time.Minute)
 	defer t.Stop()
 	warm, cancelWarm := context.WithTimeout(context.Background(), 4*time.Minute)

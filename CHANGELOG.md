@@ -2,6 +2,24 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+**Update:** Raspberry Pi per Knopf; die Speichergrenzen der Dienste gelten erst nach dem nächsten Neustart des Pi (der Hardware-Monitor sagt das an).
+
+### Neu
+- **Schutz gegen Hänger auf dem Raspberry Pi.** Nach dem Update auf 0.9.5 blieb ein Pi 3 stundenlang fast stehen (Neuzählung und Zwischenspeicher zugleich, Speichergrenzen wirkungslos, Auslagern auf die SD-Karte), und das Systemprotokoll lag nur im Arbeitsspeicher.
+  - **Systemprotokoll bleibt auf der Karte** (höchstens 64 MB, 14 Tage, gebündelt geschrieben), damit sich nach einem Neustart nachlesen lässt, was war.
+  - **Speichergrenzen der Dienste wirken:** Der Updater ergänzt `cgroup_enable=memory cgroup_memory=1` in `cmdline.txt` (Kopie als `.hivornet-alt`); ein zu großer Dienst wird neu gestartet, statt den Pi lahmzulegen. Wirksam nach dem nächsten Neustart.
+  - **Hardware-Watchdog:** Bleibt das System stehen, startet der Pi nach 14 Sekunden selbst neu.
+  - **Wenig Auslagern** (`vm.swappiness = 10`) und Neustart 10 Sekunden nach einem Kernel-Absturz.
+  - **Startaufgaben gedrosselt:** Die Neuzählung nach einem Update macht kleine Pausen; die Zwischenspeicher für Analyse, Erkenntnisse und Funde warten, bis sie fertig ist.
+- **Seite Angriffe (Lagebild): Weg zum Angreifer-Profil.** Jede Zeile hat „Profil →“, und die aufgeklappte Karte wieder die Schaltfläche „Angreifer-Profil und Bericht“.
+
+### Behoben
+- **DShield: Benutzer-IDs mit 10 Stellen** (heute üblich, z. B. 3000012345) wurden nicht erkannt: „Zugang prüfen“ meldete „nennt aber keine Benutzer-ID“, und von Hand eingetragen ließ sich die ID nicht speichern. Jetzt bis 12 Stellen.
+- **Funde → KI-Antworten:** Lange Antworten standen mit wörtlichem `\n` in einer schmalen Zelle mit Scrollbalken. Jetzt drei Zeilen Vorschau, umgebrochen, ein Klick zeigt alles. Doppelt maskierte Zeilenumbrüche werden auch erkannt, wenn die Antwort schon einzelne echte Umbrüche enthält; so bekommen auch Angreifer keine wörtlichen `\n` mehr zu sehen.
+- **Funde → Fallakte: „Angriffe suchen“ fand nichts.** Die Seite Angriffe öffnete mit dem zuletzt gewählten Zeitraum (oft 24 Stunden). Jetzt sucht der Link über alles Gespeicherte; bei der Herkunft einer Datei gibt es „Angriffe mit dieser Adresse“. Eingebettete Ziele aus einer Datei findet die Suche nur, wenn sie auch in Befehlen oder Adressen eines Angriffs vorkommen.
+
 ## [0.9.5-beta] – 2026-11-22
 
 **Update:** Raspberry Pi per Knopf; der Updater trägt die neue Cowrie-Anpassung (HTTP-Zeilen nie als Login) nach. Docker: `./update.sh`.

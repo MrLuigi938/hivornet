@@ -197,6 +197,9 @@ func (h *Hive) warmSnap(stop <-chan struct{}) {
 		return
 	case <-time.After(45 * time.Second):
 	}
+	if !waitStartupQuiet(stop, 2*time.Hour) { // erst nach der Neuzählung (setup.go)
+		return
+	}
 	h.snap.mu.Lock()
 	h.snap.usedAt = time.Now()
 	h.snap.mu.Unlock()

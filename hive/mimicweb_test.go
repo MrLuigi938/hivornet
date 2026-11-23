@@ -26,6 +26,11 @@ func TestParseWebOutUnescape(t *testing.T) {
 	if got := unescapeBody("ohne Folgen"); got != "ohne Folgen" {
 		t.Errorf("unverändert erwartet: %q", got)
 	}
+	// gemischt: ein echter Umbruch, viele wörtliche \n (so lieferten manche Modelle Login-Seiten)
+	mixed := "<form>\n<label>User</label><br>\\n<input name=\"u\"><br>\\n<input name=\"p\"><br>\\n<input type=\"submit\">\\n</form>\\n"
+	if got := unescapeBody(mixed); strings.Contains(got, `\n`) {
+		t.Errorf("gemischte Antwort nicht entmaskiert: %q", got)
+	}
 }
 
 // 404 baut der Honeypot selbst: Das Modell liefert nur den Status, kein eigener Inhalt.

@@ -127,6 +127,9 @@ export function hardwareCard(d) {
         h("div", { class: "hw-side-t" }, "Arbeitsspeicher je Dienst"),
         serviceBars(d.services, d.mem_total),
         h("p", { class: "muted hw-note" }, "Hive selbst: ", fmtBytes(d.hive_rss), " im Speicher"),
+        d.mem_limits_off && d.mem_limits_set ? h("div", { class: "msg warn hw-note" },
+          h("b", null, "Speichergrenzen eingeschaltet, wirksam nach dem nächsten Neustart. "),
+          "Das Update hat die Speicherverwaltung der Dienste eingeschaltet. Bis zum nächsten Neustart des Pi gelten die Grenzen noch nicht.") :
         d.mem_limits_off ? h("div", { class: "msg warn hw-note" },
           h("b", null, "Speichergrenzen wirken nicht. "),
           "Auf diesem Raspberry Pi ist die Speicherverwaltung der Dienste (memory cgroup) ab Werk abgeschaltet. Die Grenzen oben stehen in den Dienstdateien, werden aber nicht durchgesetzt; ein Dienst könnte den ganzen Arbeitsspeicher belegen. ",

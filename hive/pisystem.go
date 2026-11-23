@@ -37,8 +37,46 @@ func systemFileAllowed(rel string) (mode os.FileMode, ok bool) {
 		return 0o644, true
 	case dir == "etc/NetworkManager/conf.d/" && strings.HasPrefix(name, "hivornet-") && strings.HasSuffix(name, ".conf"):
 		return 0o644, true
+	// Schutz gegen Hänger (0.9.6): Protokoll auf der Karte, Watchdog, wenig Auslagern
+	case rel == "etc/systemd/journald.conf.d/hivornet.conf", rel == "etc/systemd/system.conf.d/hivornet-watchdog.conf",
+		rel == "etc/sysctl.d/90-hivornet.conf":
+		return 0o644, true
 	}
 	return 0, false
+}
+
+// cmdlinePaths: Kernel-Befehlszeile des Raspberry Pi (Bookworm/Trixie bzw. ältere Images).
+var cmdlinePaths = []string{"/boot/firmware/cmdline.txt", "/boot/cmdline.txt"}
+
+// memCgroupArgs schalten die Speicherverwaltung der cgroups ein; erst damit greifen die
+// Speichergrenzen der Dienste (MemoryMax). Raspberry Pi OS lässt sie ab Werk aus.
+const memCgroupArgs = "cgroup_enable=memory cgroup_memory=1"
+
+// ensureMemCgroup ergänzt memCgroupArgs in der ersten vorhandenen cmdline.txt (eine Zeile,
+// vorher Kopie als .hivornet-alt). true = geändert, wirkt nach dem nächsten Neustart.
+func ensureMemCgroup(paths []string) (bool, string, error) {
+	for _, p := range paths {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			continue
+		}
+		line := strings.TrimSpace(strings.SplitN(string(b), "\n", 2)[0])
+		if line == "" {
+			return false, p, fmt.Errorf("%s ist leer", p)
+		}
+		if strings.Contains(line, "cgroup_enable=memory") {
+			return false, p, nil
+		}
+		if err := os.WriteFile(p+".hivornet-alt", b, 0o644); err != nil {
+			return false, p, err
+		}
+		tmp := p + ".neu"
+		if err := os.WriteFile(tmp, []byte(line+" "+memCgroupArgs+"\n"), 0o644); err != nil {
+			return false, p, err
+		}
+		return true, p, os.Rename(tmp, p)
+	}
+	return false, "", nil // keine cmdline.txt: kein Raspberry Pi
 }
 
 // installSystem kopiert erlaubte Dateien aus src nach root (atomar über Umbenennen, damit
@@ -145,6 +183,7 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 		run("systemd-sysusers", "/usr/lib/sysusers.d/hivornet.conf")
 	}
 	run("systemctl", "daemon-reload")
+	applyFailsafe(changed, run, w)
 	for _, c := range changed {
 		if strings.HasPrefix(c, "etc/systemd/system/") && strings.HasSuffix(c, ".path") {
 			if err := run("systemctl", "enable", "--now", path.Base(c)); err != nil {
@@ -212,6 +251,41 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			}
 			break
 		}
+	}
+}
+
+// applyFailsafe wendet die Schutzeinstellungen gegen Hänger an (0.9.6): Protokoll auf der
+// Karte, Watchdog, wenig Auslagern und die Speicherverwaltung der cgroups.
+func applyFailsafe(changed []string, run func(string, ...string) error, w io.Writer) {
+	for _, c := range changed {
+		switch c {
+		case "etc/systemd/journald.conf.d/hivornet.conf":
+			os.MkdirAll("/var/log/journal", 0o755)
+			run("systemd-tmpfiles", "--create", "--prefix", "/var/log/journal")
+			if err := run("systemctl", "restart", "systemd-journald"); err != nil {
+				fmt.Fprintf(w, "Protokoll auf der Karte: %v\n", err)
+			} else {
+				run("journalctl", "--flush")
+				fmt.Fprintln(w, "Systemprotokoll bleibt jetzt auf der Karte erhalten (höchstens 64 MB, 14 Tage)")
+			}
+		case "etc/systemd/system.conf.d/hivornet-watchdog.conf":
+			if err := run("systemctl", "daemon-reexec"); err != nil {
+				fmt.Fprintf(w, "Watchdog: %v\n", err)
+			} else {
+				fmt.Fprintln(w, "Hardware-Watchdog aktiv: bei einem Hänger startet der Pi selbst neu")
+			}
+		case "etc/sysctl.d/90-hivornet.conf":
+			if err := run("sysctl", "--load", "/etc/sysctl.d/90-hivornet.conf"); err != nil {
+				fmt.Fprintf(w, "Kernel-Einstellungen: %v\n", err)
+			}
+		}
+	}
+	if ch, p, err := ensureMemCgroup(cmdlinePaths); err != nil {
+		fmt.Fprintf(w, "Speichergrenzen: %v\n", err)
+	} else if ch {
+		fmt.Fprintf(w, "Speichergrenzen in %s eingeschaltet; wirksam nach dem nächsten Neustart\n", p)
+		os.MkdirAll("/var/lib/hivornet-status", 0o755)
+		os.WriteFile("/var/lib/hivornet-status/reboot-needed", []byte("Speichergrenzen der Dienste\n"), 0o644)
 	}
 }
 

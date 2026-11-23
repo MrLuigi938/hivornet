@@ -111,6 +111,9 @@ func (h *Hive) warmAnalysis(stop <-chan struct{}) {
 		return
 	case <-time.After(20 * time.Second):
 	}
+	if !waitStartupQuiet(stop, 2*time.Hour) { // erst nach der Neuzählung (setup.go)
+		return
+	}
 	since := time.Now().Add(-24 * time.Hour).UnixMilli()
 	var lastID int64
 	for n := 0; n < analysisGenMax; {

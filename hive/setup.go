@@ -624,6 +624,30 @@ func prepareRecount(st *Store) bool {
 // recountMu: Es zählt immer nur ein Lauf neu (Start-Neuzählung, eigene Regeln in cvesuggest.go).
 var recountMu sync.Mutex
 
+// Startruhe: Nach einem Update zählt der Hive einmal alle Ereignisse neu. Auf einem Raspberry Pi
+// 3 brachte das zusammen mit den Zwischenspeichern (Analyse, Schnappschuss, Funde) den ganzen Pi
+// an die Grenze des Arbeitsspeichers. Deshalb warten die Zwischenspeicher, bis die Neuzählung
+// fertig ist (startupQuiet geschlossen), und die Neuzählung macht zwischen den Schritten Pausen.
+var (
+	startupQuiet     = make(chan struct{})
+	startupQuietOnce sync.Once
+	recountPause     = 40 * time.Millisecond // zwischen zwei Schritten zu je 500 Ereignissen
+)
+
+func markStartupQuiet() { startupQuietOnce.Do(func() { close(startupQuiet) }) }
+
+// waitStartupQuiet wartet, bis die Neuzählung fertig ist, höchstens max. false: Hive beendet.
+func waitStartupQuiet(stop <-chan struct{}, max time.Duration) bool {
+	select {
+	case <-startupQuiet:
+		return true
+	case <-stop:
+		return false
+	case <-time.After(max):
+		return true
+	}
+}
+
 func recountTop(st *Store, maxID int64) {
 	recountMu.Lock()
 	defer recountMu.Unlock()
@@ -698,6 +722,7 @@ func recountUpTo(st *Store, maxID int64, want map[string]bool) (int64, bool) {
 			return total, false
 		}
 		total += int64(len(evs))
+		time.Sleep(recountPause) // Luft für Oberfläche und Einliefern
 		time.Sleep(50 * time.Millisecond)
 	}
 	return total, true

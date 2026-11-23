@@ -912,7 +912,9 @@ table.fd-reg td.wrap, table.fd-mini td.wrap, .mono.wrap { word-break: break-all;
 table.fd-reg .chip + .chip { margin-left: 4px; }
 .fd-strong { font-weight: 600; }
 .fd-hash { font-family: ui-monospace, Consolas, monospace; font-size: 11.5px; color: var(--text-2); word-break: break-all; }
-.fd-out { white-space: pre-wrap; color: var(--text-2); max-width: 420px; max-height: 120px; overflow: auto; display: block; }
+.fd-out { white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-word; color: var(--text-2); max-width: 560px; font-family: ui-monospace, Consolas, monospace; font-size: 12px;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; cursor: pointer; }
+.fd-out.open { display: block; -webkit-line-clamp: unset; max-height: 420px; overflow: auto; cursor: auto; background: var(--code-bg); border-radius: 6px; padding: 6px 8px; }
 .small { font-size: 12px; }
 .fd-akte { border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); scroll-margin-top: 70px; }
 .fd-title { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; }
@@ -962,3 +964,7 @@ table.fd-mini tr.click { cursor: pointer; }
 .fd-ai .q::before { content: "$ "; color: var(--muted); }
 .fd-ai .q { font-size: 12.5px; word-break: break-all; }
 .fd-ai .a { font-size: 12px; white-space: pre-wrap; color: var(--text-2); background: var(--code-bg); border-radius: 6px; padding: 6px 8px; max-height: 200px; overflow: auto; }
+
+/* Lagebild: Weg zum Angreifer-Profil direkt in der Zeile */
+.ar-prof { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ar-row .who .ip { text-decoration: underline; text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent); text-underline-offset: 3px; }

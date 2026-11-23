@@ -28,6 +28,20 @@ tar -xzf "$SRC/payload.tar.gz" -C / --no-same-owner
 chmod 755 /opt/hivornet /opt/hivornet/hive /opt/hivornet/honeypot /usr/local/sbin/hivornet-*
 
 systemd-sysusers /usr/lib/sysusers.d/hivornet.conf
+
+# Schutz gegen Hänger: Protokoll auf der Karte, wenig Auslagern, Speichergrenzen der Dienste
+# (cgroup-Speicherverwaltung; wirkt nach dem ersten Neustart). Watchdog über system.conf.d.
+mkdir -p /var/log/journal
+systemd-tmpfiles --create --prefix /var/log/journal 2>/dev/null || true
+sysctl --load /etc/sysctl.d/90-hivornet.conf >/dev/null 2>&1 || true
+for c in /boot/firmware/cmdline.txt /boot/cmdline.txt; do
+  [ -f "$c" ] || continue
+  if ! grep -q 'cgroup_enable=memory' "$c"; then
+    cp "$c" "$c.hivornet-alt"
+    sed -i '1 s/$/ cgroup_enable=memory cgroup_memory=1/' "$c"
+  fi
+  break
+done
 /usr/local/sbin/hivornet-firstboot
 
 # Port 22 übernimmt Cowrie; der echte SSH-Dienst bleibt dauerhaft aus.
