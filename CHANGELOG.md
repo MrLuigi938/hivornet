@@ -2,7 +2,7 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.9.6-beta] – 2026-11-23
 
 **Update:** Raspberry Pi per Knopf; die Speichergrenzen der Dienste gelten erst nach dem nächsten Neustart des Pi (der Hardware-Monitor sagt das an).
 
