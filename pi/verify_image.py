@@ -103,7 +103,7 @@ with tarfile.open(fileobj=io.BytesIO(pl), mode="r:gz") as t:
     for n, m in members.items():
         if m.isfile() and n.startswith(("usr/local/sbin/", "etc/")):
             check(b"\r\n" not in t.extractfile(n).read(), f"{n}: Unix-Zeilenenden")
-    unexpected = [n for n in members if not n.startswith(("opt/hivornet", "etc/hivornet", "etc/systemd/system/hivornet-", "usr/lib/sysusers.d/hivornet", "usr/local/sbin/hivornet-", "etc/NetworkManager/conf.d/hivornet-"))]
+    unexpected = [n for n in members if not n.startswith(("opt/hivornet", "etc/hivornet", "etc/systemd/system/hivornet-", "usr/lib/sysusers.d/hivornet", "usr/local/sbin/hivornet-", "etc/NetworkManager/conf.d/hivornet-", "etc/systemd/journald.conf.d/hivornet", "etc/systemd/system.conf.d/hivornet-", "etc/sysctl.d/90-hivornet"))]
     check(not unexpected, f"keine fremden Dateien im Paket {unexpected}")
 
 os.remove(boot)
