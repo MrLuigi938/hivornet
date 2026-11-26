@@ -5,6 +5,7 @@
 // zu Links gemacht. Dateien gibt die Web-UI nie heraus, Skripte erscheinen nur als Text.
 import { h, mount, api, fmtNum, fmtBytes, fmtDateTime, relTime } from "./dom.js";
 import { state, header, cc } from "./app.js";
+import { explainSlot } from "./ai.js";
 
 const PROV = {
   abuseipdb: ["AbuseIPDB", "var(--s2)"], urlhaus: ["URLhaus", "var(--s5)"], bazaar: ["MalwareBazaar", "var(--s7)"],
@@ -16,7 +17,7 @@ const ST = {
   dry: ["Probe", "dry"], skipped: ["nicht gemeldet", "dry"], "": ["–", "none"],
 };
 const stBadge = (s, text) => { const [t, c] = ST[s] || [s, "dry"]; return h("span", { class: "fd-st " + c }, h("i"), text || t); };
-const KIND = { ip: "IP-Adresse", url: "Adresse", wallet: "Wallet", pool: "Mining-Pool" };
+const KIND = { ip: "IP-Adresse", url: "Adresse", wallet: "Wallet", pool: "Mining-Pool", tmpl: "Vorlage" };
 
 // Zustand der Ansicht (bleibt beim Neuladen der Daten erhalten)
 const V = { tab: "files", q: "", filter: "", sel: "", sub: "inhalt" };
@@ -259,9 +260,9 @@ async function fileCase(box, sha, ctx) {
 function caseBody(k, d) {
   const f = d.file, si = d.info;
   if (k === "inhalt") {
-    const left = d.script ? h("div", { class: "fd-box" }, h("h3", null, "Inhalt", h("span", { class: "r" }, `${d.script.length} Zeilen · nur als Text, nie ausgeführt · Adressen markiert`)), codeBox(d.script))
-      : h("div", { class: "fd-box" }, h("h3", null, "Inhalt"), h("p", { class: "muted", style: { margin: 0 } },
-        si ? "Programme und Archive zeigt die Web-UI nie als Inhalt. Was sich aus den Zeichenketten lesen ließ, steht unter „Eingebettete Ziele“." : "Die Datei liegt nicht (mehr) vor: " + (f.missing || "unbekannt") + "."));
+    const left = d.script ? h("div", { class: "fd-box" }, h("h3", null, "Inhalt", h("span", { class: "r" }, `${d.script.length} Zeilen · nur als Text, nie ausgeführt · Adressen markiert`)), si ? explainSlot({ hash: si.sha256 }) : null, codeBox(d.script))
+      : si ? programBox(si.sha256 || f.sha256)
+      : h("div", { class: "fd-box" }, h("h3", null, "Inhalt"), h("p", { class: "muted", style: { margin: 0 } }, "Die Datei liegt nicht (mehr) vor: " + (f.missing || "unbekannt") + "."));
     return h("div", { class: "fd-cols" }, left, h("div", { class: "fd-side" },
       h("div", { class: "fd-box" }, h("h3", null, "Einordnung"), h("p", { style: { margin: 0 } }, summarize(d))),
       h("div", { class: "fd-box" }, h("h3", null, "Erkannte Muster"), f.patterns.length ? h("div", { class: "fd-chips" }, f.patterns.map((p) => h("span", { class: "chip" }, p))) : h("span", { class: "muted" }, "keine")),
@@ -292,11 +293,12 @@ function caseBody(k, d) {
   if (k === "ziele") {
     const list = [];
     if (si) {
-      for (const [kind, vals] of [["url", si.urls], ["ip", si.ips], ["pool", si.pools], ["wallet", si.wallets]]) for (const v of vals || []) list.push([kind, v]);
+      for (const [kind, vals] of [["url", si.urls], ["ip", si.ips], ["pool", si.pools], ["wallet", si.wallets], ["tmpl", d.url_templates]]) for (const v of vals || []) list.push([kind, v]);
     }
     return h("div", { class: "fd-box" }, h("h3", null, "Eingebettete Ziele", h("span", { class: "r" }, "aus Zeichenketten und Inhalt der Datei")),
       list.length ? list.map(([kind, v]) => h("div", { class: "fd-ioc" }, h("span", { class: "t" }, KIND[kind]), h("span", { class: "mono wrap" }, v),
-        h("a", { class: "small", href: attSearch(v), title: "Sucht über den ganzen gespeicherten Zeitraum in Befehlen, Adressen und entschlüsselten Inhalten" }, "In Angriffen suchen"))) : h("div", { class: "muted" }, si ? "Keine Adressen, IPs, Pools oder Wallets gefunden." : "Datei nicht untersucht."),
+        kind === "tmpl" ? h("span", { class: "small muted", title: "Der Host oder Pfad enthält eine Shell-Variable; erst das Skript setzt die echte Adresse ein." }, "mit Variablen")
+          : h("a", { class: "small", href: attSearch(v), title: "Sucht über den ganzen gespeicherten Zeitraum in Befehlen, Adressen und entschlüsselten Inhalten" }, "In Angriffen suchen"))) : h("div", { class: "muted" }, si ? "Keine Adressen, IPs, Pools oder Wallets gefunden." : "Datei nicht untersucht."),
       h("p", { class: "muted small", style: { margin: "10px 0 0" } }, "Eingebettete Ziele werden nie aufgerufen und nie gemeldet, nur angezeigt."));
   }
   if (k === "netz") {
@@ -356,18 +358,117 @@ function openOther(sha) {
 function dl(k, v) { return [h("dt", null, k), h("dd", null, v)]; }
 
 const URL_RE = /((?:https?|ftp|tftp):\/\/[^\s'"`;|&<>)]+)/g;
+// markAddr: Adressen (und in Programmen auch IPs) als markierte Textstücke; nie als Link.
+function markAddr(l, re = URL_RE) {
+  const parts = [];
+  let last = 0;
+  for (const m of l.matchAll(re)) {
+    if (m.index > last) parts.push(l.slice(last, m.index));
+    parts.push(h("span", { class: "u" }, m[0]));
+    last = m.index + m[0].length;
+  }
+  parts.push(l.slice(last));
+  return parts;
+}
+
 function codeBox(lines) {
-  return h("div", { class: "fd-code" }, lines.map((l) => {
-    const parts = [];
-    let last = 0;
-    for (const m of l.matchAll(URL_RE)) {
-      if (m.index > last) parts.push(l.slice(last, m.index));
-      parts.push(h("span", { class: "u" }, m[0]));
-      last = m.index + m[0].length;
-    }
-    parts.push(l.slice(last));
-    return h("div", { class: /^\s*#/.test(l) ? "c" : "" }, parts);
-  }));
+  return h("div", { class: "fd-code" }, lines.map((l) => h("div", { class: /^\s*#/.test(l) ? "c" : "" }, markAddr(l))));
+}
+
+// ---------- Programme lesbar (hive/program.go) ----------
+// Nur Metadaten und Zeichenketten aus der statischen Auswertung, alles als Text. Die Datei
+// selbst verlässt den Hive nie und wird nie ausgeführt.
+const STR_RE = /((?:https?|ftp|tftp):\/\/[^\s'"`;|&<>)]+|\b(?:\d{1,3}\.){3}\d{1,3}(?::\d{1,5})?\b)/g;
+const PROG = new Map(); // sha → Auswertung (bleibt beim Wechsel der Reiter)
+const STR_SHOW = 400;
+
+function programBox(sha) {
+  const box = h("div", { class: "fd-box fd-prog" }, h("h3", null, "Inhalt"), h("p", { class: "muted", style: { margin: 0 } }, "Werte das Programm statisch aus (Zeichenketten, Kopfdaten) …"));
+  const render = (p) => mount(box, programView(p, sha));
+  if (PROG.has(sha)) render(PROG.get(sha));
+  else api("funde/program?sha=" + encodeURIComponent(sha)).then((p) => { PROG.set(sha, p); render(p); })
+    .catch((e) => mount(box, h("h3", null, "Inhalt"), h("div", { class: "msg err" }, e.message)));
+  return box;
+}
+
+const hexOff = (o) => "0x" + Number(o || 0).toString(16).padStart(6, "0");
+
+function strRow(x) {
+  return h("div", { class: "fd-str" + (x.tag ? " hit" : "") },
+    h("span", { class: "o", title: "Stelle in der Datei" }, hexOff(x.o)),
+    h("span", { class: "t" }, markAddr(x.t, STR_RE)),
+    x.e === "u16" ? h("span", { class: "chip" }, "UTF-16") : x.e === "xor" ? h("span", { class: "chip" }, "entschlüsselt") : null,
+    x.tag && x.tag !== "entschlüsselt" ? h("span", { class: "chip warn" }, x.tag.replace(/^entschlüsselt\s*/, "")) : null);
+}
+
+function strList(items, max = STR_SHOW) {
+  return h("div", { class: "fd-strs" }, items.slice(0, max).map(strRow),
+    items.length > max ? h("div", { class: "muted small", style: { padding: "4px 8px" } }, `… ${fmtNum(items.length - max)} weitere; Filter nutzen`) : null);
+}
+
+function fold(title, open, ...kids) {
+  return h("details", { class: "fd-fold", open }, h("summary", null, title), ...kids);
+}
+
+function programView(p, sha) {
+  const e = p.elf, groups = p.groups || [];
+  const all = groups.flatMap((g) => g.items).sort((a, b) => a.o - b.o);
+  const shown = all.length, more = groups.reduce((n, g) => n + (g.more || 0), 0);
+  const out = [h("h3", null, "Inhalt", h("span", { class: "r" }, `statisch ausgewertet · nie ausgeführt · ${fmtNum(p.strings)} Zeichenketten · Adressen markiert`)),
+    explainSlot({ hash: sha })];
+  if (p.truncated) out.push(h("div", { class: "msg warn" }, "Sehr große Datei: untersucht wurde nur der Anfang."));
+  if (e) {
+    out.push(h("h4", { class: "fd-h4" }, "Übersicht"), h("dl", { class: "fd-kv" },
+      dl("Format", `ELF ${e.bits} Bit · ${e.endian}` + (e.osabi ? ` · ${e.osabi}` : "")),
+      dl("Architektur", e.arch || "–"), dl("Art", e.kind || "–"), dl("Einsprungpunkt", h("span", { class: "mono" }, e.entry || "–")),
+      dl("Bindung", e.static ? "statisch gelinkt (bringt alles mit, läuft ohne Bibliotheken)" : ["dynamisch", e.interpreter ? [" · Interpreter ", h("span", { class: "mono" }, e.interpreter)] : ""]),
+      dl("Symbole", e.stripped ? "entfernt (gestrippt)" : `vorhanden (${fmtNum((e.symbols || []).length)} Funktionsnamen)`),
+      dl("Packer", e.packer ? h("b", null, e.packer + " – der eigentliche Code ist komprimiert; lesbar ist vor allem der Entpacker") : "nicht erkannt"),
+      (e.libraries || []).length ? dl("Bibliotheken", h("span", { class: "mono" }, e.libraries.join(", "))) : null));
+    if ((e.notes || []).length) out.push(h("div", { class: "msg warn" }, "Auffällig: " + e.notes.join(" · ")));
+  }
+  const x = p.xor;
+  if (x) {
+    out.push(h("h4", { class: "fd-h4" }, `Entschlüsselte Mirai-Tabelle (${x.strings.length})`),
+      h("p", { class: "muted small", style: { margin: "0 0 6px" } }, `Ein-Byte-XOR mit Schlüssel ${x.key_hex}`,
+        x.classic ? " – wie im veröffentlichten Mirai-Quelltext (0xDEADBEEF zusammengefaltet)." : " – eine Variante mit eigenem Schlüssel.",
+        ` Erkannt an: ${x.marks.join(", ")}. Statisch entschlüsselt, nichts ausgeführt.`),
+      strList(x.strings.map((s) => ({ ...s, e: "" })), 300));
+  }
+  const hits = groups.filter((g) => g.key !== "rest");
+  if (hits.length) {
+    out.push(h("h4", { class: "fd-h4" }, "Auffällige Zeichenketten"));
+    for (const g of hits) out.push(fold(`${g.label} (${fmtNum(g.items.length)}${g.more ? " +" + fmtNum(g.more) : ""})`, g.key !== "pfade", strList(g.items)));
+  } else if (!x) out.push(h("p", { class: "muted" }, "Keine auffälligen Zeichenketten gefunden (gepackt oder verschleiert?)."));
+  // alle Zeichenketten, filterbar
+  const list = h("div");
+  const inp = h("input", { type: "search", placeholder: "Zeichenketten filtern …", "aria-label": "Zeichenketten filtern", class: "fd-filter" });
+  const apply = () => {
+    const q = inp.value.trim().toLowerCase();
+    mount(list, strList(q ? all.filter((s) => s.t.toLowerCase().includes(q) || (s.tag || "").toLowerCase().includes(q)) : all));
+  };
+  inp.oninput = apply;
+  apply();
+  out.push(fold(`Alle Zeichenketten (${fmtNum(shown)}${more ? `, ${fmtNum(more)} weitere nicht gespeichert` : ""})`, false, inp, list));
+  if (e && (e.segments || []).length) {
+    out.push(fold(`Segmente (${e.segments.length})`, false, h("div", { class: "fd-scroll" }, h("table", { class: "fd-mini" },
+      h("thead", null, h("tr", null, ["Typ", "Rechte", "Adresse", "Offset", "Größe Datei", "Größe Speicher"].map((t) => h("th", null, t)))),
+      h("tbody", null, e.segments.map((s) => h("tr", null, h("td", null, s.type), h("td", { class: "mono", title: "R = lesbar, W = beschreibbar, X = ausführbar" }, s.flags),
+        h("td", { class: "mono" }, s.vaddr), h("td", { class: "mono" }, hexOff(s.offset)), h("td", { class: "num" }, fmtNum(s.filesz)), h("td", { class: "num" }, fmtNum(s.memsz)))))))));
+  }
+  if (e && (e.sections || []).length) {
+    out.push(fold(`Sections (${e.sections.length})`, false, h("div", { class: "fd-scroll" }, h("table", { class: "fd-mini" },
+      h("thead", null, h("tr", null, ["Name", "Typ", "Rechte", "Adresse", "Größe"].map((t) => h("th", null, t)))),
+      h("tbody", null, e.sections.map((s) => h("tr", null, h("td", { class: "mono" }, s.name || "–"), h("td", null, s.type),
+        h("td", { class: "mono", title: "A = geladen, W = beschreibbar, X = ausführbar" }, s.flags || "–"), h("td", { class: "mono" }, s.addr), h("td", { class: "num" }, fmtNum(s.size)))))))));
+  }
+  if (e && ((e.imports || []).length || (e.symbols || []).length)) {
+    out.push(fold("Importierte Funktionen und Symbole", false,
+      (e.imports || []).length ? h("div", null, h("div", { class: "muted small" }, "Importiert"), h("pre", { class: "fd-pre" }, e.imports.join("\n"))) : null,
+      (e.symbols || []).length ? h("div", null, h("div", { class: "muted small" }, "Funktionsnamen"), h("pre", { class: "fd-pre" }, e.symbols.join("\n"))) : null));
+  }
+  if ((p.hex || []).length) out.push(fold(`Hex-Ansicht (erste ${fmtNum(p.hex.length * 16)} Byte)`, false, h("pre", { class: "fd-pre fd-hex" }, p.hex.join("\n"))));
+  return out;
 }
 
 // summarize: kurze Einordnung aus den Merkmalen (feste Regeln, kein Sprachmodell)

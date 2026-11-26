@@ -79,6 +79,25 @@ func waitText(until time.Time) string {
 type bazaarWait struct {
 	URL     string `json:"url"`
 	Fetched int64  `json:"fetched"` // Unix-Millisekunden
+	// Tries/Next: erneuter Versuch nach einem Fehler (bazaarRun); Next in Unix-Millisekunden.
+	Tries int   `json:"tries,omitempty"`
+	Next  int64 `json:"next,omitempty"`
+}
+
+// until: frühester Zeitpunkt für den nächsten Versuch.
+func (w bazaarWait) until(delay time.Duration) time.Time {
+	t := time.UnixMilli(w.Fetched).Add(delay)
+	if n := time.UnixMilli(w.Next); w.Next > 0 && n.After(t) {
+		t = n
+	}
+	return t
+}
+
+// bazaarRequeue merkt eine Datei für einen späteren Versuch vor (nach einem Fehler oder
+// solange der Kanal pausiert).
+func (h *Hive) bazaarRequeue(sha, srcURL string, tries int, next time.Time) {
+	b, _ := json.Marshal(bazaarWait{URL: clip(srcURL, 500), Tries: tries, Next: next.UnixMilli()})
+	h.st.lookupPut("hash:"+sha, "bazaar_wait", string(b))
 }
 
 // bazaarLater merkt eine frisch geholte Datei für MalwareBazaar vor.
@@ -111,7 +130,7 @@ func (h *Hive) bazaarDue(ctx context.Context, x Extras) {
 	var waits []reportWait
 	delay := x.reportDelay()
 	for _, it := range items {
-		until := time.UnixMilli(it.w.Fetched).Add(delay)
+		until := it.w.until(delay)
 		if time.Now().Before(until) {
 			waits = append(waits, reportWait{Subject: it.sha, Until: until, Detail: waitText(until)})
 			continue
@@ -121,7 +140,7 @@ func (h *Hive) bazaarDue(ctx context.Context, x Extras) {
 		}
 		h.st.db.Exec(`DELETE FROM lookups WHERE subject = ? AND source = 'bazaar_wait'`, "hash:"+it.sha)
 		if si, err := h.loadSample(it.sha); err == nil {
-			h.bazaarHandle(ctx, x, it.sha, si, it.w.URL)
+			h.bazaarRun(ctx, x, it.sha, si, it.w.URL, it.w.Tries)
 		}
 	}
 	h.share.setWaits("bazaar", waits)

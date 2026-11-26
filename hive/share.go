@@ -258,6 +258,16 @@ func (s *shareState) begin(kind string) bool {
 	return !time.Now().Before(c.PauseUntil)
 }
 
+// pausedUntil: Ende der Pause eines Kanals (Nullzeit, wenn er nicht pausiert).
+func (s *shareState) pausedUntil(kind string) time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c := s.channel(kind); time.Now().Before(c.PauseUntil) {
+		return c.PauseUntil
+	}
+	return time.Time{}
+}
+
 // pauseFor: Wartezeit nach einer Antwort (Schlüssel abgelehnt, Kontingent, Störung).
 func pauseFor(code int) time.Duration {
 	switch {
@@ -563,6 +573,19 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 		if _, _, done := h.st.lookupGet(subj, source, 0); done {
 			continue
 		}
+		// Erst prüfen, ob die Adresse überhaupt gemeldet würde; sonst stand sie als „wartet“ da und
+		// fiel nach der Wartezeit still heraus (Live-Check 0.9.6).
+		fetched, fr := false, sampleFetchResult{}
+		if v, _, ok := h.st.lookupGet(subj, "sample_fetch", 24*time.Hour); ok {
+			json.Unmarshal([]byte(v), &fr)
+			fetched = true
+		}
+		// Audit 4: Geholt allein heißt nicht Schadsoftware. Vorher genügte jede Antwort ohne
+		// HTML (JSON, PDF, die eigene Docker-API über den Router), und die Adresse eines Dritten
+		// stand bei URLhaus als malware_download.
+		if cfg.VerifiedOnly && (!fetched || fr.Status != "ok" || !fr.Malware) {
+			continue
+		}
 		if until := f.Last.Add(delay); time.Now().Before(until) {
 			waits = append(waits, reportWait{Subject: f.URL, Until: until, Detail: waitText(until)})
 			continue
@@ -571,20 +594,8 @@ func (h *Hive) urlhausSubmit(ctx context.Context, x Extras, finds []urlFinding) 
 		if svc := cleanTag(f.Service); svc != "" {
 			tags = append(tags, svc)
 		}
-		if v, _, ok := h.st.lookupGet(subj, "sample_fetch", 24*time.Hour); ok {
-			var r sampleFetchResult
-			json.Unmarshal([]byte(v), &r)
-			// Audit 4: Geholt allein heißt nicht Schadsoftware. Vorher genügte jede Antwort ohne
-			// HTML (JSON, PDF, die eigene Docker-API über den Router), und die Adresse eines Dritten
-			// stand bei URLhaus als malware_download.
-			if (r.Status != "ok" || !r.Malware) && cfg.VerifiedOnly {
-				continue
-			}
-			if r.FileTag != "" {
-				tags = append(tags, r.FileTag)
-			}
-		} else if cfg.VerifiedOnly {
-			continue
+		if fetched && fr.FileTag != "" {
+			tags = append(tags, fr.FileTag)
 		}
 		batch = append(batch, item{URL: f.URL, Threat: "malware_download", Tags: tags})
 		subjects = append(subjects, subj)

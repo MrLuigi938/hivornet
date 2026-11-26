@@ -32,9 +32,16 @@ export const REGIONS = {
 //   countries: Verbindungen je Land [{key, n}] (sonst aus den Orten summiert)
 //   home:      { lat, lon, label } des Honeypots; attack() zieht eine Linie dorthin
 //   mode:      "beides" (Länder eingefärbt und Orte), "laender" oder "orte"
+//   arcs:      Linien der Angreifer zum Honeypot (track/seedActive):
+//              "aktiv" (Standard) wandernde Striche, solange der Angreifer etwas tut (10 Min);
+//              "spur"  jede neue Verbindung zeichnet einen Bogen, der einige Minuten hell bleibt
+//                      und langsam zu einem ruhigen Bogen verblasst; Angreifer der letzten
+//                      15 Minuten bleiben als ruhige Bögen stehen. Höchstens 60 Bögen.
+//   arcColor:  (ip) => Farbe eines Bogens (z. B. nach Stufe), sonst var(--attack); recolor(ip) färbt nach
 // Zoom mit dem Mausrad, Verschieben durch Ziehen, Doppelklick zeigt die ganze Welt.
 // Punkte behalten beim Zoomen ihre Größe auf dem Bildschirm.
-export function worldMap(points, { home = null, large = false, countries = null, mode = "beides", controls = true } = {}) {
+export function worldMap(points, { home = null, large = false, countries = null, mode = "beides", controls = true, arcs = "aktiv", arcColor = null } = {}) {
+  const spur = arcs === "spur";
   let vb = [...REGIONS.Welt];
   let counts = new Map(), pts = [], max = 1, pmax = 1;
   const k = () => vb[2] / 360;
@@ -107,7 +114,7 @@ export function worldMap(points, { home = null, large = false, countries = null,
     drawDots();
     drawHome();
     for (const l of lines.values()) {
-      dashStyle(l.path);
+      if (spur) l.path.style.strokeWidth = 0.55 * k(); else dashStyle(l.path);
       l.glow.style.strokeWidth = 2.2 * k();
       l.dot.setAttribute("r", 1.1 * k());
     }
@@ -215,29 +222,61 @@ export function worldMap(points, { home = null, large = false, countries = null,
     l.g.classList.add("ending");
     setTimeout(() => l.g.remove(), 900);
   };
-  // Linie bleibt, bis der Angreifer 10 Minuten lang nichts mehr getan hat.
-  const LINE_MS = 10 * 60e3;
+  // Linie bleibt, bis der Angreifer 10 Minuten (Spur: 15 Minuten) lang nichts mehr getan hat.
+  const LINE_MS = (spur ? 15 : 10) * 60e3;
+  // Spur: frischer Bogen ist hell und verblasst über TRAIL_MS zu CALM; in den letzten zwei
+  // Minuten vor dem Ende geht er ganz aus. Die Helligkeit setzt der Sweep alle 3 s (CSS blendet über).
+  const TRAIL_MS = 4 * 60e3, CALM = 0.3, MAX_LINES = 60, FADE_MS = 2 * 60e3;
+  const brightness = (l, now) => {
+    const age = now - l.fresh, rest = LINE_MS - (now - l.last);
+    const o = age < TRAIL_MS ? 1 - (1 - CALM) * (age / TRAIL_MS) : CALM;
+    return rest < FADE_MS ? o * Math.max(0, rest / FADE_MS) : o;
+  };
+  const shade = (l, now = Date.now()) => { if (spur) l.g.style.opacity = brightness(l, now).toFixed(3); };
+  const paintLine = (l, ip) => {
+    const c = arcColor ? arcColor(ip) : null;
+    if (!c) return;
+    l.glow.style.stroke = c;
+    l.path.style.stroke = c;
+    l.dot.style.fill = c;
+  };
+  // Spur: Bogen vom Ursprung zum Honeypot neu zeichnen (nicht öfter als alle 30 s je Angreifer)
+  const redraw = (l) => {
+    if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    l.g.classList.remove("draw");
+    void l.g.getBoundingClientRect();
+    l.g.classList.add("draw");
+  };
   const sweep = setInterval(() => {
     if (!svg.isConnected) { clearInterval(sweep); return; }
     const now = Date.now();
-    for (const [ip, l] of lines) if (now - l.last > LINE_MS) dropLine(ip);
-  }, 5000);
-  function addLine(ip, lat, lon, country, city, last) {
+    for (const [ip, l] of lines) if (now - l.last > LINE_MS) dropLine(ip); else shade(l, now);
+  }, spur ? 3000 : 5000);
+  function addLine(ip, lat, lon, country, city, last, fresh = last) {
     if (!home || !(home.lat || home.lon)) return;
     const x1 = lon + 180, y1 = 90 - lat, x2 = home.lon + 180, y2 = 90 - home.lat;
     if (Math.hypot(x2 - x1, y2 - y1) < 1) return;
+    if (spur && lines.size >= MAX_LINES) { // Platz machen: am längsten ruhiger Angreifer geht
+      let old = null;
+      for (const [k2, l2] of lines) if (!old || l2.last < lines.get(old).last) old = k2;
+      dropLine(old);
+    }
     const d = arcPath(x1, y1, x2, y2);
     const glow = s("path", { class: "arc-glow", d, style: { strokeWidth: 2.2 * k() } });
-    const path = s("path", { class: "arc-live", d });
-    dashStyle(path);
+    const path = s("path", { class: "arc-live", d, pathLength: spur ? 1 : null });
+    if (spur) path.style.strokeWidth = 0.55 * k(); else dashStyle(path);
     const dot = s("circle", { class: "arc-src", cx: x1, cy: y1, r: 1.1 * k() });
-    const g = s("g", { class: "active-line" }, glow, path, dot);
+    const g = s("g", { class: "active-line" + (spur ? " spur" : "") }, glow, path, dot);
     hoverTip(g, () => [[flag(country), " ", ip], [["Ort", [city, countryName(country)].filter(Boolean).join(", ") || "unbekannt"],
       ["Zuletzt aktiv", new Date(lines.get(ip)?.last || Date.now()).toLocaleTimeString("de-DE")]]]);
     activeG.append(g);
-    lines.set(ip, { g, glow, path, dot, last });
+    const l = { g, glow, path, dot, last, fresh, drawn: 0 };
+    lines.set(ip, l);
+    paintLine(l, ip);
+    shade(l);
+    if (spur && Date.now() - fresh < 5000) { l.drawn = Date.now(); redraw(l); }
   }
-  // Beim Öffnen der Seite: Linien für alle Angriffe der letzten 10 Minuten
+  // Beim Öffnen der Seite: Linien für alle Angriffe der letzten 10 (Spur: 15) Minuten
   function seedActive(attacks) {
     const now = Date.now();
     for (const a of attacks || []) {
@@ -257,8 +296,15 @@ export function worldMap(points, { home = null, large = false, countries = null,
       }
       if (!e.lat && !e.lon) return;
       pulse(e.lat, e.lon, svcColor(e.service));
-      if (l) { l.last = Date.now(); l.g.classList.remove("flash"); void l.g.getBoundingClientRect(); l.g.classList.add("flash"); return; }
-      addLine(e.src_ip, e.lat, e.lon, e.country, e.city, Date.now());
+      const now = Date.now();
+      if (l && spur) {
+        l.last = l.fresh = now;
+        shade(l, now);
+        if (now - l.drawn > 30e3) { l.drawn = now; redraw(l); }
+        return;
+      }
+      if (l) { l.last = now; l.g.classList.remove("flash"); void l.g.getBoundingClientRect(); l.g.classList.add("flash"); return; }
+      addLine(e.src_ip, e.lat, e.lon, e.country, e.city, now);
       return;
     }
     if (l) l.last = Date.now();
@@ -270,6 +316,7 @@ export function worldMap(points, { home = null, large = false, countries = null,
     track,
     seedActive,
     activeCount: () => lines.size,
+    recolor: (ip) => { const l = lines.get(ip); if (l) paintLine(l, ip); },
     zoom: (name) => setView(REGIONS[name], true),
     zoomed: () => vb[2] < 359, // hineingezoomt: Seite nicht automatisch neu aufbauen
     pulse,

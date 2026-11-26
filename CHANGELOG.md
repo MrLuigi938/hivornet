@@ -2,6 +2,36 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [Unveröffentlicht]
+
+### Neu
+- **Themes.** Unter Einstellungen → Darstellung lässt sich je Browser ein Theme wählen, das nicht nur die Farben, sondern auch Navigation und Übersicht ändert. Alle anderen Seiten bleiben funktionsgleich und passen sich an.
+  - **Leitstand:** dunkles Lagezentrum für den Wandmonitor – Icon-Leiste links, Übersicht als Raster ohne Scrollen mit Live-Ticker, Lagestufe in der Kopfzeile, Kiosk-Modus (Taste K).
+  - **Terminal:** Textkonsole in Phosphor-Grün oder Bernstein – Befehlszeile (`/ip`, `/land`, `/stufe`, `/dienst`, `/fund`, `/zeit` …) auf die echten Seiten und Filter, Tasten wie bei htop, Textdiagramme und Live-Log, CRT-Effekt abschaltbar.
+  - **Kacheln:** Übersicht aus Kacheln, die man ziehen, vergrößern und ausblenden kann; ein Klick öffnet die volle Seite; fünf Akzentfarben.
+  - **Taschenformat:** fürs Handy – Tab-Leiste unten, Ampel der letzten 60 Minuten, „Seit deinem letzten Besuch“ als erste Karte, Karte als Vollbild mit Zoom; die übrigen Seiten werden handytauglich.
+- **Bögen auf der Weltkarte:** Neue Angriffe zeichnen einen Bogen von der Herkunft zum eigenen Standort, der einige Minuten hell bleibt und dann verblasst. In Leitstand, Terminal, Kacheln und Taschenformat immer an, im Standard unter Einstellungen → Darstellung → „Karte im Dashboard“.
+- **Einstellungen → Darstellung:** Farbmodus, Ansicht der Seite Angriffe und Theme stehen jetzt hier statt im Benutzermenü. Auch Konten mit Leserecht können den Bereich öffnen.
+- **Programme in der Fallakte lesbar:** Für ELF-Dateien (auch MIPS, ARM, x86) zeigt der Reiter „Inhalt“ eine Übersicht (Prozessor, statisch/dynamisch, Segmente, Packer), lesbare Zeichenketten nach Art (Adressen, Befehle, Pfade, HTTP, Botnetz-Merkmale), mit XOR versteckte Mirai-Texte samt Schlüssel und eine Hex-Ansicht. „Mit KI erklären“ geht auch für Programme; an das Modell gehen nur Übersicht und Zeichenketten, nie die Datei. Rein statisch, die Datei wird nie ausgeführt.
+
+### Geändert
+- **MalwareBazaar:** Die Antwort steht im Prüfprotokoll (gekürzt, ohne Schlüssel), Fehler sind verständlich benannt, hochgeladen wird mit sinnvollem Dateinamen (z. B. `s2.sh`). Nach einem Fehler gibt es bis zu drei Versuche (nach 1 und 4 Stunden); vorher schlägt der Hive nach, ob die Datei schon bekannt ist.
+- **„Aktiv“ einheitlich:** „● läuft gerade“ heißt unter 60 Sekunden, „● aktiv“ unter 15 Minuten; Kopfzeile und Seite Angriffe zeigen dieselbe Zahl.
+- **Analyse → Bekannte Lücken** zählt wie die Tabelle „Exploits nach Produkt“ Angriffe und nennt Probe oder Ausnutzung.
+- **Dashboard:** Prozentvergleiche nur noch, wenn der Zeitraum davor genug Daten hat; sonst „neu“.
+
+### Behoben
+- **KI-Antworten der Shell enthielten ein wörtliches `\n`**, das auch Angreifer über Telnet und SSH zu sehen bekamen. Jetzt entmaskiert, auch für schon zwischengespeicherte Antworten; die Anweisung an das Modell verlangt echte Zeilenumbrüche.
+- **Dashboard bei 7 und 30 Tagen langsam (4–5 s)**, und `/api/system` wartete mit: Top-Listen werden zwischengespeichert und im Hintergrund erneuert, die Brute-Force-Abzüge schrittweise nachgezählt.
+- **Sitzungen ohne „Art“** bei Angriffen mit mehr als 50 Sitzungen; mit Filter fehlten sie ganz.
+- **Erkenntnisse: „Erkunden → Angreifen“ doppelt**, Kennzahl „Arbeitsteilung“ zu hoch.
+- **Funde:** Kennzahlen oben und Anbietertabelle zählten Verschiedenes; Gemeldetes stand zugleich als wartend da. Unter „Eingebettete Ziele“ standen Bruchstücke wie `http://}`; Adressen mit Shell-Variablen erscheinen jetzt als „Vorlage“.
+- **Angreiferseite:** „200. Angriff“ bei mehr als 200 Angriffen; „Befehle“ zählte anders als die Karte; Ports von SSH fehlten.
+- **Datum statt Uhrzeit** auf der Achse „Verlauf und Stufen“ und in Zeitspannen.
+- **„Einzelne Ereignisse“ zeigte eigene LAN-Tests**; jetzt wie „Gebündelt“ ausgeblendet, mit Schalter „Eigene Tests zeigen“.
+- **Einzahl und Mehrzahl** („1 Ereignisse“, „2 Datei“); leere Zugangsdaten erscheinen als „(leer)“.
+- **Raspberry Pi:** Der Timer der Cowrie-Installation meldete jede Stunde „unmet condition“; er schaltet sich nach erfolgreicher Installation ab.
+
 ## [0.9.6-beta] – 2026-11-23
 
 **Update:** Raspberry Pi per Knopf; die Speichergrenzen der Dienste gelten erst nach dem nächsten Neustart des Pi (der Hardware-Monitor sagt das an).

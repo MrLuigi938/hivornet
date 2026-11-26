@@ -1,4 +1,4 @@
-// Einstellungen: fünf Unterseiten (#/settings/<bereich>), jede mit Bereichen, die genau
+// Einstellungen: sechs Unterseiten (#/settings/<bereich>), jede mit Bereichen, die genau
 // das speichern, was in ihnen steht. Knopf und Stand sitzen in der Fußzeile des Bereichs;
 // ungespeicherte Änderungen markieren den Bereich, und beim Verlassen der Seite fragt die UI nach.
 //
@@ -13,6 +13,8 @@ import { svcName } from "./charts.js";
 import { state, header, card, route, MODE_NAME } from "./app.js";
 import { forgetHome } from "./extra.js";
 import { aiStatusReset } from "./ai.js";
+import { layoutPicker } from "./attacks.js";
+import { THEMES, COLOR_MODES, colorMode, themeId, setColorMode, setTheme, skinOptions } from "./themes.js";
 
 const TABS = [
   ["honeypot", "Honeypot", "Welche Dienste der Honeypot anbietet, wie er sich ausweist und wie er Angreifer festhält."],
@@ -20,6 +22,7 @@ const TABS = [
   ["weitergabe", "Weitergabe und Meldungen", "Benachrichtigungen, Meldungen an AbuseIPDB, URLhaus, MalwareBazaar und DShield sowie die Blockliste für die eigene Firewall."],
   ["zugang", "Zugang und Sicherheit", "Konten, weitere Sensoren, eigene Netze und der Zugriff über einen Reverse-Proxy."],
   ["daten", "Daten und Wartung", "Wie lange Rohdaten bleiben, wie groß die Datenbank werden darf, und die verschlüsselte Sicherung."],
+  ["darstellung", "Darstellung", "Farbmodus, Ansicht der Seite Angriffe und Theme. Gilt nur für diesen Browser."],
 ];
 const ADMIN_ONLY = new Set(["auswertung", "weitergabe"]); // brauchen /api/extras (nur Admin)
 
@@ -97,7 +100,7 @@ export async function viewSettings(el, ctx, tab) {
   header("Einstellungen");
   dirtyCards.clear();
   const tabs = TABS.filter(([k]) => isAdmin() || !ADMIN_ONLY.has(k));
-  if (!tabs.some(([k]) => k === tab)) tab = tabs[0][0];
+  if (!tabs.some(([k]) => k === tab)) tab = isAdmin() ? tabs[0][0] : "darstellung";
   const [, , lead] = TABS.find(([k]) => k === tab);
 
   // Rückfrage beim Verlassen mit ungespeicherten Änderungen (Unterseite, andere Seite, Neuladen)
@@ -112,11 +115,46 @@ export async function viewSettings(el, ctx, tab) {
   const body = h("div", { class: "stack" }, h("p", { class: "muted" }, "Lade …"));
   mount(el, h("div", { class: "settings" }, nav,
     h("p", { class: "lead" }, lead),
-    isAdmin() ? null : h("div", { class: "msg" }, "Nur Lesezugriff: Ändern kann nur ein Admin. Dein eigenes Passwort kannst du unter „Zugang und Sicherheit“ ändern."),
+    isAdmin() || tab === "darstellung" ? null : h("div", { class: "msg" }, "Nur Lesezugriff: Ändern kann nur ein Admin. Dein eigenes Passwort kannst du unter „Zugang und Sicherheit“ ändern."),
     body));
   nav.querySelector("a.on")?.scrollIntoView({ block: "nearest", inline: "center" }); // schmaler Bildschirm: aktive Unterseite sichtbar
-  const build = { honeypot: tabHoneypot, auswertung: tabAuswertung, weitergabe: tabWeitergabe, zugang: tabZugang, daten: tabDaten }[tab];
+  const build = { honeypot: tabHoneypot, auswertung: tabAuswertung, weitergabe: tabWeitergabe, zugang: tabZugang, daten: tabDaten, darstellung: tabDarstellung }[tab];
   mount(body, await build());
+}
+
+// ---------- Darstellung ----------
+// Nur im Browser gemerkt (localStorage), kein Serveraufruf; deshalb auch für die Leserolle.
+
+function tabDarstellung() {
+  const markiere = (box, wert) => box.querySelectorAll("button").forEach((b) => {
+    const on = b.dataset.v === wert;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-checked", String(on));
+  });
+  const modus = h("div", { class: "seg", role: "radiogroup", "aria-label": "Farbmodus" },
+    COLOR_MODES.map(([v, l]) => h("button", { class: v === colorMode() ? "on" : null, role: "radio", "aria-checked": String(v === colorMode()), "data-v": v,
+      onclick: () => { setColorMode(v); markiere(modus, v); } }, l)));
+  const themes = h("div", { class: "theme-list", role: "radiogroup", "aria-label": "Theme" },
+    THEMES.map((t) => h("button", { class: "th" + (t.id === themeId() ? " on" : ""), role: "radio", "aria-checked": String(t.id === themeId()), "data-v": t.id,
+      onclick: () => { setTheme(t.id); markiere(themes, t.id); themes.querySelectorAll(".th").forEach((b) => b.classList.toggle("on", b.dataset.v === t.id)); } },
+      t.name, h("span", null, t.beschreibung))));
+  const fest = THEMES.find((t) => t.id === themeId())?.farbmodus;
+  if (fest) modus.querySelectorAll("button").forEach((b) => { b.disabled = true; });
+  return [
+    card("Farbmodus", h("div", { class: "card-body" }, modus,
+      h("div", { class: "help" }, fest ? "Das gewählte Theme gibt es nur dunkel; dein Farbmodus gilt wieder beim Standard." : "„Wie das System“ folgt der Einstellung deines Geräts."))),
+    card("Karte im Dashboard", h("div", { class: "card-body" },
+      h("label", { class: "inline" }, h("input", { type: "checkbox", checked: store("mapSpur") === "1", onchange: (e) => store("mapSpur", e.target.checked ? "1" : "0") }),
+        "Angriffslinien als Spur: jede neue Verbindung zieht einen Bogen zum Honeypot, der einige Minuten sichtbar bleibt und langsam verblasst"),
+      h("div", { class: "help" }, "Aus: Linien nur, solange ein Angreifer gerade aktiv ist (wandernde Striche). Im Theme Leitstand ist die Spur immer an."))),
+    card("Seite Angriffe", h("div", { class: "card-body" },
+      layoutPicker(null, { gross: true, erklaerung: {
+        lagebild: "Verlauf mit Stufen, kompakte Zeilen zum Aufklappen, gleiche Abläufe gebündelt und Feldstatistik zum Filtern.",
+        klassisch: "Große Karten je Angriff, wie bis Version 0.9.4.",
+      } }))),
+    card("Theme", h("div", { class: "card-body" }, themes, skinOptions(),
+      h("div", { class: "help" }, "Ein Theme bestimmt Farben und Anordnung (etwa die Navigation und die Übersicht) und wirkt sofort, nur in diesem Browser. Weitere folgen."))),
+  ];
 }
 
 // ---------- Honeypot ----------

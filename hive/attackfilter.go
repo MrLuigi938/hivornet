@@ -66,15 +66,38 @@ func (h *Hive) matchingAttacks(ctx context.Context, r *http.Request, f attackFil
 	return out, nil
 }
 
-// sessionAttacks: Angriff je Sitzungs-ID (Stufe, Art und Befehle für die Sitzungsliste).
-func sessionAttacks(list []*Attack) map[string]*Attack {
-	m := map[string]*Attack{}
+// sessAttackIndex ordnet Sitzungen ihrem Angriff zu (Stufe, Art und Befehle für die Sitzungsliste).
+// Ein Angriff merkt sich höchstens 50 Sitzungs-IDs (attacks.go); weitere Sitzungen findet die
+// Zuordnung über IP und Zeitspanne des Angriffs, ohne alle IDs im Speicher zu halten.
+type sessAttackIndex struct {
+	bySess map[string]*Attack
+	byIP   map[string][]*Attack
+}
+
+func sessionAttacks(list []*Attack) sessAttackIndex {
+	x := sessAttackIndex{bySess: map[string]*Attack{}, byIP: map[string][]*Attack{}}
 	for _, a := range list {
 		for _, s := range a.Sessions {
-			m[s] = a
+			x.bySess[s] = a
+		}
+		x.byIP[a.IP] = append(x.byIP[a.IP], a)
+	}
+	return x
+}
+
+// find: Angriff der Sitzung; sonst der Angriff derselben IP, in dessen Zeitspanne die Sitzung
+// beginnt (bei Überlappung der mit dem spätesten Beginn).
+func (x sessAttackIndex) find(sess, ip string, start int64) *Attack {
+	if a := x.bySess[sess]; a != nil {
+		return a
+	}
+	var best *Attack
+	for _, a := range x.byIP[ip] {
+		if start >= a.First && start <= a.Last && (best == nil || a.First > best.First) {
+			best = a
 		}
 	}
-	return m
+	return best
 }
 
 // ipWindows: je IP die Zeitspannen ihrer passenden Angriffe (Ereignisfilter).

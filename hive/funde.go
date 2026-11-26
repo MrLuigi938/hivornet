@@ -17,8 +17,10 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -284,9 +286,61 @@ func (h *Hive) fillFile(st *fundeState, f *fundFile, analyze bool) *SampleInfo {
 	for _, p := range si.Patterns {
 		f.Patterns = append(f.Patterns, nonEmptyFirst(p.Label, p.Key))
 	}
-	f.IOCs = len(si.URLs) + len(si.IPs) + len(si.Wallets) + len(si.Pools)
+	urls, _ := embeddedURLs(si.URLs)
+	f.IOCs = len(urls) + len(si.IPs) + len(si.Wallets) + len(si.Pools)
 	f.Malware = f.Malware || bazaarEligible(si)
 	return &si
+}
+
+// embeddedURLs trennt die aus einer Datei gelesenen Adressen (Fallakte → „Eingebettete Ziele“)
+// in echte Ziele und Vorlagen. Live-Check 0.9.6: Aus Skripten kamen `http://}`, `http://*` und
+// `http://$S_HOST}` mit „In Angriffen suchen“. Jetzt gilt: Steht im Host oder Pfad eine
+// Shell-Variable ($X, ${X}) oder ein Befehlsaufruf, ist es eine Vorlage (nur angezeigt); ohne
+// gültigen Host (Name mit Punkt oder IP-Adresse) fällt die Adresse ganz weg.
+func embeddedURLs(list []string) (real, templates []string) {
+	for _, raw := range list {
+		_, rest, ok := strings.Cut(raw, "://")
+		if !ok {
+			continue
+		}
+		host := rest
+		if i := strings.IndexAny(host, "/?#"); i >= 0 {
+			host = host[:i]
+		}
+		if i := strings.LastIndexByte(host, '@'); i >= 0 {
+			host = host[i+1:]
+		}
+		if shellVarRe.MatchString(rest) || strings.ContainsAny(rest, "`") || strings.Contains(rest, "$(") {
+			if shellVarRe.MatchString(host) || embeddedHostOK(host) {
+				templates = append(templates, raw)
+			}
+			continue
+		}
+		if embeddedHostOK(host) {
+			real = append(real, raw)
+		}
+	}
+	return real, templates
+}
+
+// shellVarRe: Shell-Variable ($NAME, ${NAME}, $1).
+var shellVarRe = regexp.MustCompile(`\$(?:\{[^}]*\}?|[A-Za-z_][A-Za-z0-9_]*|[0-9])`)
+
+var embeddedNameRe = regexp.MustCompile(`^(?i)[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,62}[a-z0-9])?)*\.[a-z][a-z0-9-]{1,62}$`)
+
+// embeddedHostOK: Host mit optionalem Port ist eine IP-Adresse oder ein Name mit Punkt.
+func embeddedHostOK(host string) bool {
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		if !isDigits(p) {
+			return false
+		}
+		host = h
+	}
+	host = strings.Trim(host, "[]")
+	if net.ParseIP(host) != nil {
+		return true
+	}
+	return embeddedNameRe.MatchString(host)
 }
 
 // rankState: Fehler und Wartendes zuerst zeigen.
@@ -407,10 +461,7 @@ func (h *Hive) funde(w http.ResponseWriter, r *http.Request) {
 	ai := []fundAI{}
 	if evs, err := h.loadEvents(ctx, "type = 'ai_reply' AND ts >= ?", []any{since.UnixMilli()}, "DESC", 300); err == nil {
 		for _, e := range evs {
-			x := aiReplyFrom(e)
-			if x.Kind == "web" { // ältere Einträge: doppelt maskierte Zeilenumbrüche lesbar machen
-				x.Output = unescapeBody(x.Output)
-			}
+			x := aiReplyFrom(e) // entmaskiert ältere Einträge
 			ai = append(ai, fundAI{T: x.T, IP: e.SrcIP, Session: e.Session, Kind: x.Kind, Input: x.Input, Output: clip(x.Output, 800), Cached: x.Cached})
 		}
 	}
@@ -426,7 +477,7 @@ func (h *Hive) funde(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, map[string]any{
 		"range_ms": rng.Milliseconds(), "funnel": funnel, "skip_reasons": why,
-		"providers": h.fundeProviders(since), "urls": urls, "skipped": skipped, "fetch_skips": fetchSkips,
+		"providers": unifyProviders(h.fundeProviders(since), funnel), "urls": urls, "skipped": skipped, "fetch_skips": fetchSkips,
 		"files": files, "attackers": atts, "infra": infraList, "ai": ai,
 		"delay_min": h.Extras().ReportDelayMin,
 	})
@@ -444,6 +495,36 @@ type fundProvider struct {
 	Quota    string         `json:"quota,omitempty"`
 	LastRun  *time.Time     `json:"last_run,omitempty"`
 	Disabled string         `json:"disabled,omitempty"` // warum aus
+}
+
+// unifyProviders: URLhaus und „Dateien sammeln“ zählen in der Anbietertabelle dasselbe wie der
+// Trichter darüber: Nachlade-Adressen, die im Zeitraum benutzt wurden, nach ihrem heutigen Stand
+// (eine Adresse genau einmal; gemeldet geht vor wartet). Live-Check 0.9.6: Oben stand „an URLhaus
+// 4 · 3 wartet“, die Tabelle zählte Protokolleinträge des Zeitraums (3) und die rohe Warteliste
+// (3, ohne Abgleich mit dem Gemeldeten); „geholt 4“ gegen 3 Erfolge im Protokoll, weil früher
+// geholte, wieder benutzte Adressen nur oben zählten. Die Tagesbalken bleiben beim Protokoll.
+func unifyProviders(ps []fundProvider, funnel map[string]int) []fundProvider {
+	for i := range ps {
+		p := &ps[i]
+		switch p.Kind {
+		case "urlhaus":
+			p.Counts = map[string]int{}
+			for _, s := range []string{"ok", "error", "dry"} {
+				if n := funnel["urlhaus_"+s]; n > 0 {
+					p.Counts[s] = n
+				}
+			}
+			p.Waiting = funnel["urlhaus_wait"]
+		case "sample":
+			p.Counts["ok"], p.Counts["error"] = funnel["fetched"], funnel["fetch_error"]
+			for _, s := range []string{"ok", "error"} {
+				if p.Counts[s] == 0 {
+					delete(p.Counts, s)
+				}
+			}
+		}
+	}
+	return ps
 }
 
 // fundeProviders: Stand je Anbieter aus den Protokollen (share.go, abusereport.go).
@@ -497,8 +578,13 @@ func (h *Hive) fundeProviders(since time.Time) []fundProvider {
 		}
 		out = append(out, p)
 	}
-	p := fundProvider{Kind: "abuseipdb", Counts: map[string]int{}, Days: make([]int, 7), Waiting: len(h.share.waitList("abuseipdb")),
+	p := fundProvider{Kind: "abuseipdb", Counts: map[string]int{}, Days: make([]int, 7),
 		Enabled: x.AbuseReport.Enabled && x.AbuseIPDBKey != "", DryRun: x.AbuseReport.DryRun}
+	for _, wt := range h.share.waitList("abuseipdb") { // schon Gemeldetes wartet nicht mehr
+		if _, _, done := h.st.lookupGet("ip:"+wt.Subject, "abuse_report", 0); !done {
+			p.Waiting++
+		}
+	}
 	if x.AbuseIPDBKey == "" {
 		p.Disabled = "kein AbuseIPDB-Schlüssel"
 	}
@@ -585,7 +671,12 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 	si := h.fillFile(d.st, f, true)
 	out := map[string]any{"file": f}
 	if si != nil {
-		out["info"] = si
+		// Eingebettete Ziele: echte Hosts und Vorlagen mit Shell-Variablen getrennt (embeddedURLs);
+		// die Nachlade-Stufen unten zeigen weiter alle Adressen so, wie sie in der Datei stehen.
+		view := *si
+		var tmpl []string
+		view.URLs, tmpl = embeddedURLs(si.URLs)
+		out["info"], out["url_templates"] = &view, tmpl
 		if (si.Type == "Skript" || si.Type == "Text") && si.Size <= fundeScriptMax {
 			if b, _, err := h.readSample(sha, fundeScriptMax); err == nil {
 				out["script"] = scriptLines(b)
@@ -701,6 +792,13 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 	h.abuse.mu.Unlock()
 	for _, k := range []string{"urlhaus", "abuseipdb"} {
 		for _, wt := range h.share.waitList(k) {
+			subj, src := urlSubject(wt.Subject), "urlhaus_report"
+			if k == "abuseipdb" {
+				subj, src = "ip:"+wt.Subject, "abuse_report"
+			}
+			if _, _, done := h.st.lookupGet(subj, src, 0); done { // erledigt: wartet nicht zugleich
+				continue
+			}
 			if contains(f.Sources, wt.Subject) || contains(f.IPs, wt.Subject) {
 				audit = append(audit, auditEntry{Time: time.Now(), Kind: k, Status: "wait", Subject: wt.Subject, Detail: wt.Detail})
 			}
@@ -709,7 +807,7 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 	if v, t, ok := h.st.lookupGet("hash:"+sha, "bazaar_wait", 0); ok {
 		var bw bazaarWait
 		json.Unmarshal([]byte(v), &bw)
-		until := time.UnixMilli(bw.Fetched).Add(h.Extras().reportDelay())
+		until := bw.until(h.Extras().reportDelay())
 		audit = append(audit, auditEntry{Time: t, Kind: "bazaar", Status: "wait", Subject: sha, Detail: waitText(until)})
 	}
 	sort.Slice(audit, func(i, j int) bool { return audit[i].Time.After(audit[j].Time) })
@@ -739,9 +837,6 @@ func (h *Hive) fundeFile(w http.ResponseWriter, r *http.Request) {
 		if evs, err := h.loadEvents(ctx, "type = 'ai_reply' AND ts >= ? AND src_ip IN ("+strings.Join(ph, ",")+")", args, "DESC", 100); err == nil {
 			for _, e := range evs {
 				x := aiReplyFrom(e)
-				if x.Kind == "web" {
-					x.Output = unescapeBody(x.Output)
-				}
 				ai = append(ai, fundAI{T: x.T, IP: e.SrcIP, Session: e.Session, Kind: x.Kind, Input: x.Input, Output: clip(x.Output, 1200), Cached: x.Cached})
 			}
 		}

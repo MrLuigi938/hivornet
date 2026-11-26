@@ -356,8 +356,15 @@ func TestAIPlusExplain(t *testing.T) {
 	if rec := ask(`{"hash":"` + script + `"}`); rec.Code != 200 || !strings.Contains(f.last[1]["content"], "cd /var/run") {
 		t.Errorf("Skript: %d %s", rec.Code, rec.Body)
 	}
+	// Ein Programm ohne lesbare Zeichenketten lässt sich nicht erklären …
 	if rec := ask(`{"hash":"` + put([]byte(mk("\x7fEL", "F\x01\x01\x00\x00binär"))) + `"}`); rec.Code != 400 {
 		t.Errorf("Programm: %d %s", rec.Code, rec.Body)
+	}
+	// … eines mit Zeichenketten schon: an das Modell gehen nur Übersicht und Zeichenketten.
+	prog := buildTestELF(t, testELFSpec{machine: 40, xorKey: 0x22, xorStrs: testMiraiTable})
+	if rec := ask(`{"hash":"` + put(prog) + `"}`); rec.Code != 200 || !strings.Contains(f.last[1]["content"], "/dev/watchdog") ||
+		strings.Contains(f.last[1]["content"], "\x7fELF") || !strings.Contains(f.last[0]["content"], "Programm") {
+		t.Errorf("Programm mit Zeichenketten: %d %s", rec.Code, rec.Body)
 	}
 	if rec := ask(`{"hash":"../../etc/passwd"}`); rec.Code != 400 {
 		t.Errorf("Pfad statt Hash: %d", rec.Code)

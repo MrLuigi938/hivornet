@@ -1,0 +1,325 @@
+/* Theme „Kacheln“ (skins/kacheln.js). Wird nur geladen, solange das Theme aktiv ist.
+   Alle Regeln hängen an html[data-skin="kacheln"]. Weiche, abgerundete Flächen; die Akzentfarbe
+   hängt an einem Farbwinkel (--h, gewählt in der Ablage des Anordnen-Modus: data-kc-akzent).
+   Hell und dunkel folgen dem Farbmodus des Hive (data-theme: dark, light, system). */
+
+/* ---------- Farben: dunkel (Standard des Hive) ---------- */
+html[data-skin="kacheln"] {
+  --h: 285;
+  color-scheme: dark;
+  --page: oklch(.17 .022 var(--h)); --surface: oklch(.225 .024 var(--h)); --surface-2: oklch(.265 .026 var(--h)); --surface-3: oklch(.31 .03 var(--h));
+  --text: oklch(.96 .01 var(--h)); --text-2: oklch(.8 .02 var(--h)); --muted: oklch(.72 .024 var(--h));
+  --grid: oklch(.3 .025 var(--h)); --axis: oklch(.36 .03 var(--h)); --border: oklch(.3 .025 var(--h)); --line2: oklch(.36 .03 var(--h));
+  --accent: oklch(.74 .17 var(--h)); --on-accent: oklch(.2 .05 var(--h)); --kc-soft: oklch(.31 .07 var(--h)); --kc-accent-text: oklch(.84 .12 var(--h));
+  --kc-hero-a: oklch(.46 .2 var(--h)); --kc-hero-b: oklch(.36 .17 calc(var(--h) + 45));
+  --sev0: oklch(.62 .02 var(--h)); --sev1: oklch(.7 .13 235); --sev2: oklch(.82 .14 85); --sev3: oklch(.74 .16 48); --sev4: oklch(.68 .2 20);
+  --s1: oklch(.72 .15 265); --s2: oklch(.76 .15 40); --s3: oklch(.76 .13 170); --s4: oklch(.84 .13 90); --s5: oklch(.74 .17 340); --s6: oklch(.76 .15 135);
+  --s7: oklch(.72 .14 300); --s8: oklch(.7 .18 25); --other: oklch(.5 .02 var(--h));
+  --good: oklch(.76 .16 155); --good-text: oklch(.8 .14 155); --warning: oklch(.82 .14 85); --critical: oklch(.72 .19 22);
+  --live: oklch(.78 .16 48); --attack: oklch(.7 .2 20);
+  --land: oklch(.3 .026 var(--h)); --heat: var(--accent); --dot: oklch(.78 .16 25); --map-bg: oklch(.265 .026 var(--h));
+  --code-bg: oklch(.2 .022 var(--h));
+  --shadow: 0 1px 2px #0006, 0 14px 30px -14px #000b;
+  --radius: 20px; --kc-radius: 24px; --kc-gap: 16px; --kc-row: 86px;
+  --kc-font: ui-rounded, "Segoe UI Variable Display", "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+  font-family: var(--kc-font);
+}
+/* ---------- Farben: hell ---------- */
+html[data-skin="kacheln"][data-theme="light"] {
+  color-scheme: light;
+  --page: oklch(.955 .014 var(--h)); --surface: #fff; --surface-2: oklch(.962 .012 var(--h)); --surface-3: oklch(.93 .018 var(--h));
+  --text: oklch(.22 .035 var(--h)); --text-2: oklch(.4 .03 var(--h)); --muted: oklch(.5 .028 var(--h));
+  --grid: oklch(.92 .012 var(--h)); --axis: oklch(.86 .015 var(--h)); --border: oklch(.9 .012 var(--h)); --line2: oklch(.86 .015 var(--h));
+  --accent: oklch(.52 .22 var(--h)); --on-accent: #fff; --kc-soft: oklch(.94 .035 var(--h)); --kc-accent-text: oklch(.45 .2 var(--h));
+  --kc-hero-a: oklch(.52 .22 var(--h)); --kc-hero-b: oklch(.46 .21 calc(var(--h) + 45));
+  --sev0: oklch(.66 .02 var(--h)); --sev1: oklch(.62 .14 235); --sev2: oklch(.74 .15 85); --sev3: oklch(.68 .18 48); --sev4: oklch(.6 .22 20);
+  --s1: oklch(.6 .17 265); --s2: oklch(.68 .17 40); --s3: oklch(.66 .14 170); --s4: oklch(.76 .14 90); --s5: oklch(.64 .19 340); --s6: oklch(.66 .16 135);
+  --s7: oklch(.6 .16 300); --s8: oklch(.6 .2 25); --other: oklch(.72 .02 var(--h));
+  --good: oklch(.6 .16 155); --good-text: oklch(.45 .13 155); --warning: oklch(.7 .15 75); --critical: oklch(.55 .22 22);
+  --live: oklch(.65 .18 48); --attack: oklch(.58 .22 20);
+  --land: oklch(.9 .016 var(--h)); --dot: oklch(.62 .2 20); --map-bg: oklch(.962 .012 var(--h));
+  --code-bg: oklch(.962 .012 var(--h));
+  --shadow: 0 1px 2px oklch(.3 .05 var(--h) / .06), 0 10px 28px -12px oklch(.3 .08 var(--h) / .22);
+}
+@media (prefers-color-scheme: light) {
+  html[data-skin="kacheln"][data-theme="system"] {
+    color-scheme: light;
+    --page: oklch(.955 .014 var(--h)); --surface: #fff; --surface-2: oklch(.962 .012 var(--h)); --surface-3: oklch(.93 .018 var(--h));
+    --text: oklch(.22 .035 var(--h)); --text-2: oklch(.4 .03 var(--h)); --muted: oklch(.5 .028 var(--h));
+    --grid: oklch(.92 .012 var(--h)); --axis: oklch(.86 .015 var(--h)); --border: oklch(.9 .012 var(--h)); --line2: oklch(.86 .015 var(--h));
+    --accent: oklch(.52 .22 var(--h)); --on-accent: #fff; --kc-soft: oklch(.94 .035 var(--h)); --kc-accent-text: oklch(.45 .2 var(--h));
+    --kc-hero-a: oklch(.52 .22 var(--h)); --kc-hero-b: oklch(.46 .21 calc(var(--h) + 45));
+    --sev0: oklch(.66 .02 var(--h)); --sev1: oklch(.62 .14 235); --sev2: oklch(.74 .15 85); --sev3: oklch(.68 .18 48); --sev4: oklch(.6 .22 20);
+    --s1: oklch(.6 .17 265); --s2: oklch(.68 .17 40); --s3: oklch(.66 .14 170); --s4: oklch(.76 .14 90); --s5: oklch(.64 .19 340); --s6: oklch(.66 .16 135);
+    --s7: oklch(.6 .16 300); --s8: oklch(.6 .2 25); --other: oklch(.72 .02 var(--h));
+    --good: oklch(.6 .16 155); --good-text: oklch(.45 .13 155); --warning: oklch(.7 .15 75); --critical: oklch(.55 .22 22);
+    --live: oklch(.65 .18 48); --attack: oklch(.58 .22 20);
+    --land: oklch(.9 .016 var(--h)); --dot: oklch(.62 .2 20); --map-bg: oklch(.962 .012 var(--h));
+    --code-bg: oklch(.962 .012 var(--h));
+    --shadow: 0 1px 2px oklch(.3 .05 var(--h) / .06), 0 10px 28px -12px oklch(.3 .08 var(--h) / .22);
+  }
+}
+/* Akzentfarbe (fünf Farbwinkel wie im Entwurf) */
+html[data-skin="kacheln"][data-kc-akzent="18"] { --h: 18; }
+html[data-skin="kacheln"][data-kc-akzent="160"] { --h: 160; }
+html[data-skin="kacheln"][data-kc-akzent="235"] { --h: 235; }
+html[data-skin="kacheln"][data-kc-akzent="340"] { --h: 340; }
+
+html[data-skin="kacheln"] body { font-size: 14.5px; -webkit-font-smoothing: antialiased; transition: background-color .3s; }
+html[data-skin="kacheln"] a { color: var(--kc-accent-text); }
+html[data-skin="kacheln"] :focus-visible { outline: 3px solid color-mix(in oklab, var(--accent) 70%, transparent); outline-offset: 2px; border-radius: 10px; }
+html[data-skin="kacheln"] .kc-ic { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+html[data-skin="kacheln"] .kc-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* ---------- Rahmen: schwebende Pillen-Leiste ---------- */
+html[data-skin="kacheln"] .kc-dock { position: sticky; top: 12px; z-index: 40; padding: 0 12px; margin-top: 12px; }
+html[data-skin="kacheln"] .kc-bar { max-width: 1400px; margin: 0 auto; height: 58px; display: flex; align-items: center; gap: 6px; padding: 0 10px 0 14px; border-radius: 99px;
+  background: color-mix(in oklab, var(--surface) 84%, transparent); backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--shadow), 0 0 0 1px var(--border); }
+html[data-skin="kacheln"] .kc-bar .brand { display: flex; align-items: center; gap: 9px; font-weight: 800; letter-spacing: -.01em; font-size: 16px; color: var(--text); margin-right: 8px; white-space: nowrap; text-decoration: none; }
+html[data-skin="kacheln"] .kc-bar .brand img { width: 30px; height: 30px; padding: 4px; border-radius: 10px; background: linear-gradient(135deg, var(--kc-hero-a), var(--kc-hero-b)); }
+html[data-skin="kacheln"] .kc-pills { display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; min-width: 0; }
+html[data-skin="kacheln"] .kc-pills::-webkit-scrollbar { display: none; }
+html[data-skin="kacheln"] .kc-pill { padding: 8px 15px; border-radius: 99px; color: var(--text-2); font-weight: 600; font-size: 14px; white-space: nowrap; transition: background .15s, color .15s; }
+html[data-skin="kacheln"] .kc-pill:hover { background: var(--surface-2); color: var(--text); text-decoration: none; }
+html[data-skin="kacheln"] .kc-pill.on { background: var(--accent); color: var(--on-accent); }
+html[data-skin="kacheln"] .kc-sp { flex: 1; }
+html[data-skin="kacheln"] .kc-bar .livepill { border: 0; border-radius: 99px; padding: 7px 13px; background: var(--surface-2); font-weight: 600; white-space: nowrap; }
+html[data-skin="kacheln"] .kc-ib { width: 38px; height: 38px; border-radius: 50%; display: grid; place-items: center; color: var(--text-2); background: var(--surface-2); border: 0; cursor: pointer; flex: none; padding: 0; }
+html[data-skin="kacheln"] .kc-ib:hover { background: var(--surface-3); color: var(--text); }
+html[data-skin="kacheln"] .usermenu > button { border: 0; border-radius: 99px; background: var(--surface-2); padding: 4px 12px 4px 4px; font-weight: 600; }
+html[data-skin="kacheln"] .usermenu .avatar { width: 30px; height: 30px; background: var(--kc-soft); color: var(--kc-accent-text); font-weight: 800; }
+html[data-skin="kacheln"] .usermenu .menu { border-radius: 18px; border-color: var(--border); box-shadow: var(--shadow); padding: 6px; }
+html[data-skin="kacheln"] .usermenu .menu a, html[data-skin="kacheln"] .usermenu .menu button.item { border-radius: 12px; }
+
+html[data-skin="kacheln"] .kc-main { max-width: 1400px; margin: 0 auto; padding: 22px 12px 60px; min-width: 0; }
+html[data-skin="kacheln"] .kc-view { min-width: 0; }
+
+/* Kopf jeder Seite */
+html[data-skin="kacheln"] .kc-head { margin: 6px 4px 18px; gap: 10px 12px; }
+html[data-skin="kacheln"] .kc-head h1 { font-size: clamp(24px, 3.2vw, 32px); letter-spacing: -.025em; font-weight: 800; }
+html[data-skin="kacheln"] .kc-head .lead { font-size: 13.5px; }
+html[data-skin="kacheln"] .kc-head .kc-sub { color: var(--muted); font-weight: 500; }
+html[data-skin="kacheln"] .kc-head .kc-editbtn { gap: 8px; }
+
+/* ---------- Bedienelemente auf allen Seiten: Kapseln ---------- */
+html[data-skin="kacheln"] .seg { border: 0; border-radius: 99px; padding: 4px; background: var(--surface); box-shadow: 0 0 0 1px var(--border); gap: 2px; }
+html[data-skin="kacheln"] .seg button { border-radius: 99px; padding: 5px 13px; font-weight: 650; }
+html[data-skin="kacheln"] .seg button + button { border-left: 0; }
+html[data-skin="kacheln"] .seg button.on { background: var(--kc-soft); color: var(--kc-accent-text); }
+html[data-skin="kacheln"] .btn { border-radius: 99px; padding: 7px 15px; font-weight: 650; border-color: var(--border); background: var(--surface); box-shadow: var(--shadow); display: inline-flex; align-items: center; gap: 6px; }
+html[data-skin="kacheln"] .btn:hover { box-shadow: var(--shadow), 0 0 0 1px var(--accent); background: var(--surface); }
+html[data-skin="kacheln"] .btn.primary, html[data-skin="kacheln"] .btn.primary:hover { background: var(--accent); color: var(--on-accent); border-color: transparent; }
+html[data-skin="kacheln"] .btn.small { padding: 3px 11px; box-shadow: none; }
+html[data-skin="kacheln"] .btn.link { box-shadow: none; background: none; padding: 0; }
+html[data-skin="kacheln"] input, html[data-skin="kacheln"] select, html[data-skin="kacheln"] textarea { border-radius: 12px; }
+html[data-skin="kacheln"] input[type="checkbox"], html[data-skin="kacheln"] input[type="radio"] { border-radius: revert; }
+html[data-skin="kacheln"] .range-pop { border-radius: 18px; box-shadow: var(--shadow); }
+html[data-skin="kacheln"] .badge, html[data-skin="kacheln"] .chip { border-radius: 99px; }
+html[data-skin="kacheln"] .msg { border-radius: 16px; }
+
+/* ---------- Alle Seiten: Karten als weiche Kacheln ---------- */
+html[data-skin="kacheln"] .card { border: 0; border-radius: var(--kc-radius); box-shadow: var(--shadow); padding: 18px 20px 16px; }
+html[data-skin="kacheln"] .card .head h2, html[data-skin="kacheln"] .card > h2 { text-transform: none; letter-spacing: .01em; font-size: 13.5px; font-weight: 700; color: var(--text-2); }
+html[data-skin="kacheln"] .tile .value { font-weight: 800; letter-spacing: -.03em; font-size: 30px; }
+html[data-skin="kacheln"] .tile.alarm { background: color-mix(in oklab, var(--sev4) 9%, var(--surface)); }
+html[data-skin="kacheln"] .spark .line { stroke: var(--accent); }
+html[data-skin="kacheln"] .spark .area { fill: color-mix(in oklab, var(--accent) 16%, transparent); }
+html[data-skin="kacheln"] .atk, html[data-skin="kacheln"] .ar { border: 0; border-radius: 20px; box-shadow: var(--shadow); }
+html[data-skin="kacheln"] .tablewrap { border-radius: 16px; }
+html[data-skin="kacheln"] .mapbox { border-radius: 16px; }
+html[data-skin="kacheln"] .md, html[data-skin="kacheln"] .term, html[data-skin="kacheln"] .fd-box, html[data-skin="kacheln"] .fd-code, html[data-skin="kacheln"] .fd-pre,
+html[data-skin="kacheln"] .aw-news, html[data-skin="kacheln"] .aw-phase, html[data-skin="kacheln"] .aw-note, html[data-skin="kacheln"] .hw-gauge,
+html[data-skin="kacheln"] .hw-hist, html[data-skin="kacheln"] .hw-side { border-radius: 16px; }
+html[data-skin="kacheln"] .fd-funnel, html[data-skin="kacheln"] .cg-stage { border-radius: var(--kc-radius); }
+html[data-skin="kacheln"] .theme-list .th, html[data-skin="kacheln"] .layout-pick .lp { border-radius: 16px; }
+html[data-skin="kacheln"] .credit { padding-top: 34px; }
+
+/* ---------- Übersicht: Bento-Raster ---------- */
+html[data-skin="kacheln"] .kc-warn:empty { display: none; }
+html[data-skin="kacheln"] .kc-warn .warnings { margin: 0 0 var(--kc-gap); }
+html[data-skin="kacheln"] .kc-grid { position: relative; display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); grid-auto-rows: var(--kc-row); grid-auto-flow: dense; gap: var(--kc-gap); }
+html[data-skin="kacheln"] .kc-tile { position: relative; background: var(--surface); color: var(--text); border-radius: var(--kc-radius); box-shadow: var(--shadow); padding: 18px 20px 16px;
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; cursor: pointer; transition: transform .18s, box-shadow .18s, opacity .18s; }
+html[data-skin="kacheln"] .kc-tile[hidden] { display: none; }
+html[data-skin="kacheln"] .kc-tile:hover { transform: translateY(-2px); box-shadow: var(--shadow), 0 0 0 2px color-mix(in oklab, var(--accent) 45%, transparent); }
+html[data-skin="kacheln"] .kc-th { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; min-height: 28px; flex: none; }
+html[data-skin="kacheln"] .kc-th h2 { margin: 0; font-size: 13.5px; font-weight: 700; color: var(--text-2); letter-spacing: .01em; text-transform: none; flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="kacheln"] .kc-open { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--surface-2); color: var(--text-2); opacity: 0; transition: opacity .15s; flex: none; }
+html[data-skin="kacheln"] .kc-open:hover { color: var(--text); text-decoration: none; }
+html[data-skin="kacheln"] .kc-tile:hover .kc-open, html[data-skin="kacheln"] .kc-tile:focus-within .kc-open { opacity: 1; }
+html[data-skin="kacheln"] .kc-open .kc-ic, html[data-skin="kacheln"] .kc-ctl .kc-ic { width: 15px; height: 15px; stroke-width: 2.2; }
+html[data-skin="kacheln"] .kc-body { flex: 1; min-height: 0; display: flex; flex-direction: column; position: relative; }
+html[data-skin="kacheln"] .kc-ctl { display: none; gap: 4px; flex: none; }
+html[data-skin="kacheln"] .kc-ctl button { width: 30px; height: 30px; border-radius: 50%; border: 0; padding: 0; background: var(--surface-2); color: var(--text-2); display: grid; place-items: center; cursor: pointer; }
+html[data-skin="kacheln"] .kc-ctl button:hover, html[data-skin="kacheln"] .kc-ctl button:focus-visible { background: var(--accent); color: var(--on-accent); }
+
+/* Größen: Spalten von 12, Zeilen zu je --kc-row */
+html[data-skin="kacheln"] .kc-w3 { grid-column: span 3; } html[data-skin="kacheln"] .kc-w4 { grid-column: span 4; } html[data-skin="kacheln"] .kc-w6 { grid-column: span 6; }
+html[data-skin="kacheln"] .kc-w8 { grid-column: span 8; } html[data-skin="kacheln"] .kc-w12 { grid-column: span 12; }
+html[data-skin="kacheln"] .kc-h2 { grid-row: span 2; } html[data-skin="kacheln"] .kc-h3 { grid-row: span 3; } html[data-skin="kacheln"] .kc-h4 { grid-row: span 4; }
+html[data-skin="kacheln"] .kc-h5 { grid-row: span 5; } html[data-skin="kacheln"] .kc-h6 { grid-row: span 6; }
+
+/* Kopfkachel „Lage“ */
+html[data-skin="kacheln"] .kc-tile.kc-hero { background: linear-gradient(140deg, var(--kc-hero-a), var(--kc-hero-b)); color: #fff; }
+html[data-skin="kacheln"] .kc-hero .kc-th h2 { color: rgba(255, 255, 255, .85); }
+html[data-skin="kacheln"] .kc-hero .kc-open, html[data-skin="kacheln"] .kc-hero .kc-ctl button { background: rgba(255, 255, 255, .2); color: #fff; }
+html[data-skin="kacheln"] .kc-big { font-size: clamp(34px, 3.6vw, 50px); font-weight: 800; letter-spacing: -.035em; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="kacheln"] .kc-hero .kc-big { font-size: clamp(52px, 6.4vw, 92px); letter-spacing: -.05em; }
+html[data-skin="kacheln"] .kc-lede { margin: 8px 0 0; font-size: 15px; opacity: .92; max-width: 30em; }
+html[data-skin="kacheln"] .kc-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+html[data-skin="kacheln"] .kc-chip { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 99px; font-size: 12.5px; font-weight: 650; white-space: nowrap;
+  background: color-mix(in oklab, var(--c, var(--accent)) 16%, var(--surface)); color: var(--text); }
+html[data-skin="kacheln"] .kc-chip::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: var(--c, var(--accent)); }
+html[data-skin="kacheln"] .kc-hero .kc-chip { background: rgba(255, 255, 255, .2); color: #fff; }
+html[data-skin="kacheln"] .kc-hero .kc-chip::before { background: var(--c, #fff); box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .8); }
+html[data-skin="kacheln"] .kc-hero .spark { margin-top: auto; height: 74px; width: 100%; flex: none; }
+html[data-skin="kacheln"] .kc-hero .spark .line { stroke: #fff; stroke-width: 2.5; }
+html[data-skin="kacheln"] .kc-hero .spark .area { fill: rgba(255, 255, 255, .18); }
+
+/* Kennzahlen */
+html[data-skin="kacheln"] .kc-kpi .kc-big { margin-top: auto; }
+html[data-skin="kacheln"] .kc-kpi .spark { margin-top: 6px; height: 28px; width: 100%; flex: none; }
+html[data-skin="kacheln"] .kc-kpi.is-alarm .kc-big { color: var(--critical); }
+html[data-skin="kacheln"] .kc-kpi.is-alarm .spark .line { stroke: var(--critical); }
+html[data-skin="kacheln"] .kc-kpi.is-alarm .spark .area { fill: color-mix(in oklab, var(--critical) 16%, transparent); }
+html[data-skin="kacheln"] .kc-ico { width: 30px; height: 30px; border-radius: 10px; background: color-mix(in oklab, var(--c, var(--accent)) 18%, var(--surface)); display: grid; place-items: center; flex: none; }
+html[data-skin="kacheln"] .kc-ico i { width: 10px; height: 10px; border-radius: 50%; background: var(--c, var(--accent)); }
+html[data-skin="kacheln"] .kc-delta { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-height: 1.2em; }
+html[data-skin="kacheln"] .kc-delta .up { color: var(--sev3); font-weight: 650; } html[data-skin="kacheln"] .kc-delta .down { color: var(--good-text); font-weight: 650; }
+
+/* Verlauf */
+html[data-skin="kacheln"] .kc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-2); margin-bottom: 8px; flex: none; }
+html[data-skin="kacheln"] .kc-legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 6px; }
+html[data-skin="kacheln"] .kc-chartbox { flex: 1; min-height: 60px; position: relative; }
+html[data-skin="kacheln"] .kc-chart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+html[data-skin="kacheln"] .kc-chart text { fill: var(--muted); font-size: 10.5px; }
+html[data-skin="kacheln"] .kc-chart .grid { stroke: var(--grid); }
+
+/* Listen als Kapseln */
+html[data-skin="kacheln"] .kc-rows { display: flex; flex-direction: column; gap: 6px; overflow: hidden; -webkit-mask-image: linear-gradient(#000 85%, transparent); mask-image: linear-gradient(#000 85%, transparent); }
+html[data-skin="kacheln"] .kc-row { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-radius: 14px; background: var(--surface-2); font-size: 13.5px; color: var(--text); min-width: 0; flex: none; }
+html[data-skin="kacheln"] a.kc-row:hover { background: var(--surface-3); text-decoration: none; }
+html[data-skin="kacheln"] .kc-row .flag { font-size: 18px; width: 1.2em; flex: none; }
+html[data-skin="kacheln"] .kc-row .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; line-height: 1.25; }
+html[data-skin="kacheln"] .kc-row .mid .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="kacheln"] .kc-row .mid small { color: var(--muted); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="kacheln"] .kc-row .r { color: var(--muted); font-size: 12px; white-space: nowrap; }
+html[data-skin="kacheln"] .kc-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; }
+html[data-skin="kacheln"] .kc-empty { color: var(--muted); padding: 10px 2px; margin: 0; }
+
+/* Stufen-Trichter */
+html[data-skin="kacheln"] .kc-fun { display: flex; flex-direction: column; gap: 9px; }
+html[data-skin="kacheln"] .kc-fun > div { display: grid; grid-template-columns: 5.6em 1fr 3.4em; gap: 10px; align-items: center; font-size: 13px; color: var(--text-2); }
+html[data-skin="kacheln"] .kc-fun .trk { height: 14px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
+html[data-skin="kacheln"] .kc-fun .trk i { display: block; height: 100%; border-radius: 99px; background: var(--c); min-width: 6px; transition: width .5s; }
+html[data-skin="kacheln"] .kc-fun b { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
+
+/* Länder */
+html[data-skin="kacheln"] .kc-hbars { overflow: hidden; }
+html[data-skin="kacheln"] .kc-hbar { display: grid; grid-template-columns: 1.6em 1fr auto; gap: 2px 10px; align-items: center; font-size: 13.5px; padding: 3px 0; }
+html[data-skin="kacheln"] .kc-hbar .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="kacheln"] .kc-hbar b { font-variant-numeric: tabular-nums; }
+html[data-skin="kacheln"] .kc-hbar .trk { grid-column: 2 / 4; height: 6px; border-radius: 9px; background: var(--surface-2); overflow: hidden; }
+html[data-skin="kacheln"] .kc-hbar .trk i { display: block; height: 100%; background: var(--accent); border-radius: 9px; }
+
+/* Dienste als Ring */
+html[data-skin="kacheln"] .kc-donut { display: flex; gap: 18px; align-items: center; flex: 1; min-height: 0; }
+html[data-skin="kacheln"] .kc-donut svg { width: min(44%, 150px); max-height: 100%; flex: none; transform: rotate(-90deg); }
+html[data-skin="kacheln"] .kc-donut circle { fill: none; stroke-width: 5; }
+html[data-skin="kacheln"] .kc-donut circle.track { stroke: var(--surface-2); }
+html[data-skin="kacheln"] .kc-donut ul { list-style: none; margin: 0; padding: 0; font-size: 13px; flex: 1; min-width: 0; }
+html[data-skin="kacheln"] .kc-donut li { display: flex; gap: 8px; align-items: center; padding: 2px 0; }
+html[data-skin="kacheln"] .kc-donut li::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--c); flex: none; }
+html[data-skin="kacheln"] .kc-donut li span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="kacheln"] .kc-donut li b { margin-left: auto; font-variant-numeric: tabular-nums; }
+
+/* Zugangsdaten */
+html[data-skin="kacheln"] .kc-cred { display: flex; flex-wrap: wrap; gap: 7px; overflow: hidden; align-content: flex-start; }
+html[data-skin="kacheln"] .kc-cred > span { background: var(--surface-2); border-radius: 12px; padding: 6px 11px; font-size: 12.5px; max-width: 100%; display: inline-flex; min-width: 0; }
+html[data-skin="kacheln"] .kc-cred .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+html[data-skin="kacheln"] .kc-cred em { font-style: normal; color: var(--kc-accent-text); font-weight: 700; margin-left: 7px; white-space: nowrap; }
+
+/* Karte füllt ihre Kachel; Bögen kommen aus charts.js (arcs: "spur") */
+html[data-skin="kacheln"] .kc-mapbox { flex: 1; min-height: 0; position: relative; border-radius: 16px; overflow: hidden; background: var(--surface-2); }
+html[data-skin="kacheln"] .kc-mapbox .chart.map { position: absolute; inset: 0; }
+html[data-skin="kacheln"] .kc-mapbox .mapbox { aspect-ratio: auto; height: 100%; border-radius: 16px; background: var(--map-bg); }
+html[data-skin="kacheln"] .kc-mapbox .mapbox .hint { display: none; }
+html[data-skin="kacheln"] .kc-mapbox .mapbox .scale { left: auto; right: 12px; }
+html[data-skin="kacheln"] .kc-mapbox .country { stroke: var(--map-bg); }
+html[data-skin="kacheln"] .kc-zoom { position: absolute; left: 10px; bottom: 10px; display: flex; gap: 4px; flex-wrap: wrap; z-index: 2; }
+html[data-skin="kacheln"] .kc-zoom button { padding: 5px 11px; border-radius: 99px; border: 0; cursor: pointer; color: var(--text); font: inherit; font-size: 12px; font-weight: 650;
+  background: color-mix(in oklab, var(--surface) 88%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); box-shadow: 0 0 0 1px var(--border); }
+html[data-skin="kacheln"] .kc-zoom button:hover { background: var(--surface); }
+
+/* ---------- Anordnen ---------- */
+html[data-skin="kacheln"] .kc-edit .kc-tile { cursor: grab; outline: 2px dashed color-mix(in oklab, var(--accent) 55%, transparent); outline-offset: -6px; animation: kc-wackel .5s ease-in-out infinite alternate; user-select: none; -webkit-user-select: none; }
+html[data-skin="kacheln"] .kc-edit .kc-tile:hover { transform: none; }
+html[data-skin="kacheln"] .kc-edit .kc-tile:focus-visible { outline: 3px solid var(--accent); }
+html[data-skin="kacheln"] .kc-edit .kc-ctl { display: flex; }
+html[data-skin="kacheln"] .kc-edit .kc-open { display: none; }
+html[data-skin="kacheln"] .kc-edit .kc-th { touch-action: none; cursor: grab; }
+/* schmale Kennzahl-Kacheln: Titel bleibt lesbar, die Knöpfe rücken in die zweite Zeile */
+html[data-skin="kacheln"] .kc-edit .kc-kpi .kc-th { flex-wrap: wrap; row-gap: 6px; }
+html[data-skin="kacheln"] .kc-edit .kc-kpi .kc-th h2 { flex-basis: calc(100% - 40px); }
+html[data-skin="kacheln"] .kc-edit .kc-body { pointer-events: none; opacity: .75; }
+html[data-skin="kacheln"] .kc-tile.kc-drag { z-index: 5; animation: none; cursor: grabbing; transition: none; box-shadow: var(--shadow), 0 24px 48px -16px #0008, 0 0 0 2px var(--accent); opacity: .92; }
+html[data-skin="kacheln"] .kc-dragging, html[data-skin="kacheln"] .kc-dragging .kc-tile { cursor: grabbing; }
+@keyframes kc-wackel { from { rotate: -.12deg; } to { rotate: .12deg; } }
+html[data-skin="kacheln"] .kc-tray { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 45; width: min(860px, calc(100% - 24px)); background: var(--surface);
+  border-radius: 22px; box-shadow: var(--shadow), 0 0 0 1px var(--border); padding: 12px 16px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; font-size: 13.5px;
+  animation: kc-tray .3s cubic-bezier(.2, .8, .2, 1); }
+html[data-skin="kacheln"] .kc-tray[hidden] { display: none; }
+@keyframes kc-tray { from { transform: translate(-50%, 140%); } to { transform: translateX(-50%); } }
+html[data-skin="kacheln"] .kc-tray .lbl { font-weight: 700; color: var(--text-2); }
+html[data-skin="kacheln"] .kc-tray .hid { display: flex; gap: 6px; flex-wrap: wrap; }
+html[data-skin="kacheln"] .kc-tray .hid button { padding: 6px 12px; border-radius: 99px; border: 0; cursor: pointer; background: var(--kc-soft); color: var(--kc-accent-text); font: inherit; font-weight: 650; }
+html[data-skin="kacheln"] .kc-swatches { display: flex; gap: 8px; align-items: center; }
+html[data-skin="kacheln"] .kc-sw { width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%; cursor: pointer; background: oklch(.6 .2 var(--sh)); box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px transparent; }
+html[data-skin="kacheln"] .kc-sw[aria-pressed="true"] { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+html[data-skin="kacheln"] .kc-sw[data-h="285"] { --sh: 285; } html[data-skin="kacheln"] .kc-sw[data-h="18"] { --sh: 18; } html[data-skin="kacheln"] .kc-sw[data-h="160"] { --sh: 160; }
+html[data-skin="kacheln"] .kc-sw[data-h="235"] { --sh: 235; } html[data-skin="kacheln"] .kc-sw[data-h="340"] { --sh: 340; }
+html[data-skin="kacheln"] .is-dash .kc-main { padding-bottom: 120px; }
+
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="kacheln"] .kc-edit .kc-tile { animation: none; }
+  html[data-skin="kacheln"] .kc-tile, html[data-skin="kacheln"] .kc-fun .trk i { transition: none; }
+  html[data-skin="kacheln"] .kc-tile:hover { transform: none; }
+  html[data-skin="kacheln"] .kc-tray { animation: none; }
+}
+
+/* ---------- Tablet: 6 Spalten ---------- */
+@media (max-width: 1060px) {
+  html[data-skin="kacheln"] .kc-grid { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+  html[data-skin="kacheln"] .kc-w3, html[data-skin="kacheln"] .kc-w4 { grid-column: span 3; }
+  html[data-skin="kacheln"] .kc-w6, html[data-skin="kacheln"] .kc-w8, html[data-skin="kacheln"] .kc-w12 { grid-column: span 6; }
+  html[data-skin="kacheln"] .kc-bar .livepill > span { display: none; }
+  html[data-skin="kacheln"] .kc-bar .livepill { padding: 7px 10px; }
+}
+/* ---------- Handy: 2 Spalten (Kennzahlen nebeneinander, sonst eine) ---------- */
+@media (max-width: 640px) {
+  html[data-skin="kacheln"] { --kc-gap: 12px; --kc-radius: 22px; --kc-row: 78px; }
+  html[data-skin="kacheln"] .kc-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  html[data-skin="kacheln"] .kc-w3 { grid-column: span 1; }
+  html[data-skin="kacheln"] .kc-w4, html[data-skin="kacheln"] .kc-w6, html[data-skin="kacheln"] .kc-w8, html[data-skin="kacheln"] .kc-w12 { grid-column: span 2; }
+  html[data-skin="kacheln"] .kc-h5, html[data-skin="kacheln"] .kc-h6 { grid-row: span 4; }
+  html[data-skin="kacheln"] .kc-tile[data-id="karte"] { grid-row: span 3; }
+  html[data-skin="kacheln"] .kc-tile { padding: 15px 16px 14px; }
+  html[data-skin="kacheln"] .kc-kpi .kc-big { font-size: 30px; }
+  html[data-skin="kacheln"] .kc-kpi .kc-ico { display: none; }
+  html[data-skin="kacheln"] .kc-kpi .kc-th h2 { white-space: normal; line-height: 1.2; font-size: 13px; }
+  html[data-skin="kacheln"] .kc-dock { padding: 0 8px; margin-top: 8px; top: 8px; }
+  html[data-skin="kacheln"] .kc-bar { height: 52px; padding: 0 6px 0 8px; gap: 4px; }
+  html[data-skin="kacheln"] .kc-bar .brand { font-size: 0; gap: 0; margin-right: 2px; }
+  html[data-skin="kacheln"] .kc-bar .livepill { display: none; }
+  html[data-skin="kacheln"] .kc-pill { padding: 8px 11px; font-size: 13.5px; }
+  html[data-skin="kacheln"] .kc-ib { width: 34px; height: 34px; }
+  html[data-skin="kacheln"] .usermenu > button { font-size: 0; gap: 0; padding: 2px; }
+  html[data-skin="kacheln"] .kc-main { padding: 16px 10px 40px; }
+  html[data-skin="kacheln"] .kc-head { margin: 2px 2px 14px; }
+  html[data-skin="kacheln"] .kc-head .kc-sub { display: none; }
+  html[data-skin="kacheln"] .card { padding: 15px 16px 14px; }
+  html[data-skin="kacheln"] .kc-tray { bottom: 8px; padding: 10px 12px; gap: 8px 10px; }
+  html[data-skin="kacheln"] .kc-tray .kc-sp { display: none; }
+  html[data-skin="kacheln"] .kc-zoom button { padding: 4px 9px; }
+}

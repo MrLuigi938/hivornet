@@ -130,6 +130,45 @@ export function fmtTime(t) {
 }
 export function fmtDateTime(t) { const ms = toMs(t); return ms ? dtf.format(new Date(ms)) : "–"; }
 
+// Uhrzeit "HH:MM" (für Achsen und Zeitspannen); fmtClockDay setzt bei einem anderen Tag als heute "TT.MM." davor.
+const hm = new Intl.DateTimeFormat("de-DE", { hour: "2-digit", minute: "2-digit" });
+const dm = new Intl.DateTimeFormat("de-DE", { day: "2-digit", month: "2-digit" });
+const sameDay = (a, b) => new Date(a).toDateString() === new Date(b).toDateString();
+export function fmtClock(t) { const ms = toMs(t); return ms ? hm.format(new Date(ms)) : "–"; }
+export function fmtClockDay(t, ref = Date.now()) {
+  const ms = toMs(t);
+  if (!ms) return "–";
+  return (sameDay(ms, ref) ? "" : dm.format(new Date(ms)).replace(/\.?$/, ".") + " ") + hm.format(new Date(ms));
+}
+// Zeitspanne: "17:43–18:02"; ist der Beginn nicht von heute, steht das Datum davor, bei Tageswechsel auch beim Ende.
+export function fmtSpan(first, last) {
+  const a = toMs(first), b = toMs(last);
+  if (!a || !b) return "–";
+  return fmtClockDay(a) + "–" + (sameDay(a, b) ? fmtClock(b) : fmtClockDay(b, a));
+}
+
+// Plural: plural(1, "Sitzung", "Sitzungen") -> "1 Sitzung", plural(2, ...) -> "2 Sitzungen"
+export function plural(n, ein, mehr) { return `${fmtNum(n)} ${Number(n) === 1 ? ein : mehr}`; }
+
+// Anzeige einer Zugangsdaten-Kombination "Benutzer / Passwort": leere Teile heißen "(leer)", nicht nur " / "
+export function credText(key) {
+  const k = String(key ?? ""), i = k.indexOf(" / ");
+  if (i < 0) return k.trim() === "/" ? "(leer) / (leer)" : k;
+  return `${k.slice(0, i) || "(leer)"} / ${k.slice(i + 3) || "(leer)"}`;
+}
+
+// Wann gilt ein Angreifer als "aktiv"? Eine Definition für Kopfzeile, Seite Angriffe, Dashboard und Profil:
+// Aktivität in den letzten 15 Minuten (gleich dem Abstand, der Ereignisse zu einem Angriff bündelt, hive/attacks.go).
+// "Läuft gerade" ist enger (unter einer Minute) und heißt deshalb anders.
+export const ACTIVE_MS = 15 * 60e3, LIVE_MS = 60e3;
+export const ACTIVE_TITLE = "aktiv = Aktivität in den letzten 15 Minuten";
+export function activeBadge(last, now = Date.now()) {
+  const age = now - toMs(last);
+  if (age < LIVE_MS) return h("span", { class: "badge active", title: "läuft gerade = letztes Ereignis vor weniger als einer Minute" }, "● läuft gerade");
+  if (age < ACTIVE_MS) return h("span", { class: "badge active", title: ACTIVE_TITLE }, "● aktiv");
+  return null;
+}
+
 export function relTime(t) {
   const ms = toMs(t);
   if (!ms || ms < 0 || new Date(ms).getFullYear() < 2000) return "nie";

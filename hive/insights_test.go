@@ -52,6 +52,19 @@ func TestRecurringAndHandoffs(t *testing.T) {
 	if len(ho) != 1 || ho[0].ScanIP != "203.0.113.8" || ho[0].AttackIP != "203.0.113.9" {
 		t.Errorf("Erkunden → Angreifen: %+v", ho)
 	}
+	// Live-Check 0.9.6: derselbe Scanner tastet mehrmals ab, zwei gemeinsame Fingerabdrücke –
+	// trotzdem ein Eintrag je Paar und Angriff.
+	fp := []string{"HASSH selten", "JA4 selten"}
+	dup := []*Attack{
+		{IP: "198.51.100.8", First: 0, Last: 1000, Fingerprints: fp},
+		{IP: "198.51.100.8", First: 2 * h, Last: 2*h + 1000, Fingerprints: fp},
+		{IP: "198.51.100.8", First: 3 * h, Last: 3*h + 1000, Fingerprints: fp},
+		{IP: "198.51.100.9", First: 5 * h, Last: 6 * h, Stufe: 2, Fingerprints: fp},
+	}
+	ho = buildHandoffs(dup)
+	if len(ho) != 1 || ho[0].ScanAt != 3*h || ho[0].Fingerprint != "HASSH selten · JA4 selten" {
+		t.Errorf("doppelte Paare: %+v", ho)
+	}
 }
 
 func TestSpikeCheck(t *testing.T) {

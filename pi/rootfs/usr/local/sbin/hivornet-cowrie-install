@@ -583,6 +583,14 @@ PYEOF
   done
 }
 
+# stop_retry_timer: Nach der fertigen Installation braucht es den stündlichen Wiederholungs-Timer
+# nicht mehr. Lief er weiter, meldete systemd jede Stunde "skipped, unmet condition" für den
+# Installationsdienst (Live-Check 0.9.6).
+stop_retry_timer() {
+  command -v systemctl >/dev/null 2>&1 && { systemctl disable --now hivornet-cowrie-install.timer >/dev/null 2>&1 || true; }
+  return 0
+}
+
 if [ -f "$MARK" ]; then
   # Schon installiert (ältere Version des Skripts): Token und fehlende Anpassungen nachtragen
   ensure_token
@@ -591,6 +599,7 @@ if [ -f "$MARK" ]; then
     apply_patches
     command -v systemctl >/dev/null 2>&1 && { systemctl try-restart hivornet-cowrie.service || true; }
   fi
+  stop_retry_timer
   status ok "Cowrie $VER installiert"
   done_ok=1
   exit 0
@@ -646,6 +655,7 @@ touch "$MARK"
 step "Cowrie starten"
 systemctl daemon-reload
 systemctl enable --now hivornet-cowrie.service hivornet-cowrie-clean.timer
+stop_retry_timer
 status ok "Cowrie $VER installiert"
 done_ok=1
 echo "Cowrie $VER installiert und gestartet (SSH 22, Telnet 23)."

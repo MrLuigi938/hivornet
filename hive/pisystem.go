@@ -202,6 +202,16 @@ func applySystem(changed []string, run func(string, ...string) error, w io.Write
 			}
 		}
 	}
+	// Fertiges Cowrie: den Wiederholungs-Timer der Installation abschalten (meldete sonst stündlich
+	// "skipped, unmet condition", Live-Check 0.9.6)
+	for _, c := range changed {
+		if c == "etc/systemd/system/hivornet-cowrie-install.timer" {
+			if _, err := os.Stat(cowrieInstalledMark); err == nil {
+				run("systemctl", "disable", "--now", "hivornet-cowrie-install.timer")
+			}
+			break
+		}
+	}
 	// Geänderte Netzsperre sofort anwenden, nicht erst nach dem nächsten Neustart (M8 des
 	// dritten Audits). Direkt "apply" statt "systemctl restart": restart ruft vorher ExecStop
 	// (remove) auf, der Honeypot liefe kurz ohne Sperre; apply ersetzt die Regeln in einem

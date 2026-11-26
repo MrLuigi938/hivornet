@@ -1,9 +1,9 @@
 // Angriffe statt Ereignisse: Ereignisse einer IP werden zu Angriffen gebündelt
 // (Lücke unter 15 Minuten, siehe hive/attacks.go). Karte je Angriff mit Stufe,
 // vermuteter Art, Zusammenfassung und Zeitstreifen; kompakte Zeile fürs Dashboard.
-import { h, mount, api, fmtNum, fmtTime, fmtDur, toMs, relTime, flag, store } from "./dom.js";
+import { h, mount, api, fmtNum, fmtTime, fmtDur, toMs, relTime, flag, store, fmtClock, fmtClockDay, fmtSpan, plural, credText, activeBadge, ACTIVE_MS, ACTIVE_TITLE } from "./dom.js";
 import { svcName, svcColor, countryName } from "./charts.js";
-import { header, card, TYPE_NAME, rangePicker, rangeOK } from "./app.js";
+import { header, card, TYPE_NAME, rangePicker, rangeOK, liveActiveCount, liveStatFns } from "./app.js";
 import { briefBox, loadBriefs, aiSearch } from "./ai.js";
 
 export const STUFE = ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"];
@@ -35,7 +35,7 @@ export function groupBadge(a) {
 // Hinweis für einen gerade aktiven Dauer-Brute-Forcer, z. B.
 // "Dauer-Brute-Force · wird gedrosselt (6/min) · gesperrt bis 14:05"
 export function bruteHint(a) {
-  if (!a.brute || Date.now() - a.last > 15 * 60e3) return null;
+  if (!a.brute || Date.now() - a.last > ACTIVE_MS) return null;
   const l = bruteState.limit, until = bruteState.bans[a.ip];
   const parts = ["Dauer-Brute-Force"];
   let title = BRUTE_TITLE;
@@ -47,7 +47,7 @@ export function bruteHint(a) {
     title = l.note || title;
   } else {
     parts.push(`wird gedrosselt (${l.rate}/min, Spitze ${l.burst})`);
-    if (until && until > Date.now()) parts.push(`gesperrt bis ${fmtTime(until).slice(0, 5)}`);
+    if (until && until > Date.now()) parts.push(`gesperrt bis ${fmtClockDay(until)}`);
     else if (l.known) parts.push(l.ban_minutes ? "zurzeit nicht gesperrt" : "ohne Sperre");
     else parts.push("Status je IP unbekannt");
     title = l.known ? "Stand der Sperrliste der Firewall, höchstens eine Minute alt." : (l.note || "Ob diese IP gerade gesperrt ist, sieht der Hive nicht.");
@@ -90,7 +90,7 @@ export function summary(a) {
 
 const where = (a) => [a.country ? [a.city, a.country_name || countryName(a.country)].filter(Boolean).join(", ") : "Herkunft unbekannt", a.asn ? `AS${a.asn} ${a.as_org || ""}`.trim() : ""].filter(Boolean).join(" · ");
 const svcBadges = (a) => a.services.map((sv) => h("span", { class: "badge svc", style: { background: svcColor(sv) } }, svcName(sv)));
-const counted = (list, max) => list.slice(0, max).map((x) => (x.n > 1 ? `${x.key} ×${fmtNum(x.n)}` : x.key));
+const counted = (list, max, fmt = (k) => k) => list.slice(0, max).map((x) => (x.n > 1 ? `${fmt(x.key)} ×${fmtNum(x.n)}` : fmt(x.key)));
 
 // ---------- Lückendetails (hive/cvedb.go): CVSS, EPSS, KEV ----------
 
@@ -204,7 +204,7 @@ function evText(e) {
   let d = e.data || {};
   if (typeof d === "string") { try { d = JSON.parse(d); } catch { d = {}; } }
   switch (e.type) {
-    case "login": return d.cookie ? `${e.username || "–"} (RDP-Cookie)` : `${e.username || "–"} / ${d.password_hashed ? "(gehasht)" : e.password ?? ""}${d.success || d.accepted ? " ✓ angenommen" : ""}`;
+    case "login": return d.cookie ? `${e.username || "–"} (RDP-Cookie)` : `${e.username || "(leer)"} / ${d.password_hashed ? "(gehasht)" : e.password || "(leer)"}${d.success || d.accepted ? " ✓ angenommen" : ""}`;
     case "request": return `${d.method || ""} ${d.path || ""}`.trim();
     case "command": return d.input || "";
     case "download": return d.url || "";
@@ -215,8 +215,8 @@ function evText(e) {
     case "fingerprint": return d.hassh ? `HASSH ${d.hassh}` : "";
     case "tty": return "Terminal-Mitschnitt";
     case "condensed": {
-      const t = d.types || {}, parts = [["login", "Logins"], ["connect", "Verbindungen"]].filter(([k]) => t[k]).map(([k, l]) => `${fmtNum(t[k])} ${l}`);
-      return `${fmtNum(d.n || 0)} Ereignisse verdichtet (${parts.join(", ")}) seit ${fmtTime(d.from)}`;
+      const t = d.types || {}, parts = [["login", "Login", "Logins"], ["connect", "Verbindung", "Verbindungen"]].filter(([k]) => t[k]).map(([k, e, m]) => plural(t[k], e, m));
+      return `${plural(d.n || 0, "Ereignis", "Ereignisse")} verdichtet (${parts.join(", ")}) seit ${fmtTime(d.from)}`;
     }
     case "ai_reply": return `${d.input || ""} → ${String(d.output || "").split("\n").find((l) => l.trim()) || "(leer)"}`;
   }
@@ -267,13 +267,14 @@ export function aiReplies(list, { max = 3 } = {}) {
 // Große Karte (Seite "Angriffe", Angreifer-Profil)
 // profileLink: Schaltfläche zum Angreifer-Profil (Standard wie showIP; im Lagebild an, obwohl die IP schon in der Zeile steht)
 export function attackCard(a, { fresh = false, open = null, showIP = true, brief = null, profileLink = showIP } = {}) {
-  const now = Date.now(), active = now - a.last < 60e3, span = Math.max(1, a.last - a.first);
+  const now = Date.now(), span = Math.max(1, a.last - a.first);
   const evBox = h("div", { class: "evs", hidden: true });
-  const toggle = h("button", null, `${fmtNum(a.events)} Ereignisse anzeigen`);
+  const showText = `${plural(a.events, "Ereignis", "Ereignisse")} anzeigen`;
+  const toggle = h("button", null, showText);
   let loaded = false;
   const setOpen = async (on) => {
     evBox.hidden = !on;
-    toggle.textContent = on ? "Ereignisse ausblenden" : `${fmtNum(a.events)} Ereignisse anzeigen`;
+    toggle.textContent = on ? "Ereignisse ausblenden" : showText;
     if (open) on ? open.add(a.id) : open.delete(a.id);
     if (on && !loaded) {
       loaded = true;
@@ -283,7 +284,7 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
   };
   toggle.onclick = () => setOpen(evBox.hidden);
   const facts = [
-    a.creds && a.creds.length ? ["Zugangsdaten" + (a.creds_distinct > 1 ? ` (${fmtNum(a.creds_distinct)} verschiedene)` : ""), counted(a.creds, 8), a.creds_distinct > 8 ? `+${fmtNum(a.creds_distinct - 8)}` : null] : null,
+    a.creds && a.creds.length ? ["Zugangsdaten" + (a.creds_distinct > 1 ? ` (${fmtNum(a.creds_distinct)} verschiedene)` : ""), counted(a.creds, 8, credText), a.creds_distinct > 8 ? `+${fmtNum(a.creds_distinct - 8)}` : null] : null,
     a.paths && a.paths.length ? [(a.services.every((s) => s === "sip" || s === "dns") ? "Anfragen" : "Aufgerufene Pfade") + (a.paths_distinct > 1 ? ` (${fmtNum(a.paths_distinct)})` : ""), counted(a.paths, 8), a.paths_distinct > 8 ? `+${fmtNum(a.paths_distinct - 8)}` : null] : null,
     a.commands && a.commands.length ? ["Befehle (ausgeführt)", a.commands.slice(0, 6), a.commands.length > 6 ? `+${a.commands.length - 6}` : null] : null,
     a.proto_commands && a.proto_commands.length ? ["Protokoll-Befehle (ohne Anmeldung)", a.proto_commands.slice(0, 6), a.proto_commands.length > 6 ? `+${a.proto_commands.length - 6}` : null] : null,
@@ -307,8 +308,8 @@ export function attackCard(a, { fresh = false, open = null, showIP = true, brief
         a.bot && !a.scanner ? h("span", { class: "badge" + (a.bot.includes("gefälscht") ? " err" : ""), title: "Prüfung per Rückwärts- und Vorwärtsauflösung" }, a.bot) : null,
         a.ai_replies && a.ai_replies.length ? h("span", { class: "badge ai", title: "Das Sprachmodell hat diesem Angreifer geantwortet (Einstellungen → Antworten mit Sprachmodell)" }, "beantwortet durch KI") : null,
         a.seen > 1 ? h("span", { class: "badge" }, `${a.seen}. Angriff dieser IP`) : null,
-        active ? h("span", { class: "badge active" }, "● aktiv") : null,
-        h("span", { class: "num" }, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)} · ${fmtDur(span)}`),
+        activeBadge(a.last, now),
+        h("span", { class: "num" }, `${fmtSpan(a.first, a.last)} · ${fmtDur(span)}`),
         h("span", null, relTime(a.last)))),
     h("div", { class: "l2" },
       h("span", { class: "badge stufe" }, STUFE[a.stufe]),
@@ -347,7 +348,7 @@ export function attackRow(a, { fresh = false, open = null } = {}) {
     h("div", { class: "sum" }, h("b", null, a.profile), " – ", summary(a), bruteHint(a)),
     h("div", { class: "chips" }, a.services.map((sv) => h("span", { class: "badge svc", style: { background: svcColor(sv) } }, svcName(sv))),
       groupBadge(a),
-      counted(a.creds || [], 3).map((c) => h("span", { class: "chip mono", title: c }, c)),
+      counted(a.creds || [], 3, credText).map((c) => h("span", { class: "chip mono", title: c }, c)),
       !a.creds?.length ? counted(a.paths || [], 2).map((c) => h("span", { class: "chip mono", title: c }, c)) : null),
     detail);
   let loaded = false;
@@ -397,14 +398,14 @@ export function liveAttacks(ctx, onUpdate) {
 // ---------- Ansicht der Seite "Angriffe": Lagebild (Standard) oder Klassisch ----------
 // Lagebild: Verlauf mit Stufen-Trichter, kompakte zweizeilige Angriffe (aufklappbar zur vollen
 // Karte), gleiche Abläufe gebündelt, Feldstatistik zum Filtern. Klassisch: große Karten wie bis 0.9.4.
-// Gewählt im Benutzermenü (layoutPicker), gemerkt im Browser.
+// Gewählt unter Einstellungen → Darstellung (layoutPicker), gemerkt im Browser.
 export const attLayout = () => (store("attLayout") === "klassisch" ? "klassisch" : "lagebild");
 
-export function layoutPicker(onChange) {
-  const box = h("div", { class: "layout-pick", role: "radiogroup", "aria-label": "Ansicht der Seite Angriffe" });
+export function layoutPicker(onChange, { gross = false, erklaerung = {} } = {}) {
+  const box = h("div", { class: "layout-pick" + (gross ? " gross" : ""), role: "radiogroup", "aria-label": "Ansicht der Seite Angriffe" });
   const opt = (k, label, sketch) => h("button", { class: "lp" + (attLayout() === k ? " on" : ""), role: "radio", "aria-checked": String(attLayout() === k), title: label,
     onclick: (e) => { e.stopPropagation(); store("attLayout", k); box.querySelectorAll(".lp").forEach((b) => { const on = b === e.currentTarget; b.classList.toggle("on", on); b.setAttribute("aria-checked", String(on)); }); onChange?.(k); } },
-    h("span", { class: "sk" }, sketch), h("span", null, label));
+    h("span", { class: "sk" }, sketch), h("span", null, label), erklaerung[k] ? h("span", { class: "lp-desc" }, erklaerung[k]) : null);
   const bars = h("span", { class: "sk-bars" }, [3, 5, 2, 6, 4, 7, 3, 5, 6, 2].map((n) => h("i", { style: { height: n * 2 + "px" } })));
   mount(box,
     opt("lagebild", "Lagebild", [bars, [1, 2, 3, 4].map((i) => h("span", { class: "sk-row", style: { "--c": sevColor(i % 4) } }))]),
@@ -424,7 +425,7 @@ function kernLine(a) {
   else if ((a.forwards || []).length) out.push(h("span", { class: "hot" }, "⇄ " + a.forwards.join(", ")));
   else if ((a.proto_commands || []).length) out.push(a.proto_commands.slice(0, 6).join(" ⏎ "));
   else if ((a.paths || []).length) out.push(counted(a.paths, 6).join("  ·  "));
-  else if ((a.creds || []).length) out.push(counted(a.creds, 10).join("  ·  "));
+  else if ((a.creds || []).length) out.push(counted(a.creds, 10, credText).join("  ·  "));
   else out.push(h("span", { class: "muted" }, summary(a)));
   if ((a.urls || []).length) out.push(sep("·"), h("span", { class: "hot" }, a.urls[0]));
   return out;
@@ -450,8 +451,8 @@ export function attackLine(a, { fresh = false, open = null, brief = null, extra 
       h("div", { class: "l2", title: (a.commands || []).join("\n") }, kernLine(a)),
       (a.tags || []).length ? h("div", { class: "tagline" }, a.tags.map((t) => h("span", { class: "pill tag" }, t.label || t.key)), (a.mitre || []).map((m) => h("span", { class: "chip mitre" }, m))) : null),
     h("div", { class: "when" },
-      h("span", { class: "num" }, h("b", null, `${fmtTime(a.first).slice(0, 5)}–${fmtTime(a.last).slice(0, 5)}`), " · ", fmtDur(span)),
-      now - a.last < 60e3 ? h("span", { class: "badge active" }, "● aktiv") : h("span", { "data-rel": a.last }, relTime(a.last)),
+      h("span", { class: "num" }, h("b", null, fmtSpan(a.first, a.last)), " · ", fmtDur(span)),
+      activeBadge(a.last, now) || h("span", { "data-rel": a.last }, relTime(a.last)),
       h("a", { class: "ar-prof", href: "#/attacker/" + encodeURIComponent(a.ip), title: "Angreifer-Profil mit allen Angriffen, Bericht und Angriffskette", onclick: (e) => e.stopPropagation() }, "Profil →"),
       a.strip && a.strip.length > 1 ? h("span", { class: "mini" }, a.strip.map((e) => h("i", { style: { left: `calc(${((e.t - a.first) / span) * 100}% - 1px)`, background: TYPCOL[e.type] || "var(--other)" } }))) : null));
   const el = h("article", { class: "ar" + (fresh ? " fresh" : ""), style: { "--c": sevColor(a.stufe) } }, row, det);
@@ -476,7 +477,13 @@ function overviewCard(ov, f, reload) {
   const NS = "http://www.w3.org/2000/svg";
   const mk = (tag, at) => { const e = document.createElementNS(NS, tag); for (const k in at) e.setAttribute(k, at[k]); return e; };
   const svg = mk("svg", { viewBox: `0 0 ${W} ${H + 12}`, preserveAspectRatio: "none", role: "img", "aria-label": "Verlauf der Angriffe nach Stufe" });
-  const lbl = (ms) => (span > 2 * 86400e3 ? new Date(ms).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit" }) + " " : "") + fmtTime(ms).slice(0, 5);
+  // Uhrzeit; liegt der Zeitpunkt nicht auf dem heutigen Tag, steht das Datum davor
+  const lbl = (ms) => fmtClockDay(ms);
+  // Achsenbeschriftung: Uhrzeit, Datum nur beim ersten Wert und bei Tageswechsel (ab 2 Tagen Spanne immer)
+  const axLbl = (ms, prev) => {
+    const ref = span > 2 * 86400e3 ? 0 : prev == null ? Date.now() : prev; // 0: Datum immer
+    return fmtClockDay(ms, ref);
+  };
   ov.hist.forEach((col, i) => {
     let y = H;
     col.forEach((n, s) => {
@@ -492,7 +499,7 @@ function overviewCard(ov, f, reload) {
   });
   for (let k = 0; k <= 8; k++) {
     const t = mk("text", { x: Math.min(W - 2, Math.max(2, (k / 8) * W)), y: H + 11, class: "ax", "text-anchor": k === 0 ? "start" : k === 8 ? "end" : "middle" });
-    t.textContent = k === 8 ? "jetzt" : lbl(ov.from + (k / 8) * span);
+    t.textContent = k === 8 ? "jetzt" : axLbl(ov.from + (k / 8) * span, k ? ov.from + ((k - 1) / 8) * span : null);
     svg.append(t);
   }
   if (f.win) svg.append(mk("rect", { class: "sel", x: ((f.win[0] - ov.from) / span) * W, y: 0, width: Math.max(2, ((f.win[1] - f.win[0]) / span) * W), height: H }));
@@ -590,7 +597,9 @@ export async function viewAttacks(el, ctx, query = "") {
   const info = h("div", { class: "muted", style: { fontSize: "12.5px" } });
   const feed = h("div", { class: "feed" });
   const more = h("button", { class: "btn", hidden: true, onclick: () => load(true) }, "Ältere laden");
-  const nAct = h("div", { class: "big num" }, "–");
+  const nAct = h("div", { class: "big num", title: ACTIVE_TITLE }, "–");
+  const onLiveStat = () => { if (!nAct.isConnected) { liveStatFns.delete(onLiveStat); return; } renderSide(); };
+  liveStatFns.add(onLiveStat);
   const sideTop = h("ul", { class: "toplist heat" });
 
   function renderChips() {
@@ -621,11 +630,13 @@ export async function viewAttacks(el, ctx, query = "") {
   function renderSide() {
     const now = Date.now();
     if (lage) {
-      const act = list.filter((a) => now - a.last < 15 * 60e3);
+      const act = list.filter((a) => now - a.last < ACTIVE_MS);
       mount(actList, act.length ? act.slice(0, 8).map((a) => h("a", { class: "act-row", href: "#/attacker/" + encodeURIComponent(a.ip), style: { "--c": sevColor(a.stufe) } },
         h("i"), flag(a.country), h("span", { class: "mono" }, a.ip), h("span", { class: "muted p" }, a.profile), h("span", { class: "muted", "data-rel": a.last }, relTime(a.last)))) : h("div", { class: "empty" }, "Gerade niemand."));
     }
-    nAct.textContent = fmtNum(list.filter((a) => now - a.last < 15 * 60e3).length);
+    // dieselbe Zahl wie in der Kopfzeile (vom Hive gezählt, unabhängig von Filtern und geladener Liste)
+    const live = liveActiveCount();
+    nAct.textContent = fmtNum(live != null ? live : list.filter((a) => now - a.last < ACTIVE_MS).length);
     const by = new Map();
     for (const a of list) if (a.country) by.set(a.country, (by.get(a.country) || 0) + 1);
     const top = [...by].sort((x, y) => y[1] - x[1]).slice(0, 6), max = top[0]?.[1] || 1;
@@ -638,7 +649,7 @@ export async function viewAttacks(el, ctx, query = "") {
     for (const a of [...list].sort((x, y) => x.first - y.first)) { by.set(a.ip, (by.get(a.ip) || 0) + 1); a.seen = by.get(a.ip); }
   };
   const els = new Map(); // Angriff -> Element, damit Live-Updates nur die geänderte Karte ersetzen
-  const setInfo = () => { info.textContent = `${fmtNum(list.length)} von ${fmtNum(matched)} Angriffen angezeigt` + (truncated ? " · sehr viele Daten: nur die neuesten 500.000 Ereignisse ausgewertet" : ""); };
+  const setInfo = () => { info.textContent = `${fmtNum(list.length)} von ${plural(matched, "Angriff", "Angriffen")} angezeigt` + (truncated ? " · sehr viele Daten: nur die neuesten 500.000 Ereignisse ausgewertet" : ""); };
   const make = (a, o) => (lage ? attackLine(a, { ...o, brief: () => briefs[a.id] }) : attackCard(a, o));
   const groupOpen = new Set();
   function renderFeed() {
@@ -736,7 +747,7 @@ export async function viewAttacks(el, ctx, query = "") {
     h("div", { class: "angriffe" },
       h("div", { class: "stack" }, h("div", { class: "filters" }, groupSeg), h("div", { class: "al" }, feed), more),
       h("aside", { class: "side" },
-        card("Gerade aktiv", nAct, actList),
+        card("Aktiv (15 Min)", nAct, actList),
         card("Im gewählten Zeitraum", h("div", { class: "note-box", style: { marginBottom: "8px" } }, "Häufigste Werte; Klick filtert, nochmal Klick hebt auf."), fsBox)))));
   else mount(el, h("div", { class: "angriffe" },
     h("div", { class: "stack" },
@@ -744,7 +755,7 @@ export async function viewAttacks(el, ctx, query = "") {
       aiSearch((q, range) => { location.hash = "#/attacks?" + new URLSearchParams({ range, q }); }, RANGES), // Suche in Alltagssprache (hive/aiplus.go)
       saved, chips, feed, more),
     h("aside", { class: "side" },
-      card("Gerade aktiv", nAct, h("div", { class: "note-box" }, "Angreifer mit Aktivität in den letzten 15 Minuten")),
+      card("Aktiv (15 Min)", nAct, h("div", { class: "note-box" }, "Angreifer mit Aktivität in den letzten 15 Minuten (Zahl wie in der Kopfzeile)")),
       card("Herkunft (angezeigte Angriffe)", sideTop),
       card("So ist die Liste aufgebaut", h("div", { class: "note-box" },
         "Alle Ereignisse einer IP gehören zu einem Angriff, solange zwischen ihnen weniger als 15 Minuten liegen. ",
@@ -788,6 +799,7 @@ export function sharedFromQuery(params) {
     q: params.get("q") || "",
     stufe: new Set((params.get("stufe") || "").split(",").filter((x) => /^[0-4]$/.test(x)).map(Number)),
     service: params.get("service") || "",
+    own: params.get("own") === "1", // eigene Tests zeigen: derselbe Schalter in beiden Ansichten
   };
 }
 export function sharedQS(f) {
@@ -796,6 +808,7 @@ export function sharedQS(f) {
   if (f.q) p.set("q", f.q);
   if (f.stufe && f.stufe.size) p.set("stufe", [...f.stufe].join(","));
   if (f.service) p.set("service", f.service);
+  if (f.own) p.set("own", "1");
   return p.toString();
 }
 // Parameter für /api/sessions und /api/events (Suche heißt dort aq, weil q die Textsuche ist)
@@ -804,6 +817,7 @@ export function sharedParams(f, p = new URLSearchParams()) {
   if (f.q) p.set("aq", f.q);
   if (f.stufe.size) p.set("stufe", [...f.stufe].join(","));
   if (f.service) p.set("service", f.service);
+  if (f.own) p.set("own", "1");
   return p;
 }
 export const sharedRange = (f, onChange) => rangePicker(f.range, RANGES, (v) => { f.range = v; store("attRange", v); onChange(); });
@@ -925,7 +939,7 @@ export function historyView(hs, attacks, { open = null } = {}) {
     h("ul", { class: "hs-story" }, (hs.story || []).map((s) => h("li", null, s))),
     h("div", { class: "grid two" },
       h("div", null, h("h3", { class: "hs-h3" }, "Häufigste Zugangsdaten", h("span", { class: "r" }, `${fmtNum(hs.creds_distinct)} verschiedene`)),
-        hs.creds.length ? h("div", { class: "chips" }, hs.creds.map((c) => h("span", { class: "chip mono", title: c.key }, c.key + " ", h("b", null, fmtNum(c.n)))))
+        hs.creds.length ? h("div", { class: "chips" }, hs.creds.map((c) => h("span", { class: "chip mono", title: c.key }, credText(c.key) + " ", h("b", null, fmtNum(c.n)))))
           : h("div", { class: "empty" }, "Keine Logins.")),
       h("div", null, h("h3", { class: "hs-h3" }, "Alle Befehle", h("span", { class: "r" }, `${fmtNum(nCmds)}, in Reihenfolge`)),
         hs.commands.length ? h("div", { class: "hs-term mono" }, hs.commands.map((c) => h("div", null, c)),
@@ -933,7 +947,7 @@ export function historyView(hs, attacks, { open = null } = {}) {
           : h("div", { class: "empty" }, "Keine Befehle ausgeführt."))),
     hs.truncated ? h("p", { class: "muted" }, "Sehr viele Ereignisse: Die ältesten Angriffe fehlen in der Auswertung.") : null,
     h("h3", { class: "hs-h3" }, "Letzte 3 Angriffe"),
-    h("div", { class: "feed" }, attacks.slice(0, 3).map((a, k) => { a.seen = attacks.length - k; return attackCard(a, { showIP: false, open }); })),
+    h("div", { class: "feed" }, attacks.slice(0, 3).map((a, k) => { a.seen = Math.max(hs.attacks, attacks.length) - k; return attackCard(a, { showIP: false, open }); })),
     older, more,
     notLoaded > 0 ? h("p", { class: "muted" }, `Geladen sind die neuesten ${fmtNum(attacks.length)} Angriffe; die Zusammenfassung oben umfasst alle ${fmtNum(hs.attacks)}.`) : null);
 }

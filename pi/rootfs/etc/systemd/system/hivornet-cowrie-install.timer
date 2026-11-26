@@ -1,6 +1,9 @@
 # Neuer Versuch der Cowrie-Installation, solange sie nicht geklappt hat (z. B. ohne Internet).
 [Unit]
 Description=Hivornet: Cowrie-Installation erneut versuchen
+# Fertig installiert: Timer gar nicht erst starten (hivornet-cowrie-install schaltet ihn danach
+# auch ab). Sonst meldete systemd stündlich "skipped, unmet condition" für den Dienst.
+ConditionPathExists=!/opt/hivornet/cowrie-env/.hivornet-ok
 
 [Timer]
 OnBootSec=5min

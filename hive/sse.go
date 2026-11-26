@@ -41,7 +41,11 @@ func (b *Broker) Publish(e *Event) {
 	if len(b.subs) == 0 {
 		return
 	}
-	msg, err := json.Marshal(e)
+	// eigene Tests (ownnet.go) kennzeichnen, damit die Ansicht "Einzelne Ereignisse" sie wie die Angriffe ausblenden kann
+	msg, err := json.Marshal(struct {
+		*Event
+		Own bool `json:"own,omitempty"`
+	}{e, ownHidden(e.SrcIP)})
 	if err != nil {
 		return
 	}

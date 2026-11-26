@@ -31,6 +31,7 @@ echo "== Installation"
 /usr/local/sbin/hivornet-cowrie-install || fail "Installation gescheitert: $(cat /var/lib/hivornet-status/cowrie-install 2>/dev/null)"
 [ "$(head -n 1 /var/lib/hivornet-status/cowrie-install)" = ok ] || fail "Stand nicht ok: $(cat /var/lib/hivornet-status/cowrie-install)"
 grep -q "enable --now hivornet-cowrie.service" /tmp/systemctl.log || fail "Dienst wurde nicht eingeschaltet"
+grep -q "disable --now hivornet-cowrie-install.timer" /tmp/systemctl.log || fail "Wiederholungs-Timer läuft weiter"
 # Zweiter Lauf: erkennt die fertige Installation
 /usr/local/sbin/hivornet-cowrie-install || fail "zweiter Lauf"
 

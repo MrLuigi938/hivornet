@@ -42,8 +42,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -768,53 +766,63 @@ das eindeutig ist. Zum Schluss eine Zeile "Fazit:" mit einem Satz zum Ziel. Erfi
 
 const explainMaxText = 24000
 
-// sampleText liest eine nachgeladene Datei als Text (nur Skripte und andere Textdateien).
+const aiExplainProgramPrompt = `Du erklärst einem technisch interessierten Laien ein Programm (meist ELF für Linux oder Router), das ein Angreifer
+auf einen Honeypot nachladen wollte. Du bekommst nur Metadaten und lesbare Zeichenketten aus einer statischen Auswertung, nie
+die Datei selbst; ausgeführt wurde nichts. Antworte auf Deutsch als nummerierte Liste nach Fähigkeiten (z. B. Verbreitung,
+Angriffe/DDoS, Steuerung, Persistenz, Abschalten von Schutz, Beenden von Konkurrenz, Mining) und nenne jeweils die
+Zeichenketten, auf die du dich stützt. Beginne gefährliche Fähigkeiten mit "**Gefährlich:**". Nenne die wahrscheinliche
+Familie (z. B. Mirai, Gafgyt, Mozi, XMRig) nur, wenn die Zeichenketten sie klar belegen, sonst schreibe, dass sie offen ist.
+Zum Schluss eine Zeile "Fazit:" mit einem Satz zum Ziel. Erfinde nichts; was die Zeichenketten nicht zeigen, ist unbekannt.`
+
+// sampleText liest eine nachgeladene Datei als Text (nur Skripte und andere Textdateien);
+// Cowrie-Downloads und Quarantäne (readSample).
 func (h *Hive) sampleText(hash string) (string, error) {
-	if h.cowrieLibDir == "" || !sha256Re.MatchString(hash) {
+	if !sha256Re.MatchString(hash) {
 		return "", errNoSample
 	}
-	path := filepath.Join(h.cowrieLibDir, "downloads", hash)
-	lst, err := os.Lstat(path)
-	if err != nil || !lst.Mode().IsRegular() {
-		return "", errNoSample
-	}
-	f, err := openNoFollow(path)
+	b, _, err := h.readSample(hash, explainMaxText)
 	if err != nil {
-		return "", errNoSample
+		return "", err
 	}
-	defer f.Close()
-	if st, err := f.Stat(); err != nil || !os.SameFile(st, lst) {
-		return "", errors.New("keine reguläre Datei")
-	}
-	b, _ := io.ReadAll(io.LimitReader(f, explainMaxText))
 	if len(b) == 0 || strings.ContainsRune(string(b), 0) || !utf8.Valid(b[:max(0, len(b)-4)]) {
-		return "", errors.New("Die Datei ist kein Text (z. B. ein Programm); erklären lassen sich nur Skripte.")
+		return "", errNotText
 	}
 	return strings.ToValidUTF8(string(b), ""), nil
 }
 
-// explainSource: der zu erklärende Inhalt, nur aus den Daten des Hive.
-func (h *Hive) explainSource(ctx context.Context, ip, session, hash string) (string, error) {
+var errNotText = errors.New("Die Datei ist kein Text (z. B. ein Programm); erklären lassen sich nur Skripte.")
+
+// explainSource: der zu erklärende Inhalt, nur aus den Daten des Hive, und die passende
+// Anweisung. Programme werden über ihre statische Auswertung erklärt (program.go).
+func (h *Hive) explainSource(ctx context.Context, ip, session, hash string) (string, string, error) {
 	if hash != "" {
-		t, err := h.sampleText(strings.ToLower(hash))
-		if err != nil {
-			return "", err
+		hash = strings.ToLower(hash)
+		t, err := h.sampleText(hash)
+		if errors.Is(err, errNotText) {
+			p, perr := h.explainProgram(ctx, hash)
+			if perr != nil {
+				return "", "", perr
+			}
+			return p, aiExplainProgramPrompt, nil
 		}
-		return "Nachgeladene Datei (SHA-256 " + strings.ToLower(hash) + "):\n" + t, nil
+		if err != nil {
+			return "", "", err
+		}
+		return "Nachgeladene Datei (SHA-256 " + hash + "):\n" + t, aiExplainPrompt, nil
 	}
 	rep, _, err := h.reportFor(ctx, ip, session)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	if len(rep.Commands) == 0 {
-		return "", errors.New("Keine Befehle zum Erklären.")
+		return "", "", errors.New("Keine Befehle zum Erklären.")
 	}
 	var b strings.Builder
 	b.WriteString("Befehle in Reihenfolge:\n" + strings.Join(rep.Commands, "\n"))
 	if len(rep.Decoded) > 0 {
 		b.WriteString("\n\nEntschlüsselte Stellen (Base64, Hex):\n" + strings.Join(rep.Decoded, "\n"))
 	}
-	return clip(b.String(), explainMaxText), nil
+	return clip(b.String(), explainMaxText), aiExplainPrompt, nil
 }
 
 // ---------- API ----------
@@ -967,7 +975,7 @@ func (h *Hive) aiExplainAPI(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Minute)
 	defer cancel()
-	text, err := h.explainSource(ctx, req.IP, req.Session, req.Hash)
+	text, prompt, err := h.explainSource(ctx, req.IP, req.Session, req.Hash)
 	if err != nil {
 		httpErr(w, 400, err.Error())
 		return
@@ -981,7 +989,7 @@ func (h *Hive) aiExplainAPI(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	out, err := h.aiRun(ctx, c, p, aiTask{Feature: "explain", System: aiExplainPrompt, Data: text, MaxTok: 2500})
+	out, err := h.aiRun(ctx, c, p, aiTask{Feature: "explain", System: prompt, Data: text, MaxTok: 2500})
 	if err != nil {
 		aiHTTPErr(w, err)
 		return

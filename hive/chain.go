@@ -243,7 +243,7 @@ func BuildChain(evs []*Event, truncated bool) *Chain {
 			lines, _ := promptLines(e)
 			n = b.node("prompt:"+e.Service, phAccess, "prompt", "Befehle an der Login-Abfrage", 1, e, strings.Join(lines, " ⏎ "))
 		case e.Type == "login":
-			cred := e.Username + " / " + e.Password
+			cred := credShow(e.Username, e.Password)
 			if dataBool(e.Data, "password_hashed") {
 				cred = e.Username + " / (gehasht)"
 			}

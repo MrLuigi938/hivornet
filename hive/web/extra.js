@@ -3,7 +3,7 @@
 //
 // Wie überall gilt: Angreiferdaten werden nur als Text eingefügt (h() aus dom.js).
 // Adressen aus Angreiferdaten werden nie zu Links gemacht.
-import { h, s, mount, api, fmtNum, fmtDur, fmtDateTime, relTime } from "./dom.js";
+import { h, s, mount, api, fmtNum, fmtDur, fmtDateTime, relTime, plural } from "./dom.js";
 import { toplist } from "./charts.js";
 import { state, card } from "./app.js";
 import { aiReplies, exploitHits } from "./attacks.js";
@@ -57,7 +57,7 @@ function sampleBtn(hash) {
       ].filter(Boolean);
       mount(out, h("div", { class: "facts-row" }, facts.map(([k, v]) => [h("div", { class: "k" }, k), h("div", { class: "v mono" }, v)])),
         d.hash_mismatch ? h("div", { class: "msg warn" }, "Der Inhalt passt nicht zum Hash im Dateinamen.") : null,
-        d.type === "Skript" || d.type === "Text" ? explainSlot({ hash }) : null,
+        d.type === "Skript" || d.type === "Text" || /^ELF/.test(d.type || "") ? explainSlot({ hash }) : null,
         h("p", { class: "muted aw-small" }, "Nur gelesen, nie ausgeführt. Die Datei liegt weiter im Cowrie-Ordner und ist echte Schadsoftware."));
     } catch (e) { mount(out, h("span", { class: "muted" }, e.message)); }
     b.disabled = false;
@@ -352,7 +352,7 @@ function chainView(c, prev = null) {
   draw();
   if (prev && prev.selected && byId.has(prev.selected)) select(prev.selected);
   const root = h("div", null,
-    h("p", { class: "sub" }, `${fmtNum(c.events)} Ereignisse in ${fmtNum(c.sessions)} Sitzungen; erreicht bis Phase ${reached + 1} (${c.phases[reached]}).`,
+    h("p", { class: "sub" }, `${plural(c.events, "Ereignis", "Ereignisse")} in ${plural(c.sessions, "Sitzung", "Sitzungen")}; erreicht bis Phase ${reached + 1} (${c.phases[reached]}).`,
       c.truncated ? " Nur die neuesten 5.000 Ereignisse." : ""),
     path.length > 1 ? h("div", { class: "ch-path" }, h("span", { class: "muted" }, "Hauptpfad: "),
       path.map((n, i) => [i ? h("span", { class: "ch-sep" }, " → ") : null, h("button", { class: "linklike", onclick: () => select(n.id) }, n.label)])) : null,

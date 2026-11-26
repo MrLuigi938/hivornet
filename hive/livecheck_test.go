@@ -400,4 +400,18 @@ func TestApplySystemCowrieInstall(t *testing.T) {
 	if c := strings.Join(runs(), "\n"); !strings.Contains(c, "/usr/local/sbin/hivornet-cowrie-install") {
 		t.Fatalf("Anpassungen nicht nachgetragen:\n%s", c)
 	}
+	// Live-Check 0.9.6: Wiederholungs-Timer nach fertiger Installation abschalten
+	var calls []string
+	applySystem([]string{"etc/systemd/system/hivornet-cowrie-install.timer"},
+		func(n string, a ...string) error { calls = append(calls, n+" "+strings.Join(a, " ")); return nil }, os.Stderr)
+	if c := strings.Join(calls, "\n"); !strings.Contains(c, "systemctl disable --now hivornet-cowrie-install.timer") {
+		t.Fatalf("Timer nicht abgeschaltet:\n%s", c)
+	}
+	os.Remove(mark)
+	calls = nil
+	applySystem([]string{"etc/systemd/system/hivornet-cowrie-install.timer"},
+		func(n string, a ...string) error { calls = append(calls, n+" "+strings.Join(a, " ")); return nil }, os.Stderr)
+	if strings.Contains(strings.Join(calls, "\n"), "disable") {
+		t.Fatal("Timer ohne fertige Installation abgeschaltet")
+	}
 }

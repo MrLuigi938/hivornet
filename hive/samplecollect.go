@@ -11,9 +11,11 @@ package main
 // Der Hive verrät dabei dem Server des Angreifers seine öffentliche IP-Adresse (die der
 // Angreifer ohnehin kennt). Der User-Agent ist der eines gewöhnlichen Werkzeugs (wget).
 //
-// MalwareBazaar (Stand bazaar.abuse.ch/api, November 2026): POST https://mb-api.abuse.ch/api/v1/
+// MalwareBazaar (geprüft an bazaar.abuse.ch/api, 24.11.2026): POST https://mb-api.abuse.ch/api/v1/
 // mit Kopf "Auth-Key"; Nachschlagen per Formular query=get_info&hash=…; Hochladen als
-// multipart mit "file" und "json_data" ({"anonymous":0,"tags":[…],"delivery_method":…}).
+// multipart mit "file" (Datei-Part) und "json_data" (Feld ohne Dateinamen, application/json:
+// {"anonymous":0,"tags":[…],"delivery_method":…,"context":{…}}). Dateiarten nennt die Doku
+// nicht; maßgeblich ist die Einreichungsregel (nur bestätigte Schadsoftware).
 // Regeln: nur bestätigte Schadsoftware, keine Adware, nur frische Dateien (höchstens 10 Tage).
 // Hochgeladen werden deshalb nur Programme (ELF, PE) und Skripte mit eindeutig schädlichen
 // Mustern, nur frisch geholte, nie Text, HTML oder Archive.
@@ -33,6 +35,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -315,13 +318,38 @@ func bazaarTags(si SampleInfo) []string {
 	return tags
 }
 
+// bazaarMaxTries: Versuche je Datei, wenn MalwareBazaar nicht erreichbar ist, gestört ist
+// oder unverständlich antwortet. Jeder Versuch schlägt zuerst den Hash nach; eine Datei,
+// die ein früherer Versuch schon hochgeladen hat, gilt dann als bekannt und wird nicht noch
+// einmal gesendet.
+const bazaarMaxTries = 3
+
+// bazaarRetryWait: Wartezeit vor dem nächsten Versuch (1 h, 4 h, 16 h …).
+func bazaarRetryWait(tries int) time.Duration {
+	d := time.Hour
+	for i := 0; i < tries && d < 24*time.Hour; i++ {
+		d *= 4
+	}
+	return d
+}
+
 func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si SampleInfo, srcURL string) {
+	h.bazaarRun(ctx, x, sha, si, srcURL, 0)
+}
+
+// bazaarRun: ein Versuch für eine Datei; tries zählt die bisherigen Fehlversuche.
+func (h *Hive) bazaarRun(ctx context.Context, x Extras, sha string, si SampleInfo, srcURL string, tries int) {
 	cfg := x.Bazaar
-	if !cfg.Lookup && !cfg.Upload || x.AbuseChKey == "" || !h.share.begin("bazaar") {
+	if !cfg.Lookup && !cfg.Upload || x.AbuseChKey == "" {
 		return
 	}
 	subj := "hash:" + sha
 	if _, _, done := h.st.lookupGet(subj, "bazaar_upload", 0); done {
+		return
+	}
+	if !h.share.begin("bazaar") {
+		// Kanal pausiert (Schlüssel abgelehnt, Störung): vormerken statt verwerfen.
+		h.bazaarRequeue(sha, srcURL, tries, h.share.pausedUntil("bazaar"))
 		return
 	}
 	e := shareLogEntry{Time: time.Now(), Subject: sha, SHA256: sha}
@@ -335,13 +363,33 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 			h.st.lookupPut(subj, "bazaar_upload", status)
 		}
 	}
+	// fail: Fehler protokollieren (mit Auszug der Antwort) und, wenn sinnvoll, begrenzt
+	// später erneut versuchen. Fehler werden nie als erledigt gespeichert.
+	fail := func(msg, reply string, retry bool) {
+		e.Error = msg
+		var d []string
+		if reply != "" {
+			d = append(d, "Antwort: "+clip(reply, 200))
+		}
+		switch {
+		case retry && tries+1 < bazaarMaxTries:
+			next := time.Now().Add(bazaarRetryWait(tries))
+			if pu := h.share.pausedUntil("bazaar"); pu.After(next) {
+				next = pu
+			}
+			h.bazaarRequeue(sha, srcURL, tries+1, next)
+			d = append(d, fmt.Sprintf("neuer Versuch ab %s (%d von %d)", next.In(hiveLoc()).Format("02.01. 15:04"), tries+2, bazaarMaxTries))
+		case retry:
+			d = append(d, fmt.Sprintf("kein weiterer Versuch (%d von %d)", tries+1, bazaarMaxTries))
+		}
+		finish("error", strings.Join(d, "; "))
+	}
 	e.Sent = "POST " + bazaarBase + "/api/v1/ (Auth-Key: •••)\nquery=get_info&hash=" + sha
-	out, code, err := bazaarCall(ctx, x.AbuseChKey, "application/x-www-form-urlencoded",
+	out, reply, code, err := bazaarCall(ctx, x.AbuseChKey, "application/x-www-form-urlencoded",
 		strings.NewReader(url.Values{"query": {"get_info"}, "hash": {sha}}.Encode()))
 	if err != nil {
 		h.share.setErr("bazaar", err.Error(), pauseFor(code))
-		e.Error = err.Error()
-		finish("error", "")
+		fail(err.Error(), reply, true)
 		return
 	}
 	switch qs, _ := out["query_status"].(string); qs {
@@ -356,9 +404,9 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 		return
 	case "hash_not_found":
 	default:
-		e.Error = bazaarStatusText(qs)
-		h.share.setErr("bazaar", e.Error, 0)
-		finish("error", "")
+		msg, retry := bazaarStatusText(qs)
+		h.share.setErr("bazaar", msg, 0)
+		fail(msg, reply, retry)
 		return
 	}
 	switch {
@@ -374,8 +422,7 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 	}
 	content, err := readQuarantine(h.quarantineDir(), sha)
 	if err != nil {
-		e.Error = err.Error()
-		finish("error", "")
+		fail(err.Error(), "", false)
 		return
 	}
 	// Skripte tragen manchmal die Adresse oder den Namen des Ziels: nie öffentlich hochladen.
@@ -385,7 +432,33 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 	}
 	meta, _ := json.Marshal(map[string]any{"anonymous": 0, "tags": bazaarTags(si), "delivery_method": "web_download",
 		"context": map[string]string{"comment": "Collected by a honeypot from a download URL used in an attack."}})
-	e.Sent += "\n\nPOST " + bazaarBase + "/api/v1/ (Auth-Key: •••, multipart)\njson_data=" + string(meta) + fmt.Sprintf("\nfile=%s (%d Byte)", sha, len(content))
+	name := bazaarFileName(sha, srcURL, si)
+	e.Sent += "\n\nPOST " + bazaarBase + "/api/v1/ (Auth-Key: •••, multipart)\njson_data=" + string(meta) +
+		fmt.Sprintf("\nfile=%s (%d Byte)", name, len(content))
+	body, ctype := bazaarUploadBody(meta, name, content)
+	out, reply, code, err = bazaarCall(ctx, x.AbuseChKey, ctype, body)
+	if err != nil {
+		h.share.setErr("bazaar", err.Error(), pauseFor(code))
+		fail(err.Error(), reply, true)
+		return
+	}
+	switch qs, _ := out["query_status"].(string); qs {
+	case "inserted":
+		h.share.setErr("bazaar", "", 0)
+		finish("ok", "hochgeladen als "+name)
+	case "file_already_known":
+		finish("known", "bei MalwareBazaar schon bekannt")
+	default:
+		msg, retry := bazaarStatusText(qs)
+		h.share.setErr("bazaar", msg, 0)
+		fail(msg, reply, retry)
+	}
+}
+
+// bazaarUploadBody baut das Formular wie im Beispiel der Doku (bazaar.abuse.ch/api):
+// "json_data" als gewöhnliches Feld ohne Dateinamen mit Content-Type application/json,
+// "file" als Datei-Part (application/octet-stream).
+func bazaarUploadBody(meta []byte, name string, content []byte) (*bytes.Buffer, string) {
 	var body bytes.Buffer
 	mw := multipart.NewWriter(&body)
 	jh := textproto.MIMEHeader{}
@@ -393,59 +466,168 @@ func (h *Hive) bazaarHandle(ctx context.Context, x Extras, sha string, si Sample
 	jh.Set("Content-Type", "application/json")
 	pw, _ := mw.CreatePart(jh)
 	pw.Write(meta)
-	fw, _ := mw.CreateFormFile("file", sha)
+	fw, _ := mw.CreateFormFile("file", name)
 	fw.Write(content)
 	mw.Close()
-	out, code, err = bazaarCall(ctx, x.AbuseChKey, mw.FormDataContentType(), &body)
-	if err != nil {
-		h.share.setErr("bazaar", err.Error(), pauseFor(code))
-		e.Error = err.Error()
-		finish("error", "")
-		return
-	}
-	switch qs, _ := out["query_status"].(string); qs {
-	case "inserted":
-		h.share.setErr("bazaar", "", 0)
-		finish("ok", "hochgeladen")
-	case "file_already_known":
-		finish("known", "bei MalwareBazaar schon bekannt")
-	default:
-		e.Error = bazaarStatusText(qs)
-		h.share.setErr("bazaar", e.Error, 0)
-		finish("error", "")
-	}
+	return &body, mw.FormDataContentType()
 }
 
-// bazaarStatusText: verständliche Meldung zu einem query_status von MalwareBazaar.
-func bazaarStatusText(qs string) string {
+// bazaarFileName: Dateiname für den Upload. MalwareBazaar übernimmt ihn als file_name;
+// ein bloßer Hash ohne Endung sagt dort nichts. Genommen wird der letzte Teil der
+// Nachlade-Adresse (bereinigt), sonst der Hash; dazu eine Endung nach Dateiart, falls keine da ist.
+func bazaarFileName(sha, srcURL string, si SampleInfo) string {
+	name := ""
+	if u, err := url.Parse(srcURL); err == nil {
+		p := u.Path
+		if i := strings.LastIndexByte(p, '/'); i >= 0 {
+			p = p[i+1:]
+		}
+		var b strings.Builder
+		for _, r := range p {
+			if r < 128 && (r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '.' || r == '-' || r == '_') {
+				b.WriteRune(r)
+			}
+		}
+		name = strings.Trim(b.String(), ".")
+		if len(name) > 64 {
+			name = name[:64]
+		}
+	}
+	if name == "" {
+		name = sha
+	}
+	ext := map[string]string{"elf": ".elf", "exe": ".exe", "sh": ".sh"}[fileTag(si)]
+	if ext != "" && !strings.Contains(name, ".") {
+		name += ext
+	}
+	return name
+}
+
+// bazaarStatusText: verständliche Meldung zu einem query_status von MalwareBazaar und ob
+// ein späterer Versuch etwas ändern kann. Dokumentiert (bazaar.abuse.ch/api, November
+// 2026) sind fürs Hochladen http_post_expected, no_api_key, user_blacklisted,
+// file_already_known, inserted, file_expected; fürs Nachschlagen hash_not_found,
+// illegal_hash, no_hash_provided. Die übrigen kommen bei abuse.ch-Diensten vor.
+func bazaarStatusText(qs string) (string, bool) {
 	switch qs {
-	case "no_api_key", "unknown_auth_key", "invalid_auth_key", "missing_auth_key":
-		return "MalwareBazaar lehnt den abuse.ch-Schlüssel ab (" + qs + "). Schlüssel unter https://auth.abuse.ch/ prüfen"
+	case "no_api_key", "unknown_auth_key", "invalid_auth_key", "missing_auth_key", "wrong_auth_key":
+		return "MalwareBazaar lehnt den abuse.ch-Schlüssel ab (" + qs + "). Schlüssel unter https://auth.abuse.ch/ prüfen", true
 	case "user_blacklisted":
-		return "MalwareBazaar hat das Konto gesperrt (user_blacklisted)"
+		return "MalwareBazaar hat das Konto gesperrt (user_blacklisted). Entsperren nur über abuse.ch/Spamhaus", false
+	case "inserted":
+		return "MalwareBazaar hat die Datei aufgenommen (inserted)", false
+	case "file_already_known":
+		return "MalwareBazaar kennt die Datei schon (file_already_known)", false
+	case "file_expected", "no_file":
+		return "MalwareBazaar hat keine Datei erhalten (" + qs + ")", true
+	case "http_post_expected":
+		return "MalwareBazaar erwartet eine POST-Anfrage (http_post_expected)", false
+	case "illegal_hash", "illegal_sha256_hash":
+		return "MalwareBazaar hält den Hash für ungültig (" + qs + ")", false
+	case "no_hash_provided", "no_sha256_hash":
+		return "MalwareBazaar hat keinen Hash erhalten (" + qs + ")", false
+	case "hash_not_found", "file_not_found":
+		return "MalwareBazaar kennt die Datei nicht (" + qs + ")", false
+	case "illegal_file", "unknown_file_type", "file_type_not_allowed":
+		return "MalwareBazaar nimmt diese Dateiart nicht an (" + qs + ")", false
+	case "file_too_large", "file_too_small", "empty_file":
+		return "MalwareBazaar lehnt die Dateigröße ab (" + qs + ")", false
+	case "illegal_tag", "unknown_tag", "illegal_tags":
+		return "MalwareBazaar lehnt ein Schlagwort (Tag) ab (" + qs + ")", false
+	case "illegal_delivery_method", "unknown_delivery_method":
+		return "MalwareBazaar lehnt den Lieferweg ab (" + qs + ")", false
+	case "rate_limited", "too_many_requests":
+		return "MalwareBazaar bremst: zu viele Anfragen (" + qs + ")", true
+	case "":
+		return "MalwareBazaar antwortet ohne query_status", true
 	}
-	return "MalwareBazaar: " + clip(qs, 60)
+	return "MalwareBazaar meldet einen unbekannten Status: " + clip(qs, 60), true
 }
 
-func bazaarCall(ctx context.Context, key, ctype string, body io.Reader) (map[string]any, int, error) {
+// bazaarStatusWordRe: eine Antwort, die nur aus einem Statuswort besteht (statt JSON).
+var bazaarStatusWordRe = regexp.MustCompile(`^[a-z][a-z0-9_]{2,40}$`)
+
+// bazaarReplyText: Auszug einer Antwort fürs Prüfprotokoll (gültiges UTF-8, ohne
+// Steuerzeichen, Leerraum zusammengefasst, Schlüssel geschwärzt, höchstens 300 Zeichen).
+func bazaarReplyText(raw []byte, key string) string {
+	s := strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 || r >= 0x80 && r < 0xa0 {
+			return ' '
+		}
+		return r
+	}, strings.ToValidUTF8(string(raw), "?"))
+	s = strings.Join(strings.Fields(s), " ")
+	if key != "" {
+		s = strings.ReplaceAll(s, key, "•••")
+	}
+	return clip(s, 300)
+}
+
+// bazaarCall sendet eine Anfrage und liest die Antwort als JSON-Objekt. reply ist immer
+// ein bereinigter Auszug der Antwort (auch bei Fehlern), damit das Prüfprotokoll zeigt,
+// was wirklich zurückkam. Bis 0.9.6 meldete eine unlesbare Antwort nur "antwortet 200 OK".
+func bazaarCall(ctx context.Context, key, ctype string, body io.Reader) (out map[string]any, reply string, code int, err error) {
 	req, _ := http.NewRequestWithContext(ctx, "POST", bazaarBase+"/api/v1/", body)
 	req.Header.Set("Auth-Key", key)
 	req.Header.Set("Content-Type", ctype)
 	req.Header.Set("Accept", "application/json")
 	resp, err := shareHTTP.Do(req)
 	if err != nil {
-		return nil, 0, errors.New("MalwareBazaar nicht erreichbar")
+		return nil, "", 0, errors.New("MalwareBazaar nicht erreichbar")
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-	var out map[string]any
+	reply = bazaarReplyText(raw, key)
 	if resp.StatusCode == 401 || resp.StatusCode == 403 {
-		return nil, resp.StatusCode, errors.New("MalwareBazaar lehnt den abuse.ch-Schlüssel ab (" + resp.Status + "). Schlüssel unter https://auth.abuse.ch/ prüfen")
+		return nil, reply, resp.StatusCode, errors.New("MalwareBazaar lehnt den abuse.ch-Schlüssel ab (" + resp.Status + "). Schlüssel unter https://auth.abuse.ch/ prüfen")
 	}
-	if resp.StatusCode != 200 || json.Unmarshal(raw, &out) != nil {
-		return nil, resp.StatusCode, errors.New("MalwareBazaar antwortet " + resp.Status)
+	if resp.StatusCode != 200 {
+		return nil, reply, resp.StatusCode, errors.New("MalwareBazaar antwortet " + resp.Status)
 	}
-	return out, 200, nil
+	if out, ok := bazaarParse(raw); ok {
+		return out, reply, 200, nil
+	}
+	t := bytes.TrimSpace(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")))
+	switch {
+	case len(t) == 0:
+		err = errors.New("MalwareBazaar antwortet 200 OK, aber ohne Inhalt")
+	case t[0] == '<':
+		err = errors.New("MalwareBazaar antwortet 200 OK mit einer Webseite statt JSON (Störung oder Schutzseite vor der API)")
+	default:
+		err = errors.New("MalwareBazaar antwortet 200 OK, aber nicht im erwarteten Format (kein JSON-Objekt)")
+	}
+	return nil, reply, 200, err
+}
+
+// bazaarParse liest eine Antwort tolerant: JSON-Objekt (auch mit BOM), ein Array, dessen
+// erstes Element ein Objekt mit query_status ist, oder ein bloßes Statuswort (als JSON-
+// Zeichenkette oder Klartext).
+func bazaarParse(raw []byte) (map[string]any, bool) {
+	t := bytes.TrimSpace(bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf")))
+	var v any
+	if json.Unmarshal(t, &v) == nil {
+		switch x := v.(type) {
+		case map[string]any:
+			return x, true
+		case []any:
+			if len(x) > 0 {
+				if m, ok := x[0].(map[string]any); ok {
+					if _, has := m["query_status"]; has {
+						return m, true
+					}
+				}
+			}
+		case string:
+			if bazaarStatusWordRe.MatchString(x) {
+				return map[string]any{"query_status": x}, true
+			}
+		}
+		return nil, false
+	}
+	if s := string(t); bazaarStatusWordRe.MatchString(s) {
+		return map[string]any{"query_status": s}, true
+	}
+	return nil, false
 }
 
 // readQuarantine liest eine Datei der Quarantäne (nur reguläre Dateien, Hash geprüft).

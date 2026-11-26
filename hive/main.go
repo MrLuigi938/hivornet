@@ -69,6 +69,7 @@ type Hive struct {
 	snap       attackSnap    // Angriffe der letzten sieben Tage (attacksnap.go)
 	hw         hwMonitor     // Hardware-Monitor (hwmon.go)
 	bruteTop   bruteTopCache // Top-Listen ohne Dauer-Brute-Force (brutetop.go)
+	topRes     topResCache   // fertige Top-Listen fürs Dashboard (brutetop.go)
 }
 
 func env(k, def string) string {
@@ -235,8 +236,9 @@ func (h *Hive) routes(sensorOnUI bool, metricsToken string, files http.Handler) 
 	ui.HandleFunc("GET /api/abuse/log", a.Require(h.abuseLog))
 	ui.HandleFunc("GET /api/share/status", a.Require(h.shareStatus))
 	ui.HandleFunc("POST /api/share/dshield/check", a.Require(h.dshieldCheckAPI))
-	ui.HandleFunc("GET /api/funde", a.Require(h.funde))          // Tab „Funde“ (funde.go)
-	ui.HandleFunc("GET /api/funde/file", a.Require(h.fundeFile)) // Fallakte einer Datei
+	ui.HandleFunc("GET /api/funde", a.Require(h.funde))                // Tab „Funde“ (funde.go)
+	ui.HandleFunc("GET /api/funde/file", a.Require(h.fundeFile))       // Fallakte einer Datei
+	ui.HandleFunc("GET /api/funde/program", a.Require(h.fundeProgram)) // Programm lesbar (program.go)
 	ui.HandleFunc("GET /api/campaigns", a.Require(h.campaigns))
 	ui.HandleFunc("GET /api/analysis/patterns", a.Require(h.patternStats))
 	ui.HandleFunc("GET /api/analysis/exploits", a.Require(h.exploitsAPI)) // Exploits nach Produkt (exploits.go)

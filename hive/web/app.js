@@ -1,15 +1,16 @@
 // Hivornet Web-UI: Anmeldung, Navigation und alle Ansichten.
 import {
-  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag, hideTip, panels,
+  h, mount, api, AuthError, fmtNum, fmtBytes, fmtDur, fmtTime, fmtDateTime, relTime, toMs, store, flag, hideTip, panels, plural, credText, activeBadge, ACTIVE_MS, ACTIVE_TITLE,
 } from "./dom.js";
 import { worldMap, timeline, toplist, sparkline, svcName, svcColor, countryName } from "./charts.js";
 // Angriffe gebündelt (Seite "Angriffe", "Gerade aktiv" im Dashboard)
-import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE, layoutPicker, sharedFromQuery, sharedQS, sharedParams, sharedRange, sharedBar, STUFE } from "./attacks.js";
+import { viewAttacks, viewSwitch, attackCard, attackRow, liveAttacks, noteBrute, bruteStatsParam, bruteStatsNote, historyView, HISTORY_FROM, BRUTE_TITLE, sharedFromQuery, sharedQS, sharedParams, sharedRange, sharedBar, STUFE } from "./attacks.js";
 // Analyse, Bericht, Mitschnitt, Abgleich und Zusatz-Einstellungen
 import { viewAnalysis, viewCreds, viewTarpit, viewInsights, exposureCard } from "./auswertung.js";
 import { reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra.js";
 // Einstellungen mit Unterseiten (#/settings/<bereich>)
 import { viewSettings } from "./settings.js";
+import { applyTheme, activeSkin, skinReady, onSkinChange } from "./themes.js";
 import { viewFunde } from "./funde.js";
 // Hardware-Monitor im Reiter System
 import { hardwareCard } from "./hardware.js";
@@ -34,11 +35,24 @@ const SERVICES = ["ssh", "telnet", "http", "https", "ftp", "smtp", "redis", "mys
 const MODE_NAME = { emulate: "Aufzeichnen", tarpit: "Tarpit", hybrid: "Hybrid" };
 
 // ---------- Theme ----------
-// Standard ist dunkel; "system" folgt der Einstellung des Betriebssystems.
-function applyTheme(t) {
-  document.documentElement.dataset.theme = t === "light" || t === "system" ? t : "dark";
+// Farbmodus und Theme: themes.js (Einstellungen → Darstellung). Ein Theme kann den Rahmen
+// (shell), die Übersicht (dashboard) und Seitenwechsel (onRoute) übernehmen; Ablauf und
+// Regeln stehen im Kopf von themes.js und in docs/ARCHITEKTUR.md.
+applyTheme();
+// Wechsel ohne Neuladen: alte Ansicht und altes Theme abräumen, Rahmen neu, Seite neu.
+onSkinChange((next, prev) => {
+  if (!state.user || !mainEl) return;
+  if (state.cleanup) { state.cleanup(); state.cleanup = null; }
+  try { prev.mod?.cleanup?.(); } catch (e) { console.error(e); }
+  renderShell();
+  route();
+});
+// Hook eines Themes aufrufen; Fehler landen in der Konsole, dann gilt der Standard (undefined).
+function skinHook(name, ...args) {
+  const fn = activeSkin().mod?.[name];
+  if (typeof fn !== "function") return undefined;
+  try { return fn(...args); } catch (e) { console.error(`Theme-Einhängepunkt ${name}:`, e); return undefined; }
 }
-applyTheme(store("theme"));
 
 // ---------- Start, Anmeldung ----------
 
@@ -50,6 +64,7 @@ async function boot() {
     if (st && st.needed) return showSetup(st);
     return showLogin();
   }
+  await skinReady(); // Rahmen erst bauen, wenn CSS und Modul des Themes da sind
   renderShell();
   startStream();
   startLivePoll();
@@ -194,7 +209,11 @@ let liveStat = null, liveTimer = null;
 async function pollLive() {
   try { liveStat = await api("stats/live", { noAuthRedirect: true }); } catch { /* nächster Versuch */ }
   renderLiveText();
+  for (const fn of liveStatFns) fn(liveStat);
 }
+// Zahl der aktiven Angreifer vom Hive (null: noch nicht geholt); dieselbe Zahl wie in der Kopfzeile
+export const liveStatFns = new Set();
+export const liveActiveCount = () => (liveStat ? liveStat.active : null);
 function startLivePoll() {
   clearInterval(liveTimer);
   pollLive();
@@ -206,7 +225,7 @@ function renderLiveText() {
   const st = d.dataset.state || "verbinde …";
   if (st !== "live") { mount(d.lastChild, st); return; }
   mount(d.lastChild, "LIVE", liveStat ? [
-    " · ", h("a", { href: "#/attacks", title: "Angreifer mit Aktivität in den letzten 15 Minuten" }, `${fmtNum(liveStat.active)} aktiv`),
+    " · ", h("a", { href: "#/attacks", title: ACTIVE_TITLE.replace("aktiv", "Aktive Angreifer") }, `${fmtNum(liveStat.active)} aktiv`),
     liveStat.tarpits ? [" · ", h("a", { href: "#/tarpit", title: "Gerade im Tarpit festgehalten: wer, seit wann" }, `${fmtNum(liveStat.tarpits)} im Tarpit`)] : null,
   ] : null);
 }
@@ -218,18 +237,11 @@ let mainEl, topEl;
 
 function renderShell() {
   const isAdmin = state.user.role !== "viewer";
-  const theme = h("select", {
-    "aria-label": "Darstellung",
-    onchange: (e) => { store("theme", e.target.value); applyTheme(e.target.value); },
-  }, [["dark", "Dunkel"], ["light", "Hell"], ["system", "Wie das System"]].map(([v, l]) => h("option", { value: v, selected: (["light", "system"].includes(store("theme")) ? store("theme") : "dark") === v }, l)));
   const menu = h("div", { class: "menu", hidden: true },
     h("div", { class: "info" }, "Angemeldet als ", h("b", null, state.user.username), state.user.role === "viewer" ? " (nur ansehen)" : ""),
     isAdmin ? h("a", { href: "#/settings" }, "Einstellungen") : null,
+    h("a", { href: "#/settings/darstellung" }, "Darstellung"),
     state.user.logs ? h("a", { href: "#/logs" }, "Protokolle") : null,
-    h("hr"),
-    h("label", { class: "row" }, "Darstellung", theme),
-    h("div", { class: "row" }, "Seite Angriffe"),
-    layoutPicker(() => { if ((location.hash || "").startsWith("#/attacks")) route(); }),
     h("hr"),
     h("button", { class: "item", onclick: logout }, "Abmelden"),
     h("div", { class: "info" }, "Version ", state.user.version));
@@ -238,20 +250,39 @@ function renderShell() {
     menu.hidden = !menu.hidden;
     userBtn.setAttribute("aria-expanded", String(!menu.hidden));
   } }, h("span", { class: "avatar" }, (state.user.username || "?").slice(0, 1).toUpperCase()), state.user.username);
-  document.addEventListener("click", (e) => { if (!menu.hidden && !menu.contains(e.target)) { menu.hidden = true; userBtn.setAttribute("aria-expanded", "false"); } });
+  // nur ein Klick-Abräumer, auch wenn der Rahmen neu gebaut wird (Anmeldung, Theme-Wechsel)
+  if (closeMenu) document.removeEventListener("click", closeMenu);
+  closeMenu = (e) => { if (!menu.hidden && !menu.contains(e.target)) { menu.hidden = true; userBtn.setAttribute("aria-expanded", "false"); } };
+  document.addEventListener("click", closeMenu);
   menu.addEventListener("click", (e) => { if (e.target.closest("a")) menu.hidden = true; });
-  mainEl = h("div");
-  topEl = h("div", { class: "top" });
-  mount(app,
-    h("header", { class: "topbar" },
-      h("a", { class: "brand", href: "#/" }, h("img", { src: "favicon.svg", alt: "" }), "Hivornet"),
-      h("nav", { class: "nav" }, NAV.map(([href, label]) => h("a", { href }, label))),
-      h("div", { class: "grow" }),
-      h("span", { id: "live", class: "livepill", role: "status" }, h("i"), h("span", null, "verbinde …")),
-      h("div", { class: "usermenu" }, userBtn, menu)),
-    h("main", { class: "main" }, topEl, mainEl, credit(true)));
+  // Bausteine, die ein Theme in seinem eigenen Rahmen anordnen kann (themes.js: shell)
+  const teile = {
+    user: state.user, nav: NAV, logout,
+    brand: h("a", { class: "brand", href: "#/" }, h("img", { src: "favicon.svg", alt: "" }), "Hivornet"),
+    live: h("span", { id: "live", class: "livepill", role: "status" }, h("i"), h("span", null, "verbinde …")),
+    userMenu: h("div", { class: "usermenu" }, userBtn, menu),
+    credit: credit(true),
+  };
+  const sk = skinHook("shell", app, teile);
+  if (sk && sk.main && sk.top) {
+    mainEl = sk.main;
+    topEl = sk.top;
+  } else {
+    mainEl = h("div");
+    topEl = h("div", { class: "top" });
+    mount(app,
+      h("header", { class: "topbar" },
+        teile.brand,
+        h("nav", { class: "nav" }, NAV.map(([href, label]) => h("a", { href, "data-navlink": "" }, label))),
+        h("div", { class: "grow" }),
+        teile.live,
+        teile.userMenu),
+      h("main", { class: "main" }, topEl, mainEl, teile.credit));
+  }
+  if (state.es && state.es.readyState === EventSource.OPEN) setLive(true);
   window.onhashchange = route;
 }
+let closeMenu = null;
 
 // ---------- Zeitraum ----------
 // Feste Auswahl plus „Eigener“: Zahl und Einheit, z. B. 3 Monate (Server: rangeDur in api.go).
@@ -331,10 +362,13 @@ async function route(opts = {}) {
   const hash = location.hash || "#/";
   // Einzelansicht, Angreifer und Sitzungen gehören in der Navigation zu "Angriffe"
   const navHash = /^#\/(feed|attacker\/|session)/.test(hash) ? "#/attacks" : hash;
-  for (const a of document.querySelectorAll(".nav a")) {
+  for (const a of document.querySelectorAll("a[data-navlink]")) {
     const href = a.getAttribute("href");
-    a.classList.toggle("on", href === "#/" ? navHash === "#/" || navHash === "" : navHash.startsWith(href));
+    const on = href === "#/" ? navHash === "#/" || navHash === "" : navHash.startsWith(href);
+    a.classList.toggle("on", on);
+    if (on) a.setAttribute("aria-current", "page"); else a.removeAttribute("aria-current");
   }
+  if (!quiet) skinHook("onRoute", { hash, navHash });
   const [, view, m] = routes.map(([re, v]) => [re, v, hash.match(re)]).find(([, , m]) => m) || [null, viewDashboard, []];
   // Jede Ansicht zeichnet in ihren eigenen Behälter. Wird inzwischen weiternavigiert,
   // landet eine verspätete Ansicht in einem Behälter, der nicht mehr angezeigt wird,
@@ -398,7 +432,7 @@ function describe(e) {
       const ok = d.success ? h("span", { class: "badge ok" }, "erfolgreich") : null;
       if (d.cookie) return `${e.username || "–"} (nur Benutzername, aus dem RDP-Cookie)`;
       const pw = d.password_hashed ? "(Passwort gehasht)" : e.password;
-      return [`${e.username || "–"} / ${pw ?? ""}`, ok ? " " : null, ok];
+      return [`${e.username || "(leer)"} / ${pw || "(leer)"}`, ok ? " " : null, ok];
     }
     case "command": return d.input || "";
     case "request": return d.forward_to ? `Weiterleitung nach ${d.forward_to}` : `${d.method || ""} ${d.path || ""}`;
@@ -467,12 +501,11 @@ function warningsBox(list, link) {
 // Letzter Stand von "Gerade aktiv" über Aktualisierungen hinweg (null: noch nie geladen)
 let dashActive = null;
 
-async function viewDashboard(el, ctx) {
-  header("Dashboard", { range: true });
-  const r = state.range;
+// Daten der Übersicht für einen Zeitraum, gemeinsam für den Standard und Themes (dashboard-Hook).
+// actP: "Gerade aktiv" ist die teuerste Abfrage; niemand wartet darauf, die Liste folgt.
+async function loadDashboard(r = state.range) {
   const q = (p) => api(p + (p.includes("?") ? "&" : "?") + "range=" + r);
   const nb = bruteStatsParam(); // Zugangsdaten, Netzbetreiber, Befehle ohne Dauer-Brute-Force
-  // "Gerade aktiv" ist die teuerste Abfrage: Das Dashboard wartet nicht darauf, die Liste folgt.
   const actP = api("attacks?active=1&limit=60").catch(() => null);
   const [ser, tl, mp, countries, ports, ips, asns, creds, cmds, sys] = await Promise.all([
     q("stats/series"), q("stats/timeline"), q("stats/map"),
@@ -481,6 +514,17 @@ async function viewDashboard(el, ctx) {
     api("system").catch(() => null),
   ]);
   const home = await homeLocation();
+  return { range: r, ser, tl, mp, countries, ports, ips, asns, creds, cmds, sys, home, actP };
+}
+
+async function viewDashboard(el, ctx) {
+  header("Dashboard", { range: true });
+  const r = state.range;
+  const data = await loadDashboard(r);
+  if (activeSkin().mod?.dashboard) {
+    try { return await activeSkin().mod.dashboard(el, ctx, data); } catch (e) { console.error("Theme-Übersicht:", e); }
+  }
+  const { ser, tl, mp, countries, ports, ips, asns, creds, cmds, sys, home, actP } = data;
 
   // ---- Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor ----
   const tiles = {};
@@ -497,18 +541,24 @@ async function viewDashboard(el, ctx) {
   ];
   const kpi = ([key, label, alarm, href, help]) => {
     const v = Number(ser.totals[key] || 0), p = Number(ser.prev[key] || 0);
-    const delta = p ? Math.round(((v - p) / p) * 100) : null;
+    // Prozentvergleich nur mit tragfähiger Basis: Der Zeitraum davor muss zu mindestens der Hälfte nach dem
+    // Beginn der Aufzeichnung liegen und genug Ereignisse haben. Sonst "neu" bzw. gar kein Vergleich.
+    const span = Date.now() - ser.from, early = ser.data_from > 0 && ser.data_from > ser.from - span / 2;
+    const base = !early && p >= 20;
+    const delta = base ? Math.round(((v - p) / p) * 100) : null;
     const value = h("span", null, fmtNum(v));
-    const t = h("a", { class: "card tile link" + (alarm && v ? " alarm" : ""), href, title: (help ? help + " " : "") + (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + "Klick zeigt die Liste dazu." },
+    const isNew = !base && early && v > 0;
+    const t = h("a", { class: "card tile link" + (alarm && v ? " alarm" : ""), href, title: (help ? help + " " : "") + (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + (isNew ? "Der Zeitraum davor liegt zum großen Teil vor dem Beginn der Aufzeichnung, ein Prozentvergleich wäre nicht aussagekräftig. " : "") + "Klick zeigt die Liste dazu." },
       h("div", { class: "label" }, label),
-      h("div", { class: "value num" }, value, delta !== null && delta !== 0 ? h("small", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : null),
+      h("div", { class: "value num" }, value, delta !== null && delta !== 0 ? h("small", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : isNew ? h("small", null, "neu") : null),
       sparkline(ser.series[key] || []));
     tiles[key] = { value, n: v };
     return t;
   };
 
   // ---- Karte ----
-  const map = worldMap(mp, { home, countries });
+  // Angriffslinien als Spur: Einstellungen → Darstellung (Standard aus)
+  const map = worldMap(mp, { home, countries, arcs: store("mapSpur") === "1" ? "spur" : "aktiv" });
 
   // ---- Gerade aktiv (Angriffe der letzten 15 Minuten) ----
   // Beim stillen Aktualisieren (alle 2 Minuten) den bisherigen Stand übernehmen, statt die Liste
@@ -525,7 +575,7 @@ async function viewDashboard(el, ctx) {
   };
   const renderActive = () => {
     const now = Date.now();
-    for (const [id, a] of active) if (now - a.last > 15 * 60e3) active.delete(id);
+    for (const [id, a] of active) if (now - a.last > ACTIVE_MS) active.delete(id);
     const list = [...active.values()].sort((x, y) => y.last - x.last);
     rowEls.clear();
     setActInfo();
@@ -554,7 +604,7 @@ async function viewDashboard(el, ctx) {
         h("span", null, h("i", { class: "swatch", style: { background: "var(--dot)", borderRadius: "50%" } }), "Ort"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--attack)" } }), "gerade aktiver Angreifer (Linie zum Honeypot)"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--good)", borderRadius: "50%" } }), home.label || "Honeypot"))),
-    h("aside", { class: "card act" }, h("div", { class: "head" }, h("h2", null, "Gerade aktiv"), h("div", { class: "grow" }), actCount), actList,
+    h("aside", { class: "card act" }, h("div", { class: "head" }, h("h2", { title: ACTIVE_TITLE }, "Aktiv (15 Min)"), h("div", { class: "grow" }), actCount), actList,
       h("a", { href: "#/attacks", style: { marginTop: "10px", fontSize: "13px" } }, "Alle Angriffe")),
     h("div", { class: "low" },
       card("Verbindungen nach Dienst", timeline(tl)),
@@ -589,7 +639,7 @@ async function viewDashboard(el, ctx) {
     }
   });
   liveAttacks(ctx, (updated) => {
-    for (const a of updated.sort((x, y) => x.last - y.last)) if (!a.own && Date.now() - a.last < 15 * 60e3) upsertActive(a);
+    for (const a of updated.sort((x, y) => x.last - y.last)) if (!a.own && Date.now() - a.last < ACTIVE_MS) upsertActive(a);
   });
   ctx.every(5000, () => { document.querySelectorAll(".alist [data-rel]").forEach((x) => { x.textContent = relTime(Number(x.dataset.rel)); }); });
   ctx.every(30000, () => { if (!document.hidden) renderActive(); });
@@ -622,7 +672,7 @@ async function viewFeed(el, ctx, query = "") {
   // Zeilen: gleichartige Ereignisse derselben IP direkt hintereinander werden zusammengefasst ("×10")
   let groups = [], shown = 0;
   const sameKind = (a, b) => a.src_ip === b.src_ip && a.type === b.type && a.service === b.service;
-  const setInfo = () => { info.textContent = `${fmtNum(shown)} Ereignisse in ${fmtNum(groups.length)} Zeilen`; };
+  const setInfo = () => { info.textContent = `${plural(shown, "Ereignis", "Ereignisse")} in ${plural(groups.length, "Zeile", "Zeilen")}`; };
   async function load(older) {
     const rows = await api("events?" + params(older));
     if (!older) { body.replaceChildren(); groups = []; shown = 0; }
@@ -673,6 +723,8 @@ async function viewFeed(el, ctx, query = "") {
       h("input", { type: "search", placeholder: "Text in Ereignissen: Passwort, Befehl …", oninput: (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { f.q = e.target.value.trim(); load(); }, 350); } }),
       h("input", { "aria-label": "Land", placeholder: "Land (z. B. CN)", maxlength: 3, style: { width: "120px" }, onchange: (e) => { f.country = e.target.value.trim().toUpperCase(); e.target.value = f.country; load(); } }),
       h("input", { "aria-label": "Port", type: "number", placeholder: "Port", min: 1, max: 65535, style: { width: "90px" }, onchange: (e) => { f.port = e.target.value.trim(); load(); } }),
+      h("label", { class: "inline", title: "Verbindungen aus eigenen Netzen (Einstellungen → Eigene Netze); wie auf der Seite „Angriffe“ standardmäßig ausgeblendet" },
+        h("input", { type: "checkbox", checked: sf.own, onchange: (e) => { sf.own = e.target.checked; load(); } }), "Eigene Tests zeigen"),
       h("label", { class: "inline" }, h("input", { type: "checkbox", checked: f.hideNoise, onchange: (e) => { f.hideNoise = e.target.checked; store("hideNoise", f.hideNoise ? "1" : "0"); load(); } }), "Verbindungsauf- und -abbau ausblenden")),
     exportBox,
     card(null, h("div", { class: "tablewrap" }, h("table", null,
@@ -680,7 +732,7 @@ async function viewFeed(el, ctx, query = "") {
     more));
   await load();
   ctx.live((e) => {
-    if (f.paused || !matches(e)) return;
+    if (f.paused || (e.own && !sf.own) || !matches(e)) return;
     const first = groups[0];
     shown++;
     if (first && sameKind(first.items[0], e)) {
@@ -711,7 +763,7 @@ async function viewSessions(el, ctx, query = "") {
     mount(box, h("p", { class: "muted" }, "Lade …"));
     const rows = await api("sessions?" + sharedParams(sf));
     if (!ctx.current()) return;
-    info.textContent = `${fmtNum(rows.length)} Sitzungen` + (rows.length >= 200 ? " (die neuesten 200)" : "");
+    info.textContent = plural(rows.length, "Sitzung", "Sitzungen") + (rows.length >= 200 ? " (die neuesten 200)" : "");
     mount(box, card(null, rows.length ? h("div", { class: "tablewrap" }, h("table", null,
       h("thead", null, h("tr", null, ["Start", "Dienst", "Quelle", "Stufe", "Art", "Logins", "Befehle", "Was getippt wurde", "Dauer", "Status"].map((t) => h("th", null, t)))),
       h("tbody", null, rows.map((r) => {
@@ -725,7 +777,7 @@ async function viewSessions(el, ctx, query = "") {
           h("td", null, yes(r.logins)), h("td", null, yes(r.commands)),
           h("td", { class: "det mono", title: (r.cmds || []).join("\n") }, (r.cmds || []).join(" ⏎ ") || h("span", { class: "muted" }, "–")),
           h("td", { class: "num" }, fmtDur(r.last - r.start)),
-          h("td", null, r.success ? h("span", { class: "badge ok" }, "Login erfolgreich") : null, r.downloads ? h("span", { class: "badge err" }, `${fmtNum(r.downloads)} Datei`) : null,
+          h("td", null, r.success ? h("span", { class: "badge ok" }, "Login erfolgreich") : null, r.downloads ? h("span", { class: "badge err" }, plural(r.downloads, "Datei", "Dateien")) : null,
             r.tarpit ? h("span", { class: "badge tarpit" }, "festgehalten") : null));
       }))))
       : h("div", { class: "empty" }, "Keine Sitzungen mit Logins, Befehlen oder Dateien für diese Auswahl.")));
@@ -782,7 +834,7 @@ async function viewAttacker(el, ctx, ip) {
   const renderList = (freshId) => mount(list, !attacks.length
     ? h("div", { class: "empty" }, "Keine Angriffe in den gespeicherten Rohdaten (ältere sind nach der Aufbewahrungszeit gelöscht).")
     : hist && nAttacks >= HISTORY_FROM ? historyView(hist, attacks, { open: openCards })
-      : attacks.map((x, k) => { x.seen = attacks.length - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === freshId }); }));
+      : attacks.map((x, k) => { x.seen = nAttacks - k; return attackCard(x, { showIP: false, open: openCards, fresh: x.id === freshId }); }));
   renderList();
   const chain = chainCard({ ip });
   mount(el, h("div", { class: "stack" },
@@ -796,7 +848,7 @@ async function viewAttacker(el, ctx, ip) {
         attacks.length ? h("span", { class: "badge stufe", style: { "--c": `var(--sev${top})` } }, "Höchste Stufe: ", ["Abtasten", "Versuche", "Login angenommen", "Befehle ausgeführt", "Datei nachgeladen"][top]) : null,
         attacks.some((a) => (a.ai_replies || []).length) ? h("span", { class: "badge ai", title: "Das Sprachmodell hat dieser IP geantwortet; Einzelheiten in den Angriffen und im Bericht" }, "beantwortet durch KI") : null,
         attacks.some((a) => a.brute) || d.condensed ? h("span", { class: "badge", title: BRUTE_TITLE }, "Dauer-Brute-Force") : null,
-        Date.now() - toMs(i.last_seen) < 15 * 60e3 ? h("span", { class: "badge active" }, "● gerade aktiv") : null),
+        activeBadge(i.last_seen)),
       h("div", { class: "facts-row" },
         fact("Erstmals gesehen", fmtDateTime(i.first_seen)), fact("Zuletzt gesehen", relTime(i.last_seen)),
         fact("Angriffe", fmtNum(nAttacks)), fact("Ereignisse", fmtNum(i.events)),
@@ -808,7 +860,7 @@ async function viewAttacker(el, ctx, ip) {
       hist && nAttacks >= HISTORY_FROM ? h("span", { class: "hint" }, `${fmtNum(nAttacks)} Angriffe · ${fmtDateTime(hist.first)} bis ${fmtDateTime(hist.last)}`) : null), list),
     h("div", { class: "grid two" },
       card("Angegriffene Ports", toplist(d.ports.map((p) => ({ key: `${p.dst_port} · ${svcName(p.service)}`, n: p.n })))),
-      card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: `${c.username} / ${c.password}`, n: c.n }))))),
+      card("Benutzte Zugangsdaten", toplist(d.creds.map((c) => ({ key: credText(`${c.username} / ${c.password}`), n: c.n }))))),
     chain,
     reportCard({ ip }),
     intelCard(ip),
@@ -1055,6 +1107,6 @@ async function viewLogs(el, ctx) {
 
 // Bausteine für extra.js. Die beiden Module importieren sich gegenseitig; das ist
 // in Ordnung, weil extra.js diese Namen nur innerhalb von Funktionen benutzt.
-export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME, MODE_NAME, route, rangePicker, rangeOK };
+export { state, header, card, tile, cc, ipLink, svcBadge, describe, isNoise, TYPE_NAME, MODE_NAME, route, rangePicker, rangeOK, loadDashboard, warningsBox, NAV };
 
 boot();

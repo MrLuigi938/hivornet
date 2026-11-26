@@ -312,6 +312,17 @@ const (
 	reportMaxTimeline = 600 // Zeilen im Ablauf (für die KI-Auswertung)
 )
 
+// credShow: "Benutzer / Passwort" für die Anzeige; leere Teile heißen "(leer)", nicht nur " / ".
+func credShow(user, pass string) string {
+	if user == "" {
+		user = "(leer)"
+	}
+	if pass == "" {
+		pass = "(leer)"
+	}
+	return user + " / " + pass
+}
+
 // timelineLine beschreibt ein Ereignis in einer Zeile für den Ablauf. Verbindungsende
 // und reine Fingerabdrücke fehlen; entschlüsselte Inhalte stehen dahinter.
 func timelineLine(e *Event, kind evKind, text string, revealed []string, loc *time.Location) string {
@@ -342,7 +353,7 @@ func timelineLine(e *Event, kind evKind, text string, revealed []string, loc *ti
 		case dataBool(e.Data, "password_hashed"):
 			d = "Login-Versuch " + e.Username + " / (Passwort nur als Hash übertragen)"
 		default:
-			d = "Login-Versuch " + e.Username + " / " + e.Password
+			d = "Login-Versuch " + credShow(e.Username, e.Password)
 		}
 		if dataBool(e.Data, "success") || dataBool(e.Data, "accepted") {
 			d += " → vom Honeypot angenommen"
@@ -574,7 +585,7 @@ func BuildReport(subject string, evs []*Event, truncated bool) *Report {
 			case strings.Contains(string(e.Data), `"password_hashed":true`):
 				creds.add(e.Username + " / (gehasht)")
 			default:
-				creds.add(e.Username + " / " + e.Password)
+				creds.add(credShow(e.Username, e.Password))
 			}
 		case "command":
 			if kind == kindTLSPlain || kind == kindForeign || strings.TrimSpace(text) == "" {
@@ -686,7 +697,14 @@ func (r *Report) summarize() []string {
 	if r.Origin != "" {
 		from = " aus " + r.Origin
 	}
-	s = append(s, fmt.Sprintf("%d Ereignisse in %d Verbindungen%s, %s.", r.Events, r.Sessions, from, span))
+	evWord, sessWord := "Ereignisse", "Verbindungen"
+	if r.Events == 1 {
+		evWord = "Ereignis"
+	}
+	if r.Sessions == 1 {
+		sessWord = "Verbindung"
+	}
+	s = append(s, fmt.Sprintf("%d %s in %d %s%s, %s.", r.Events, evWord, r.Sessions, sessWord, from, span))
 	if len(r.Services) > 0 {
 		s = append(s, "Angesprochene Dienste: "+countList(r.Services, 8)+".")
 	}

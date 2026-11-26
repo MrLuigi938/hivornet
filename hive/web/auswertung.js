@@ -3,7 +3,7 @@
 //
 // Wie überall: Angreiferdaten nur als Text (h() aus dom.js), nie als Link-Ziel außer
 // den eigenen Routen (#/attacker/…, #/attacks?q=…).
-import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip, panels } from "./dom.js";
+import { h, s, mount, api, fmtNum, fmtDur, fmtTime, fmtDateTime, relTime, flag, hoverTip, panels, credText, plural } from "./dom.js";
 import { svcName, svcColor } from "./charts.js";
 import { state, header, card, tile, cc, ipLink, svcBadge, MODE_NAME, route } from "./app.js";
 import { cveInfo, cveBadges, cveDetails, kindChip, bruteStatsParam, bruteStatsNote } from "./attacks.js";
@@ -87,8 +87,8 @@ const TOOL_GROUPS = [
 export async function viewAnalysis(el, ctx) {
   header("Analyse", { range: true });
   const q = (f, n = 25) => api(`stats/top?field=${f}&limit=${n}&range=${state.range}`);
-  const [pd, tools, urls, wallets, pools, cves, ja4, hassh, httpfp] = await Promise.all([
-    api("analysis/patterns?range=" + state.range), q("tool", 100), q("url", 60), q("wallet", 30), q("pool", 30), q("cve", 60), q("ja4", 30), q("hassh", 30), q("httpfp", 30)]);
+  const [pd, tools, urls, wallets, pools, ja4, hassh, httpfp] = await Promise.all([
+    api("analysis/patterns?range=" + state.range), q("tool", 100), q("url", 60), q("wallet", 30), q("pool", 30), q("ja4", 30), q("hassh", 30), q("httpfp", 30)]);
   const pats = pd.patterns || [];
   const total = pats.reduce((a, p) => a + p.n, 0);
   const deepest = pats.length ? Math.max(...pats.map((p) => p.phase)) : -1;
@@ -157,10 +157,26 @@ export async function viewAnalysis(el, ctx) {
   // Kampagnen, Honeypot-Prüfungen, Lücken: Platzhalter, gefüllt nach /api/campaigns
   const campBody = h("div", { class: "muted" }, "Wird berechnet …");
   const hpBody = h("div", { class: "muted" }, "Wird berechnet …");
-  const cveCard = card("Bekannte Lücken",
-    rankMore(cves, 8, { key: (x) => x.key + " – " + (x.label || ""), link: (x) => find(x.key), color: () => "var(--sev4)", empty: "Keine Ausnutzungsversuche bekannter Lücken erkannt." }),
-    h("p", { class: "muted aw-small" }, "Erkannt an der Anfrage; ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre. Proben und Produkte ohne CVE stehen in der Tabelle „Exploits nach Produkt“."));
-  const xp = exploitSection(ctx, tNoCve);
+  // Gleiche Quelle, Einheit (Angriffe) und Einstufung (Probe/Ausnutzung) wie die Tabelle „Exploits nach Produkt“
+  const cveBody = h("div", { class: "muted" }, "Wird berechnet …");
+  const cveCard = card("Bekannte Lücken (Angriffe)", cveBody,
+    h("p", { class: "muted aw-small" }, "Zahl der Angriffe je Lücke, wie in der Tabelle „Exploits nach Produkt“; Ausnutzung = Anfrage trägt die Nutzlast, Probe = sucht nur nach dem Produkt. Ein Treffer heißt, jemand hat es versucht, nicht, dass das Gerät verwundbar wäre. Produkte ohne CVE stehen nur in der Tabelle."));
+  const renderCves = (d) => {
+    const by = new Map();
+    for (const r of d.rows || []) {
+      if (!r.cve) continue;
+      const c = by.get(r.cve) || { key: r.cve, n: 0, kind: "probe", label: r.name };
+      c.n += r.attacks;
+      if (r.kind === "exploit") c.kind = "exploit";
+      by.set(r.cve, c);
+    }
+    const list = [...by.values()].sort((a, b) => b.n - a.n);
+    mount(cveBody, rankMore(list, 8, {
+      key: (x) => x.key + " – " + (x.label || "") + (x.kind === "exploit" ? " (Ausnutzung)" : " (Probe)"),
+      link: (x) => find(x.key), color: (x) => (x.kind === "exploit" ? "var(--sev4)" : "var(--sev2)"),
+      fmt: (v) => plural(v, "Angriff", "Angriffe"), empty: "Keine bekannten Lücken im Zeitraum erkannt." }));
+  };
+  const xp = exploitSection(ctx, tNoCve, renderCves);
 
   mount(el, h("div", { class: "stack" },
     h("p", { class: "sub" }, "Was Angreifer tun, nachdem sie verbunden sind: erkannte Vorgehensweisen nach Phasen, ihre Werkzeuge und woran man sie wiedererkennt. Die Zuordnung erfolgt nach festen Regeln auf dem Hive."),
@@ -199,7 +215,7 @@ const isAdmin = () => state.user && state.user.role === "admin";
 const CHECK = { kev: ["im KEV-Katalog", "ok"], nvd: ["in der NVD", "ok"], unbekannt: ["der NVD unbekannt", "warn"], offen: ["noch nicht geprüft", ""], "ungültig": ["ungültig", "warn"] };
 
 // Tabelle Anfrage → Produkt → Lücke, darunter Exploits ohne Zuordnung mit Regelvorschlägen der KI.
-function exploitSection(ctx, tileNoCve) {
+function exploitSection(ctx, tileNoCve, onData = () => {}) {
   const body = h("div", { class: "muted" }, "Wird berechnet …");
   const lower = h("div");
   const el = card("Exploits nach Produkt",
@@ -214,6 +230,7 @@ function exploitSection(ctx, tileNoCve) {
     const nc = d.no_cve || { attacks: 0, paths: [] };
     tileNoCve.set(fmtNum(nc.attacks), nc.attacks ? "ohne Regel, Liste unter der Tabelle" : "alle Exploits zugeordnet");
     renderTable();
+    onData(d);
     await loadExtra();
   };
   const loadExtra = async () => {
@@ -413,7 +430,7 @@ export async function viewCreds(el) {
           columns(LEN_BUCKETS.map(([label], i) => ({ label: label + " Zeichen", n: lens[i] })), { color: "var(--s7)" })] : h("div", { class: "empty" }, "Noch keine Passwörter.")),
       card("Kombinationen",
         h("p", { class: "sub" }, "Markiert, was aus der Mirai-Liste stammt oder in keiner Werksliste steht (deutet auf gezielte Angriffe oder abgeflossene Zugangsdaten)."),
-        rankMore(combos, 10, { link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => (r.list ? "var(--sev4)" : r.rare ? "var(--sev2)" : null) }))),
+        rankMore(combos, 10, { key: (r) => credText(r.key), link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => (r.list ? "var(--sev4)" : r.rare ? "var(--sev2)" : null) }))),
     h("div", { class: "grid two" },
       card("Benutzernamen", rankMore(users, 10, { link: (r) => find(r.key), extra: credExtra, mono: true })),
       card("Passwörter", rankMore(pws, 10, { link: (r) => find(r.key), extra: credExtra, mono: true, color: (r) => PW_CLASSES[pwClass(r.key)][1] }),

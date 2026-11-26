@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net"
 	"net/http"
 	"os"
@@ -319,49 +320,48 @@ func (h *Hive) top(w http.ResponseWriter, r *http.Request) {
 	// bleiben unberührt.
 	noBrute := r.URL.Query().Get("nobrute") == "1" && bruteTopField(field)
 	hour, limit := since.UnixMilli()/3600000, qInt(r, "limit", 10, 100)
-	load := func(ctx context.Context) ([]map[string]any, error) {
+	load := func(ctx context.Context) ([]byte, error) {
+		var rows []map[string]any
+		var err error
 		if noBrute {
-			return h.topNoBrute(ctx, field, hour, limit)
+			rows, err = h.topNoBrute(ctx, field, hour, limit)
+		} else {
+			rows, err = h.rows(ctx, q, field, hour, limit)
 		}
-		return h.rows(ctx, q, field, hour, limit)
-	}
-	if field == "username" || field == "password" || field == "cred" { // ungewöhnliche hervorheben (weekly.go)
-		ctx, cancel := qctx(r)
-		defer cancel()
-		rows, err := load(ctx)
 		if err != nil {
-			httpErr(w, 500, err.Error())
-			return
+			return nil, err
 		}
-		for _, row := range rows {
-			if rareRow(field, fmt.Sprint(row["key"])) {
-				row["rare"] = true
-			}
-			if l := botnetList(field, fmt.Sprint(row["key"])); l != "" { // bekannte Botnetz-Liste (auswertung.go)
-				row["list"] = l
+		if field == "username" || field == "password" || field == "cred" { // ungewöhnliche hervorheben (weekly.go)
+			for _, row := range rows {
+				if rareRow(field, fmt.Sprint(row["key"])) {
+					row["rare"] = true
+				}
+				if l := botnetList(field, fmt.Sprint(row["key"])); l != "" { // bekannte Botnetz-Liste (auswertung.go)
+					row["list"] = l
+				}
 			}
 		}
 		if rows == nil {
 			rows = []map[string]any{}
 		}
-		writeJSON(w, rows)
+		return json.Marshal(rows)
+	}
+	// Fertige Listen zwischenspeichern (brutetop.go): Das Dashboard holt viele Listen zugleich;
+	// über 7 oder 30 Tage braucht jede auf dem Pi Sekunden und hielt den Verbindungspool belegt.
+	ctx, cancel := qctx(r)
+	defer cancel()
+	b, err := h.topRes.get(ctx, topResKey{field, hour, limit, noBrute}, load)
+	if errors.Is(err, errBusy) {
+		httpErr(w, 503, err.Error())
 		return
 	}
-	if noBrute {
-		ctx, cancel := qctx(r)
-		defer cancel()
-		rows, err := load(ctx)
-		if err != nil {
-			httpErr(w, 500, err.Error())
-			return
-		}
-		if rows == nil {
-			rows = []map[string]any{}
-		}
-		writeJSON(w, rows)
+	if err != nil {
+		httpErr(w, 500, err.Error())
 		return
 	}
-	h.sendRows(w, r, q, field, hour, limit)
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.Write(append(b, '\n'))
 }
 
 // countryStats liefert Angriffe (Verbindungen) je Land: heute und insgesamt.
@@ -461,6 +461,38 @@ func eventFilter(r *http.Request) (string, []any) {
 	return strings.Join(where, " AND "), args
 }
 
+// sendRowsNoOwn: neueste Ereignisse ohne die eigener Tests (ownnet.go). Ob eine Adresse als eigen gilt, weiß nur
+// der Code, nicht die Datenbank; darum werden weitere Seiten gelesen, bis limit Zeilen zusammen sind.
+func (h *Hive) sendRowsNoOwn(w http.ResponseWriter, r *http.Request, where string, args []any, limit int) {
+	ctx, cancel := qctx(r)
+	defer cancel()
+	out := []map[string]any{}
+	cursor := int64(math.MaxInt64)
+	for round := 0; round < 20 && len(out) < limit; round++ {
+		a := append(append([]any{}, args...), cursor, limit*2)
+		rows, err := h.rows(ctx, `SELECT `+evCols+` FROM events WHERE `+where+` AND id < ? ORDER BY id DESC LIMIT ?`, a...)
+		if err != nil {
+			httpErr(w, 500, err.Error())
+			return
+		}
+		for _, row := range rows {
+			id, _ := row["id"].(int64)
+			cursor = id
+			if ownHidden(fmt.Sprint(row["src_ip"])) {
+				continue
+			}
+			out = append(out, row)
+			if len(out) >= limit {
+				break
+			}
+		}
+		if len(rows) < limit*2 {
+			break
+		}
+	}
+	writeJSON(w, out)
+}
+
 func (h *Hive) events(w http.ResponseWriter, r *http.Request) {
 	if strings.TrimSpace(r.URL.Query().Get("q")) != "" { // Volltext über data: teuer
 		ctx, cancel := qctx(r)
@@ -478,9 +510,14 @@ func (h *Hive) events(w http.ResponseWriter, r *http.Request) {
 	f := parseAttackFilter(r, "aq")
 	f.service, f.from, f.to = "", 0, 0 // Dienst und Zeitfenster filtert eventFilter schon je Ereignis
 	f.active = len(f.terms) > 0 || len(f.stufe) > 0
+	showOwn := r.URL.Query().Get("own") == "1" // eigene Tests nur auf Wunsch, wie bei den Angriffen
 	if !f.active {
-		args = append(args, limit)
-		h.sendRows(w, r, `SELECT `+evCols+` FROM events WHERE `+where+` ORDER BY id DESC LIMIT ?`, args...)
+		if showOwn {
+			args = append(args, limit)
+			h.sendRows(w, r, `SELECT `+evCols+` FROM events WHERE `+where+` ORDER BY id DESC LIMIT ?`, args...)
+			return
+		}
+		h.sendRowsNoOwn(w, r, where, args, limit)
 		return
 	}
 	ctx, cancel := qctx(r)
@@ -540,15 +577,33 @@ func (h *Hive) attacker(w http.ResponseWriter, r *http.Request) {
 		httpErr(w, 404, "unbekannte IP")
 		return
 	}
-	ports, _ := h.rows(ctx, `SELECT dst_port, service, COUNT(*) AS n FROM events WHERE src_ip = ? AND type='connect' GROUP BY dst_port, service ORDER BY n DESC`, ip)
+	// Ports aus allen Ereignissen, nicht nur aus Verbindungsaufbauten: Live-Check 0.9.6 zeigte
+	// die Angriffskarte „SSH und Telnet“, die Liste aber nur Port 23 (SSH-Sitzungen ohne eigenes
+	// connect-Ereignis, etwa aus Cowrie nach einem Neustart). Gezählt werden Verbindungen, ersatzweise
+	// Sitzungen, mindestens eins.
+	ports, _ := h.rows(ctx, `SELECT dst_port, service, MAX(SUM(type = 'connect'), COUNT(DISTINCT NULLIF(session, '')), 1) AS n
+		FROM events WHERE src_ip = ? AND type != 'condensed' AND dst_port > 0 GROUP BY dst_port, service ORDER BY n DESC`, ip)
 	creds, _ := h.rows(ctx, `SELECT username, password, COUNT(*) AS n FROM events WHERE src_ip = ? AND type='login' GROUP BY username, password ORDER BY n DESC LIMIT 50`, ip)
 	ports, creds, condensed := h.mergeCondensed(ctx, ip, ports, creds) // Dauer-Brute-Force (bruteforce.go)
 	evs, _ := h.rows(ctx, `SELECT `+evCols+` FROM events WHERE src_ip = ? ORDER BY id DESC LIMIT 300`, ip)
 	out := map[string]any{"info": info[0], "ports": ports, "creds": creds, "events": evs, "condensed": condensed,
 		"brute_limit": h.bruteLimit(), "brute_bans": h.bruteBansFor([]string{ip})}
 	// Verlauf über alle Angriffe dieser IP (history.go); nur diese IP, über den Index
-	if list, tr, err := h.loadAttacks(ctx, time.Now().AddDate(0, 0, -max(h.retentionDays(), 1)), []string{ip}); err == nil {
+	from := time.Now().AddDate(0, 0, -max(h.retentionDays(), 1))
+	if list, tr, err := h.loadAttacks(ctx, from, []string{ip}); err == nil {
 		out["history"] = buildHistory(list, tr)
+		// „Befehle“ wie auf den Angriffskarten zählen: nur ausgeführte (einstufung.go). Der Zähler
+		// der Tabelle attackers nimmt jedes command-Ereignis, auch Protokoll-Befehle und leere
+		// Eingaben (Live-Check 0.9.6: 52 gegen „51 Befehle ausgeführt“). Nur wenn die Rohdaten die
+		// ganze Geschichte der IP enthalten; sonst bleibt der Gesamtzähler.
+		first, _ := info[0]["first_seen"].(int64)
+		if !tr && first >= from.UnixMilli() {
+			n := 0
+			for _, a := range list {
+				n += a.Counts["command"]
+			}
+			info[0]["commands_all"], info[0]["commands"] = info[0]["commands"], n
+		}
 	}
 	if rel := h.relatedNow(ctx); rel != nil { // zusammengehörige IPs (related.go)
 		if g, others := rel.related(ip); g != nil {
@@ -597,7 +652,8 @@ func (h *Hive) sessionsList(w http.ResponseWriter, r *http.Request) {
 	var ids []any
 	for _, row := range rows {
 		id := fmt.Sprint(row["session"])
-		a := bySess[id]
+		start, _ := row["start"].(int64)
+		a := bySess.find(id, fmt.Sprint(row["src_ip"]), start)
 		if f.active && a == nil {
 			continue
 		}

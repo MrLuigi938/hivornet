@@ -1,0 +1,326 @@
+/* Theme „Taschenformat“ (skins/taschenformat.js). Wird nur geladen, solange das Theme aktiv ist.
+   Alle Regeln hängen an html[data-skin="taschenformat"]. Mobil zuerst: Tableiste unten,
+   große Flächen (mindestens 48 px), sichere Ränder; ab 900 px eine ruhige, zentrierte
+   Zweispaltenansicht mit der Tableiste oben mittig. Hell und dunkel nach dem Farbmodus des Hive. */
+
+/* ---------- Farben: dunkel (Standard des Hive) ---------- */
+html[data-skin="taschenformat"] {
+  color-scheme: dark;
+  --page: #0f1218; --surface: #1a1e27; --surface-2: #232834; --surface-3: #2d3341;
+  --text: #eef1f6; --text-2: #b9c1d0; --muted: #a0a9ba;
+  --grid: #2a303d; --axis: #3a4252; --border: #2c3340; --line2: #3a4252;
+  --accent: #8fb0ff; --on-accent: #0b1330; --accent-soft: #1d2a52; --live: #ff8745;
+  --land: #2c3340; --heat: #8fb0ff; --dot: #f2b83a; --map-bg: #161a22;
+  --s1: #6f97ff; --s2: #ff8745; --s3: #35d3a6; --s4: #f2b83a; --s5: #f07cb3; --s6: #78cf5f; --s7: #a592ff; --s8: #ff6a86; --other: #7a8497;
+  --sev0: #7a8497; --sev1: #6f97ff; --sev2: #f2b83a; --sev3: #ff8745; --sev4: #ff4f78; --attack: #ff6a86;
+  --good: #7fe0a8; --good-text: #7fe0a8; --warning: #ffd37a; --critical: #ff90a9;
+  --tf-ok: #7fe0a8; --tf-ok-bg: #13301f; --tf-warn: #ffd37a; --tf-warn-bg: #3a2d0b; --tf-bad: #ff9fb2; --tf-bad-bg: #40121d;
+  --tf-hero: #8fb0ff; --tf-on-hero: #0b1330; --tf-hero-tile: rgba(0, 0, 0, .14);
+  --code-bg: #141820; --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .3);
+  --radius: 18px; --tf-r: 22px; --tf-tabh: 72px;
+  --tf-sb: env(safe-area-inset-bottom, 0px); --tf-st: env(safe-area-inset-top, 0px);
+  --tf-sl: env(safe-area-inset-left, 0px); --tf-sr: env(safe-area-inset-right, 0px);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+/* ---------- Farben: hell (Farbmodus Hell oder „Wie das System“ bei hellem System) ---------- */
+html[data-skin="taschenformat"][data-theme="light"] {
+  color-scheme: light;
+  --page: #f5f1ea; --surface: #ffffff; --surface-2: #f0ebe2; --surface-3: #e6dfd2;
+  --text: #1c2230; --text-2: #465065; --muted: #5a6477;
+  --grid: #e2dbcf; --axis: #cfc6b6; --border: #e2dbcf; --line2: #cfc6b6;
+  --accent: #1f4bd8; --on-accent: #ffffff; --accent-soft: #e3eaff; --live: #c2410c;
+  --land: #e2dbcf; --heat: #1f4bd8; --dot: #b45309; --map-bg: #f0ebe2;
+  --s1: #3b6cf0; --s2: #e8651a; --s3: #12a37a; --s4: #e0a21b; --s5: #cf3f86; --s6: #3f9d2a; --s7: #7a5af0; --s8: #d6204a; --other: #8b95a7;
+  --sev0: #8b95a7; --sev1: #3b6cf0; --sev2: #e0a21b; --sev3: #e8651a; --sev4: #d6204a; --attack: #d6204a;
+  --good: #16a34a; --good-text: #0f6b3e; --warning: #8a5300; --critical: #a8132f;
+  --tf-ok: #0f6b3e; --tf-ok-bg: #dcf3e4; --tf-warn: #7a4b00; --tf-warn-bg: #fdecc0; --tf-bad: #a8132f; --tf-bad-bg: #fde0e5;
+  --tf-hero: #1f4bd8; --tf-on-hero: #ffffff; --tf-hero-tile: rgba(255, 255, 255, .16);
+  --code-bg: #f3efe7; --shadow: 0 1px 2px rgba(60, 40, 10, .06), 0 6px 20px rgba(60, 40, 10, .06);
+}
+@media (prefers-color-scheme: light) {
+  html[data-skin="taschenformat"][data-theme="system"] {
+    color-scheme: light;
+    --page: #f5f1ea; --surface: #ffffff; --surface-2: #f0ebe2; --surface-3: #e6dfd2;
+    --text: #1c2230; --text-2: #465065; --muted: #5a6477;
+    --grid: #e2dbcf; --axis: #cfc6b6; --border: #e2dbcf; --line2: #cfc6b6;
+    --accent: #1f4bd8; --on-accent: #ffffff; --accent-soft: #e3eaff; --live: #c2410c;
+    --land: #e2dbcf; --heat: #1f4bd8; --dot: #b45309; --map-bg: #f0ebe2;
+    --s1: #3b6cf0; --s2: #e8651a; --s3: #12a37a; --s4: #e0a21b; --s5: #cf3f86; --s6: #3f9d2a; --s7: #7a5af0; --s8: #d6204a; --other: #8b95a7;
+    --sev0: #8b95a7; --sev1: #3b6cf0; --sev2: #e0a21b; --sev3: #e8651a; --sev4: #d6204a; --attack: #d6204a;
+    --good: #16a34a; --good-text: #0f6b3e; --warning: #8a5300; --critical: #a8132f;
+    --tf-ok: #0f6b3e; --tf-ok-bg: #dcf3e4; --tf-warn: #7a4b00; --tf-warn-bg: #fdecc0; --tf-bad: #a8132f; --tf-bad-bg: #fde0e5;
+    --tf-hero: #1f4bd8; --tf-on-hero: #ffffff; --tf-hero-tile: rgba(255, 255, 255, .16);
+    --code-bg: #f3efe7; --shadow: 0 1px 2px rgba(60, 40, 10, .06), 0 6px 20px rgba(60, 40, 10, .06);
+  }
+}
+
+/* ---------- Grundlagen ---------- */
+html[data-skin="taschenformat"] body { font-size: 15px; line-height: 1.45; -webkit-tap-highlight-color: transparent;
+  padding-bottom: calc(var(--tf-tabh) + var(--tf-sb) + 16px); overflow-x: hidden; }
+html.tf-lock[data-skin="taschenformat"], html.tf-lock[data-skin="taschenformat"] body { overflow: hidden; }
+html[data-skin="taschenformat"] :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+html[data-skin="taschenformat"] h1 { font-size: 26px; line-height: 1.15; font-weight: 750; letter-spacing: -.02em; }
+html[data-skin="taschenformat"] .tf-ic { width: 24px; height: 24px; flex: none; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
+html[data-skin="taschenformat"] .tf-small { font-size: 14px; margin: 0; }
+
+/* ---------- Kopf: Ampel zuerst ---------- */
+html[data-skin="taschenformat"] .tf-top { position: sticky; top: 0; z-index: 20; background: var(--page);
+  padding: max(10px, var(--tf-st)) calc(16px + var(--tf-sr)) 8px calc(16px + var(--tf-sl)); }
+html[data-skin="taschenformat"] .tf-top-in { max-width: 1080px; margin: 0 auto; display: flex; align-items: center; gap: 10px; min-width: 0; }
+html[data-skin="taschenformat"] .tf-top-in > .brand { display: none; }
+html[data-skin="taschenformat"] .tf-ampel { --c: var(--muted); --bg-c: var(--surface); flex: 1; min-width: 0; min-height: 52px; display: flex; align-items: center; gap: 10px;
+  text-align: left; font: inherit; cursor: pointer; border: 2px solid var(--c); background: var(--bg-c); color: var(--c); border-radius: 999px; padding: 6px 16px 6px 8px; box-shadow: var(--shadow); }
+html[data-skin="taschenformat"] .tf-ampel[data-s="ok"], html[data-skin="taschenformat"] .tf-arow[data-s="ok"] { --c: var(--tf-ok); --bg-c: var(--tf-ok-bg); }
+html[data-skin="taschenformat"] .tf-ampel[data-s="warn"], html[data-skin="taschenformat"] .tf-arow[data-s="warn"] { --c: var(--tf-warn); --bg-c: var(--tf-warn-bg); }
+html[data-skin="taschenformat"] .tf-ampel[data-s="bad"], html[data-skin="taschenformat"] .tf-arow[data-s="bad"] { --c: var(--tf-bad); --bg-c: var(--tf-bad-bg); }
+html[data-skin="taschenformat"] .tf-aic { width: 34px; height: 34px; flex: none; fill: none; stroke: currentColor; stroke-width: 3.2; stroke-linecap: round; stroke-linejoin: round; }
+html[data-skin="taschenformat"] .tf-atx { min-width: 0; display: grid; }
+html[data-skin="taschenformat"] .tf-atx b, html[data-skin="taschenformat"] .tf-atx small { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+html[data-skin="taschenformat"] .tf-atx b { font-size: 16.5px; line-height: 1.15; }
+html[data-skin="taschenformat"] .tf-atx small { font-size: 13px; line-height: 1.25; }
+html[data-skin="taschenformat"] .tf-dot { margin-left: auto; width: 10px; height: 10px; border-radius: 50%; background: var(--c); flex: none; animation: tf-pulse 2s ease-in-out infinite; }
+@keyframes tf-pulse { 50% { opacity: .3; transform: scale(.7); } }
+html[data-skin="taschenformat"] .tf-top .livepill { padding: 0 12px; min-height: 40px; font-size: 13px; flex: none; }
+html[data-skin="taschenformat"] .tf-top .livepill > span { display: inline-flex; align-items: center; min-height: 40px; }
+html[data-skin="taschenformat"] .tf-top .livepill a { display: inline-flex; align-items: center; min-height: 40px; }
+/* Am Handy nur Punkt und Zahl der Aktiven; der Rest steht im Ampel-Blatt und unter Angriffe */
+@media (max-width: 559px) {
+  html[data-skin="taschenformat"] .tf-top .livepill > span { font-size: 0; gap: 0; }
+  html[data-skin="taschenformat"] .tf-top .livepill > span > a:first-of-type { font-size: 13px; }
+  html[data-skin="taschenformat"] .tf-top .livepill > span > a ~ a { display: none; }
+}
+html[data-skin="taschenformat"] .tf-avatar { width: 48px; height: 48px; border-radius: 50%; border: 0; background: var(--accent); color: var(--on-accent);
+  font: inherit; font-weight: 800; font-size: 18px; flex: none; display: grid; place-items: center; cursor: pointer; }
+html[data-skin="taschenformat"] .tf-top .tf-avatar { display: none; }
+
+/* ---------- Tableiste: unten, Daumen-Reichweite ---------- */
+html[data-skin="taschenformat"] .tf-tabs { position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: flex; justify-content: center;
+  padding: 8px calc(12px + var(--tf-sr)) calc(8px + var(--tf-sb)) calc(12px + var(--tf-sl)); background: linear-gradient(transparent, var(--page) 40%); pointer-events: none; }
+html[data-skin="taschenformat"] .tf-tabs-in { pointer-events: auto; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px; width: min(100%, 520px);
+  background: var(--surface); border: 1px solid var(--border); border-radius: 26px; padding: 5px; box-shadow: var(--shadow); }
+html[data-skin="taschenformat"] .tf-tab { position: relative; min-height: 56px; min-width: 0; border: 0; background: none; border-radius: 21px; display: grid; justify-items: center; align-content: center; gap: 2px;
+  font: inherit; font-size: 13px; font-weight: 650; color: var(--text-2); cursor: pointer; text-decoration: none; }
+html[data-skin="taschenformat"] .tf-tab span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-skin="taschenformat"] .tf-tab .tf-ic { width: 26px; height: 26px; }
+html[data-skin="taschenformat"] .tf-tab:hover { color: var(--text); text-decoration: none; }
+html[data-skin="taschenformat"] .tf-tab.on { background: var(--accent-soft); color: var(--accent); }
+
+/* ---------- Inhalt ---------- */
+html[data-skin="taschenformat"] .tf-main { max-width: 1080px; margin: 0 auto; min-width: 0;
+  padding: 4px calc(16px + var(--tf-sr)) 16px calc(16px + var(--tf-sl)); }
+html[data-skin="taschenformat"] .tf-view { min-width: 0; }
+html[data-skin="taschenformat"] .tf-main > .top { gap: 8px 12px; margin: 8px 0 14px; align-items: center; }
+html[data-skin="taschenformat"] .tf-main > .top > h1 { margin-right: auto; }
+html[data-skin="taschenformat"] .tf-main > .top > .grow { display: none; }
+html[data-skin="taschenformat"] .credit { padding-top: 24px; }
+
+/* Zeitraum als Chip-Streifen mit Einrasten (24 Std, 7 Tage, 30 Tage, Eigener) */
+html[data-skin="taschenformat"] .range-pick { flex-wrap: nowrap; max-width: 100%; }
+html[data-skin="taschenformat"] .tf-main > .top > .range-pick { flex: 1 1 100%; }
+html[data-skin="taschenformat"] .range-pick > .seg { display: flex; gap: 8px; border: 0; background: none; border-radius: 0; overflow-x: auto; scroll-snap-type: x mandatory;
+  scrollbar-width: none; padding: 2px 2px 4px; min-width: 0; max-width: 100%; }
+html[data-skin="taschenformat"] .range-pick > .seg::-webkit-scrollbar { display: none; }
+html[data-skin="taschenformat"] .range-pick > .seg button { scroll-snap-align: start; flex: 1 0 auto; min-width: 88px; min-height: 48px; padding: 0 16px; border-radius: 999px;
+  border: 2px solid var(--line2); background: var(--surface); font-weight: 700; color: var(--text-2); font-size: 15px; white-space: nowrap; }
+html[data-skin="taschenformat"] .range-pick > .seg button + button { border-left: 2px solid var(--line2); }
+html[data-skin="taschenformat"] .range-pick > .seg button.on { background: var(--text); color: var(--page); border-color: var(--text); }
+html[data-skin="taschenformat"] .range-pop { border-radius: 18px; padding: 14px; box-shadow: var(--shadow); }
+html[data-skin="taschenformat"] .range-pop input, html[data-skin="taschenformat"] .range-pop select, html[data-skin="taschenformat"] .range-pop .btn { min-height: 48px; }
+
+/* ---------- Blatt (Mehr, Ampel, Karte) ---------- */
+html[data-skin="taschenformat"] .tf-backdrop { position: fixed; inset: 0; z-index: 55; background: rgba(5, 8, 14, .5); }
+html[data-skin="taschenformat"] .tf-sheet { position: fixed; inset: 0; z-index: 60; background: var(--page); overflow-y: auto; overscroll-behavior: contain;
+  padding-bottom: calc(24px + var(--tf-sb)); animation: tf-up .22s ease-out; }
+@keyframes tf-up { from { transform: translateY(40px); opacity: 0; } }
+html[data-skin="taschenformat"] .tf-sbar { position: sticky; top: 0; z-index: 2; background: var(--page); display: flex; align-items: center; gap: 12px;
+  padding: max(10px, var(--tf-st)) calc(12px + var(--tf-sr)) 8px calc(12px + var(--tf-sl)); }
+html[data-skin="taschenformat"] .tf-sbar h2 { margin: 0; font-size: 20px; letter-spacing: 0; text-transform: none; color: var(--text); font-weight: 750; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-skin="taschenformat"] .tf-back { min-height: 48px; padding: 0 18px 0 10px; border-radius: 999px; border: 0; background: var(--surface); color: var(--text); box-shadow: var(--shadow);
+  font: inherit; font-weight: 700; display: inline-flex; align-items: center; gap: 4px; cursor: pointer; flex: none; }
+html[data-skin="taschenformat"] .tf-sin { padding: 4px calc(16px + var(--tf-sr)) 16px calc(16px + var(--tf-sl)); max-width: 640px; margin: 0 auto; }
+html[data-skin="taschenformat"] .tf-sheet.wide .tf-sin { max-width: 900px; }
+html[data-skin="taschenformat"] .tf-stack { display: flex; flex-direction: column; gap: 14px; }
+html[data-skin="taschenformat"] .tf-story { font-size: 16.5px; line-height: 1.5; margin: 0; }
+html[data-skin="taschenformat"] .tf-arow { display: flex; align-items: center; gap: 12px; min-height: 72px; border: 2px solid var(--c); background: var(--bg-c); color: var(--c); border-radius: 22px; padding: 8px 16px 8px 10px; }
+html[data-skin="taschenformat"] .tf-arow:not([aria-current]) { background: var(--surface); }
+html[data-skin="taschenformat"] .tf-arow[aria-current] { box-shadow: var(--shadow); outline: 3px solid var(--c); outline-offset: 2px; }
+html[data-skin="taschenformat"] .tf-arow > span { display: grid; }
+html[data-skin="taschenformat"] .tf-arow b { font-size: 17px; } html[data-skin="taschenformat"] .tf-arow small { font-size: 14px; line-height: 1.3; color: var(--text); }
+html[data-skin="taschenformat"] .tf-btn { min-height: 48px; padding: 0 20px; border-radius: 999px; border: 2px solid currentColor; background: none; color: inherit; font: inherit; font-weight: 700;
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; text-decoration: none; }
+html[data-skin="taschenformat"] .tf-btn:hover { text-decoration: none; }
+html[data-skin="taschenformat"] .tf-btn.brand { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+html[data-skin="taschenformat"] .tf-btn.solid { background: var(--surface); color: var(--accent); border-color: var(--surface); }
+html[data-skin="taschenformat"] .tf-btn .tf-ic { width: 20px; height: 20px; }
+html[data-skin="taschenformat"] .tf-user { display: flex; align-items: center; gap: 14px; }
+html[data-skin="taschenformat"] .tf-user b { font-size: 18px; }
+html[data-skin="taschenformat"] .tf-user .tf-avatar { width: 56px; height: 56px; font-size: 22px; cursor: default; }
+html[data-skin="taschenformat"] .tf-list { background: var(--surface); border: 1px solid var(--border); border-radius: var(--tf-r); overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column; }
+html[data-skin="taschenformat"] .tf-li { width: 100%; min-height: 60px; display: flex; align-items: center; gap: 14px; padding: 0 16px; background: none; border: 0; border-bottom: 1px solid var(--border);
+  text-align: left; font: inherit; font-weight: 650; color: var(--text); cursor: pointer; text-decoration: none; }
+html[data-skin="taschenformat"] .tf-li:last-child { border-bottom: 0; }
+html[data-skin="taschenformat"] .tf-li:hover { background: var(--surface-2); text-decoration: none; }
+html[data-skin="taschenformat"] .tf-li.on { color: var(--accent); background: var(--accent-soft); }
+html[data-skin="taschenformat"] .tf-li > span { flex: 1; min-width: 0; display: grid; }
+html[data-skin="taschenformat"] .tf-li small { font-weight: 400; color: var(--muted); font-size: 13px; }
+html[data-skin="taschenformat"] .tf-li .tf-chev { width: 20px; height: 20px; color: var(--muted); }
+html[data-skin="taschenformat"] .tf-seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; background: var(--surface-2); border-radius: 999px; padding: 5px; }
+html[data-skin="taschenformat"] .tf-seg button { min-height: 48px; border: 0; border-radius: 999px; background: none; font: inherit; font-weight: 700; color: var(--text-2); cursor: pointer; }
+html[data-skin="taschenformat"] .tf-seg button[aria-pressed="true"] { background: var(--surface); color: var(--text); box-shadow: var(--shadow); }
+
+/* ---------- Übersicht: Kartenstapel ---------- */
+html[data-skin="taschenformat"] .tf-dash { max-width: 680px; margin: 0 auto; }
+html[data-skin="taschenformat"] .tf-warn:empty { display: none; }
+html[data-skin="taschenformat"] .tf-warn { margin-bottom: 12px; }
+html[data-skin="taschenformat"] .tf-layout { display: flex; flex-direction: column; gap: 14px; }
+html[data-skin="taschenformat"] .tf-col { display: contents; }
+html[data-skin="taschenformat"] .o1 { order: 1; } html[data-skin="taschenformat"] .o2 { order: 2; } html[data-skin="taschenformat"] .o3 { order: 3; } html[data-skin="taschenformat"] .o4 { order: 4; }
+html[data-skin="taschenformat"] .o5 { order: 5; } html[data-skin="taschenformat"] .o6 { order: 6; } html[data-skin="taschenformat"] .o7 { order: 7; } html[data-skin="taschenformat"] .o8 { order: 8; }
+html[data-skin="taschenformat"] .tf-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--tf-r); padding: 18px; box-shadow: var(--shadow); min-width: 0; }
+html[data-skin="taschenformat"] .tf-h { margin: 0 0 12px; font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--muted);
+  display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+html[data-skin="taschenformat"] .tf-h em { font-style: normal; text-transform: none; letter-spacing: 0; font-weight: 500; font-size: 13px; }
+html[data-skin="taschenformat"] .tf-livetag { color: var(--tf-bad); font-weight: 700; }
+html[data-skin="taschenformat"] .tf-empty { text-align: center; color: var(--muted); padding: 18px 10px; margin: 0; }
+
+html[data-skin="taschenformat"] .tf-hero { background: var(--tf-hero); color: var(--tf-on-hero); border: 0; }
+html[data-skin="taschenformat"] .tf-hero .tf-h { color: inherit; opacity: .92; }
+html[data-skin="taschenformat"] .tf-big { font-size: 52px; line-height: 1; font-weight: 800; letter-spacing: -.03em; }
+html[data-skin="taschenformat"] .tf-hero-p { margin: 4px 0 0; font-size: 16px; }
+html[data-skin="taschenformat"] .tf-mini { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin: 16px 0 6px; }
+html[data-skin="taschenformat"] .tf-mini a { background: var(--tf-hero-tile); border-radius: 14px; padding: 10px 12px; color: inherit; text-decoration: none; min-height: 64px; min-width: 0; }
+html[data-skin="taschenformat"] .tf-mini b { display: block; font-size: 24px; line-height: 1.1; }
+html[data-skin="taschenformat"] .tf-mini span { font-size: 13px; display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-skin="taschenformat"] .tf-nlist { display: grid; gap: 8px; margin: 14px 0; }
+html[data-skin="taschenformat"] .tf-item { background: var(--surface); color: var(--text); border-radius: 16px; border-left: 6px solid var(--c); padding: 10px 14px; display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto; gap: 4px 12px; align-items: center; min-height: 60px; text-decoration: none; }
+html[data-skin="taschenformat"] .tf-item:hover { text-decoration: none; }
+html[data-skin="taschenformat"] .tf-flag { font-size: 26px; line-height: 1; }
+html[data-skin="taschenformat"] .tf-it { display: grid; min-width: 0; }
+html[data-skin="taschenformat"] .tf-it b, html[data-skin="taschenformat"] .tf-it span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html[data-skin="taschenformat"] .tf-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+html[data-skin="taschenformat"] .tf-hero .tf-btn.line { color: var(--tf-on-hero); }
+
+html[data-skin="taschenformat"] .tf-livenum { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+html[data-skin="taschenformat"] .tf-livenum b { font-size: 44px; line-height: 1; letter-spacing: -.03em; font-weight: 800; }
+html[data-skin="taschenformat"] .tf-sub { display: inline-flex; align-items: center; gap: 4px; min-height: 44px; color: var(--text-2); }
+html[data-skin="taschenformat"] .tf-sub b { color: var(--text); }
+html[data-skin="taschenformat"] .tf-dash .spark { display: block; width: 100%; height: 48px; }
+html[data-skin="taschenformat"] .tf-dash .spark .line { stroke: var(--accent); stroke-width: 2.5; }
+html[data-skin="taschenformat"] .tf-dash .spark .area { fill: color-mix(in srgb, var(--accent) 16%, transparent); }
+html[data-skin="taschenformat"] .tf-last { margin: 10px 0 0; font-size: 14px; overflow-wrap: anywhere; }
+
+html[data-skin="taschenformat"] .tf-chartbox { width: 100%; min-width: 0; }
+html[data-skin="taschenformat"] .tf-bars { display: block; width: 100%; height: 150px; }
+html[data-skin="taschenformat"] .tf-bars .ax { font-size: 11px; fill: var(--muted); font-family: ui-monospace, Consolas, monospace; }
+html[data-skin="taschenformat"] .tf-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 13px; color: var(--text-2); margin-top: 8px; }
+html[data-skin="taschenformat"] .tf-dotc { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background: var(--c); margin-right: 6px; flex: none; }
+html[data-skin="taschenformat"] .tf-stackbar { display: flex; height: 22px; border-radius: 11px; overflow: hidden; gap: 2px; background: var(--surface-2); }
+html[data-skin="taschenformat"] .tf-stackbar i { background: var(--c); min-width: 6px; }
+html[data-skin="taschenformat"] .tf-stackbar i.none { flex: 1; background: none; }
+html[data-skin="taschenformat"] .tf-lv { display: grid; gap: 2px; margin-top: 10px; }
+html[data-skin="taschenformat"] .tf-lv > a, html[data-skin="taschenformat"] .tf-lv > div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 4px 8px; font-size: 15px;
+  min-height: 44px; padding: 2px 0; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border); }
+html[data-skin="taschenformat"] .tf-lv > :last-child { border-bottom: 0; }
+html[data-skin="taschenformat"] .tf-lv > a:hover { color: var(--accent); }
+html[data-skin="taschenformat"] .tf-lv > div .tr { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+html[data-skin="taschenformat"] .tf-lv > div .tr i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+html[data-skin="taschenformat"] .tf-lv > div.crit b { color: var(--critical); }
+html[data-skin="taschenformat"] .tf-lv > div.crit .tr i { background: var(--sev4); }
+html[data-skin="taschenformat"] .tf-lv > div { padding: 6px 0; }
+html[data-skin="taschenformat"] .tf-rowbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 8px 0; min-height: 48px; color: var(--text); text-decoration: none; }
+html[data-skin="taschenformat"] .tf-rowbar:hover { text-decoration: none; color: var(--accent); }
+html[data-skin="taschenformat"] .tf-rowbar .nm { font-weight: 600; display: flex; gap: 8px; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
+html[data-skin="taschenformat"] .tf-rowbar .tr { grid-column: 1 / -1; height: 8px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+html[data-skin="taschenformat"] .tf-rowbar .tr i { display: block; height: 100%; background: var(--c); border-radius: 4px; }
+html[data-skin="taschenformat"] .tf-more { display: inline-flex; align-items: center; gap: 4px; min-height: 48px; font-weight: 700; color: var(--accent); }
+html[data-skin="taschenformat"] .tf-more .tf-ic { width: 18px; height: 18px; }
+
+/* Karte: klein in der Übersicht (antippen = Vollbild-Blatt), groß im Blatt */
+html[data-skin="taschenformat"] .tf-mapmini { position: relative; display: block; width: 100%; padding: 0; border: 0; border-radius: 16px; overflow: hidden; background: var(--map-bg); cursor: zoom-in; font: inherit; }
+html[data-skin="taschenformat"] .tf-mapmini .chart.map, html[data-skin="taschenformat"] .tf-mapmini .mapbox { margin: 0; }
+html[data-skin="taschenformat"] .tf-mapmini .mapbox { aspect-ratio: 2.2; background: var(--map-bg); border-radius: 0; border: 0; }
+html[data-skin="taschenformat"] .tf-mapmini svg { pointer-events: none; }
+html[data-skin="taschenformat"] .tf-mapmini .scale, html[data-skin="taschenformat"] .tf-mapmini .hint { display: none; }
+html[data-skin="taschenformat"] .tf-cta { position: absolute; right: 8px; bottom: 8px; display: inline-flex; align-items: center; gap: 6px; background: var(--surface); color: var(--text);
+  border-radius: 999px; padding: 6px 12px; font-size: 13px; font-weight: 700; box-shadow: var(--shadow); }
+html[data-skin="taschenformat"] .tf-cta .tf-ic { width: 16px; height: 16px; }
+html[data-skin="taschenformat"] .tf-mapbig { position: relative; border-radius: 18px; overflow: hidden; background: var(--map-bg); border: 1px solid var(--border); touch-action: none; }
+html[data-skin="taschenformat"] .tf-mapbig .mapbox { aspect-ratio: 1.6; background: var(--map-bg); border: 0; border-radius: 0; }
+html[data-skin="taschenformat"] .tf-mapbig .hint { display: none; }
+html[data-skin="taschenformat"] .tf-mapbig .chart.map { margin: 0; }
+html[data-skin="taschenformat"] .tf-zoombar { display: flex; gap: 8px; flex-wrap: wrap; }
+html[data-skin="taschenformat"] .tf-zoombar button { min-width: 48px; min-height: 48px; border-radius: 999px; border: 2px solid var(--line2); background: var(--surface); font: inherit; font-weight: 800;
+  font-size: 20px; color: var(--text); padding: 0 14px; cursor: pointer; }
+html[data-skin="taschenformat"] .tf-zoombar button.txt { font-size: 15px; font-weight: 700; }
+html[data-skin="taschenformat"] .tf-clist .tf-rowbar { border-bottom: 1px solid var(--border); padding: 8px 4px; }
+html[data-skin="taschenformat"] .tf-clist .tf-rowbar:last-child { border-bottom: 0; }
+html[data-skin="taschenformat"] .tf-dash .map .country, html[data-skin="taschenformat"] .tf-mapbig .map .country { stroke: var(--map-bg); }
+
+/* ---------- Alle anderen Seiten: weiche Karten, große Bedienelemente, keine Überbreite ---------- */
+html[data-skin="taschenformat"] .card { border-radius: var(--tf-r); padding: 16px; box-shadow: var(--shadow); }
+html[data-skin="taschenformat"] .card-foot { margin-left: -16px; margin-right: -16px; border-radius: 0 0 var(--tf-r) var(--tf-r); }
+html[data-skin="taschenformat"] .grid.two, html[data-skin="taschenformat"] .grid.three { grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+html[data-skin="taschenformat"] button.btn, html[data-skin="taschenformat"] .btn { min-height: 44px; padding: 6px 16px; border-radius: 999px; }
+html[data-skin="taschenformat"] .btn.small { min-height: 40px; padding: 4px 14px; font-size: 13.5px; }
+html[data-skin="taschenformat"] .btn.link { min-height: 0; padding: 0; border-radius: 0; }
+html[data-skin="taschenformat"] .seg { border-radius: 999px; }
+html[data-skin="taschenformat"] .seg button { min-height: 44px; padding: 6px 14px; font-size: 14px; }
+html[data-skin="taschenformat"] .panel-tab { min-height: 44px; padding: 6px 12px 6px 14px; font-size: 14px; }
+html[data-skin="taschenformat"] input, html[data-skin="taschenformat"] select, html[data-skin="taschenformat"] textarea { font-size: 16px; min-height: 44px; border-radius: 12px; max-width: 100%; }
+html[data-skin="taschenformat"] input[type="checkbox"], html[data-skin="taschenformat"] input[type="radio"] { min-height: 0; width: 20px; height: 20px; }
+html[data-skin="taschenformat"] .msg { border-radius: 14px; }
+html[data-skin="taschenformat"] .tile .value { font-size: 28px; }
+html[data-skin="taschenformat"] .main pre, html[data-skin="taschenformat"] .tf-view pre { max-width: 100%; overflow-x: auto; }
+html[data-skin="taschenformat"] .tf-view { overflow-wrap: anywhere; }
+html[data-skin="taschenformat"] .tf-view .mono, html[data-skin="taschenformat"] .tf-view code { overflow-wrap: anywhere; }
+html[data-skin="taschenformat"] .tablewrap { -webkit-overflow-scrolling: touch; overscroll-behavior-x: contain; }
+
+@media (max-width: 899px) {
+  html[data-skin="taschenformat"] .grid.kpi6 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  html[data-skin="taschenformat"] .grid.aw-21 { grid-template-columns: minmax(0, 1fr); }
+  /* Schlüssel/Wert-Tabellen (ohne Kopfzeile, z. B. Seite System) als Liste: Name über dem Wert */
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr > th,
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr > td { display: block; width: auto; text-align: left; padding-left: 0; padding-right: 0; }
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr > th { padding-bottom: 0; border-bottom: 0; font-size: 13px; color: var(--muted); font-weight: 600; }
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr > td { padding-top: 2px; }
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr { display: block; padding: 6px 0; border-bottom: 1px solid var(--border); }
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr > * { border-bottom: 0; }
+  html[data-skin="taschenformat"] .tf-view table:not(:has(> thead)) > tbody > tr:last-child { border-bottom: 0; }
+  html[data-skin="taschenformat"] .tf-view td select { width: 100%; }
+  /* Tabellen mit Kopfzeile bleiben Tabellen, scrollen aber waagerecht in ihrer Karte */
+  html[data-skin="taschenformat"] .tf-view .card:has(> table > thead), html[data-skin="taschenformat"] .tf-view .card:has(> div > table > thead) { overflow-x: auto; }
+}
+
+/* ---------- Breit: ruhige Zweispaltenansicht, Tableiste oben mittig ---------- */
+@media (min-width: 900px) {
+  html[data-skin="taschenformat"] body { padding-bottom: 32px; }
+  html[data-skin="taschenformat"] .tf-top { padding-top: 14px; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+  html[data-skin="taschenformat"] .tf-top-in { gap: 16px; }
+  html[data-skin="taschenformat"] .tf-top-in > .brand { display: flex; font-size: 17px; font-weight: 800; }
+  html[data-skin="taschenformat"] .tf-ampel { flex: 0 1 330px; }
+  html[data-skin="taschenformat"] .tf-tabs { position: static; padding: 0; background: none; flex: 1; pointer-events: auto; }
+  html[data-skin="taschenformat"] .tf-tabs-in { width: 100%; max-width: 460px; margin: 0 auto; box-shadow: none; }
+  html[data-skin="taschenformat"] .tf-tab { grid-auto-flow: column; min-height: 46px; gap: 8px; font-size: 14.5px; }
+  html[data-skin="taschenformat"] .tf-tab .tf-ic { width: 21px; height: 21px; }
+  html[data-skin="taschenformat"] .tf-top .tf-avatar { display: grid; width: 44px; height: 44px; }
+  html[data-skin="taschenformat"] .tf-main { padding-top: 12px; }
+  html[data-skin="taschenformat"] .tf-main > .top > .range-pick { flex: 0 1 auto; }
+  html[data-skin="taschenformat"] .range-pick > .seg button { min-height: 44px; }
+  html[data-skin="taschenformat"] .tf-dash { max-width: none; }
+  html[data-skin="taschenformat"] .tf-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 18px; align-items: start; }
+  html[data-skin="taschenformat"] .tf-col { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  html[data-skin="taschenformat"] .tf-big { font-size: 60px; }
+  html[data-skin="taschenformat"] .tf-backdrop { background: rgba(5, 8, 14, .45); }
+  html[data-skin="taschenformat"] .tf-sheet { inset: 6vh auto auto 50%; transform: translateX(-50%); width: min(640px, calc(100vw - 48px)); max-height: 88vh;
+    border-radius: var(--tf-r); border: 1px solid var(--border); box-shadow: 0 24px 60px rgba(0, 0, 0, .35); padding-bottom: 16px; animation: none; }
+  html[data-skin="taschenformat"] .tf-sheet.wide { width: min(980px, calc(100vw - 48px)); }
+  html[data-skin="taschenformat"] .tf-sheet .tf-sbar { border-radius: var(--tf-r) var(--tf-r) 0 0; padding-top: 12px; }
+  html[data-skin="taschenformat"] .tf-sheet .tf-back { background: var(--surface-2); box-shadow: none; }
+}
+
+/* ---------- Ruhe: keine Bewegung, wenn das System es so wünscht ---------- */
+@media (prefers-reduced-motion: reduce) {
+  html[data-skin="taschenformat"] *, html[data-skin="taschenformat"] *::before, html[data-skin="taschenformat"] *::after {
+    animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition: none !important; scroll-behavior: auto !important; }
+}

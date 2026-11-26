@@ -1,7 +1,7 @@
 // Hardware-Monitor im Reiter System (hive/hwmon.go, GET /api/hardware):
 // Ringanzeigen für CPU, Arbeitsspeicher, Temperatur und Speicherplatz, Verlauf der letzten
 // Stunde und Speicher je Dienst. Alles nur als Text und SVG (dom.js), keine HTML-Senken.
-import { h, s, fmtBytes, fmtDur, fmtTime, showTip, moveTip, hideTip } from "./dom.js";
+import { h, s, fmtBytes, fmtDur, fmtTime, fmtClockDay, showTip, moveTip, hideTip } from "./dom.js";
 
 // Farbe nach Schwellen: grün, gelb ab warn, rot ab crit
 const level = (v, warn, crit) => (v >= crit ? "var(--critical)" : v >= warn ? "var(--warning)" : "var(--good)");
@@ -44,7 +44,7 @@ function historyChart(hist, hasTemp) {
   }
   for (let k = 0; k <= 4; k++) {
     const t = t0 + (span * k) / 4;
-    svg.append(s("text", { x: x(t), y: H - 5, class: "hw-axis", "text-anchor": k === 0 ? "start" : k === 4 ? "end" : "middle" }, fmtTime(t).slice(0, 5)));
+    svg.append(s("text", { x: x(t), y: H - 5, class: "hw-axis", "text-anchor": k === 0 ? "start" : k === 4 ? "end" : "middle" }, fmtClockDay(t)));
   }
   const line = (f, cls, yy = y) => hist.map((p, i) => `${i ? "L" : "M"}${x(p.t).toFixed(1)} ${yy(f(p)).toFixed(1)}`).join("");
   const area = (f, yy = y) => `${line(f, "", yy)}L${x(t1).toFixed(1)} ${(T + ph).toFixed(1)}L${x(t0).toFixed(1)} ${(T + ph).toFixed(1)}Z`;

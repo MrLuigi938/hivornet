@@ -20,7 +20,9 @@ import (
 	"fmt"
 	"net/http"
 	"regexp"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -389,8 +391,17 @@ func buildHandoffs(list []*Attack) []Handoff {
 			}
 		}
 	}
+	// Je Paar Scanner → Angreifer und Angriff nur ein Eintrag (Live-Check 0.9.6: mehrere Abtast-Angriffe
+	// derselben IP oder mehrere gemeinsame Fingerabdrücke ergaben dasselbe Paar zwei- bis dreimal).
 	var out []Handoff
-	for f, as := range by {
+	seen := map[string]int{}
+	keys := make([]string, 0, len(by))
+	for f := range by {
+		keys = append(keys, f)
+	}
+	sort.Strings(keys) // feste Reihenfolge der Fingerabdrücke im zusammengefassten Eintrag
+	for _, f := range keys {
+		as := by[f]
 		ips := map[string]bool{}
 		for _, a := range as {
 			ips[a.IP] = true
@@ -405,6 +416,16 @@ func buildHandoffs(list []*Attack) []Handoff {
 			}
 			for _, a := range as[i+1:] {
 				if a.IP != s.IP && a.Stufe >= 1 && a.First-s.Last <= 48*3600000 && a.First >= s.First {
+					k := s.IP + "|" + a.IP + "|" + strconv.FormatInt(a.First, 10)
+					if i, ok := seen[k]; ok {
+						x := &out[i]
+						if !slices.Contains(strings.Split(x.Fingerprint, " · "), f) {
+							x.Fingerprint += " · " + f
+						}
+						x.ScanAt = max(x.ScanAt, s.First) // jüngstes Abtasten vor dem Angriff
+						break
+					}
+					seen[k] = len(out)
 					out = append(out, Handoff{Fingerprint: f, ScanIP: s.IP, ScanAt: s.First, AttackIP: a.IP, AttackAt: a.First, Stufe: a.Stufe, Profile: a.Profile})
 					break
 				}

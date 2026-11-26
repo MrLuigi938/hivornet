@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
@@ -159,5 +160,44 @@ func TestMimicErrTimeout(t *testing.T) {
 	<-ctx.Done()
 	if err := mimicErr(ctx, ctx.Err(), time.Now().Add(-11*time.Second)); !strings.Contains(err.Error(), "zu langsam") {
 		t.Errorf("Zeitüberschreitung nicht benannt: %v", err)
+	}
+}
+
+// Shell-Ausgaben mit wörtlichem \n verraten den Honeypot: entmaskieren, echte Backslashes lassen.
+func TestUnescapeShell(t *testing.T) {
+	cases := []struct{ out, in, want string }{
+		{`sh: user: not found\n`, "user", "sh: user: not found\n"},
+		{`a\nb\tc`, "ls", "a\nb\tc"},
+		{`"total 0\ndrwx root"`, "ls -l", "total 0\ndrwx root"},
+		{"zeile1\nzeile2\\n", "cat x", "zeile1\nzeile2"},
+		{`a\nb`, `echo 'a\nb'`, `a\nb`},          // echo ohne -e gibt den Backslash aus
+		{"x\\ty\n", `printf 'x\\ty'`, "x\\ty\n"}, // Backslash im Befehl: Ausgabe bleibt
+		{`C:\temp`, "pwd", `C:\temp`},            // kein Escape-Muster
+		{"Zeile mit \\n im Text\nund\nweitere\n", "cat s.sh", "Zeile mit \\n im Text\nund\nweitere\n"},
+	}
+	for _, c := range cases {
+		if got := unescapeShell(c.out, c.in); got != c.want {
+			t.Errorf("unescapeShell(%q, %q) = %q, erwartet %q", c.out, c.in, got, c.want)
+		}
+	}
+	if got := cleanShellOut(unescapeShell(`sh: wget: not found\n`, "wget x")); got != "sh: wget: not found\n" {
+		t.Errorf("Ausgabe an den Angreifer: %q", got)
+	}
+}
+
+// Alte Shell-Einträge im Speicher und in der Fallakte werden beim Lesen bereinigt.
+func TestMimicCachedShellUnescape(t *testing.T) {
+	h := testHive(t)
+	h.mimicStore("k1", mimicReq{Kind: "shell", Input: "user"}, mimicResp{Out: `sh: user: not found\n`})
+	r, ok := h.mimicCached("k1")
+	if !ok || r.Out != "sh: user: not found\n" {
+		t.Fatalf("Speicher: %v %q", ok, r.Out)
+	}
+	d, _ := json.Marshal(map[string]any{"kind": "shell", "input": "user", "output": `sh: user: not found\n`})
+	if x := aiReplyFrom(&Event{TS: time.Now(), Data: d}); strings.TrimSpace(x.Output) != "sh: user: not found" {
+		t.Errorf("Fallakte: %q", x.Output)
+	}
+	if !strings.Contains(fmt.Sprintf(mimicShellPrompt, "h", "Linux", "k", "n", "n"), `never as the two characters \n`) {
+		t.Error("Prompt warnt nicht vor maskierten Zeilenumbrüchen")
 	}
 }

@@ -143,3 +143,68 @@ func TestSessionsAndEventsSharedFilter(t *testing.T) {
 		t.Errorf("Ereignisse mit Stufe: %d", len(evs))
 	}
 }
+
+// Mehr als 50 Sitzungen eines Angriffs: auch die nicht gemerkten Sitzungen bekommen ihren Angriff.
+func TestSessionsBeyondAttackLimit(t *testing.T) {
+	h := testHive(t)
+	w, wait := testWriter(t, h.st)
+	now := time.Now().Add(-30 * time.Minute)
+	for i := range 60 {
+		sess := "s" + strconv.Itoa(i)
+		for j, typ := range []string{"connect", "login"} {
+			e := evAt(now.Add(time.Duration(i*10+j)*time.Second), typ, "ssh", "198.51.100.77", 22, map[string]any{"success": false})
+			e.Session = sess
+			w.Submit(e)
+		}
+	}
+	wait()
+	for _, q := range []string{"/api/sessions?range=24h&limit=1000", "/api/sessions?range=24h&limit=1000&stufe=1"} {
+		rec := httptest.NewRecorder()
+		h.sessionsList(rec, httptest.NewRequest("GET", q, nil))
+		var rows []map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &rows)
+		if len(rows) != 60 {
+			t.Fatalf("%s: %d Sitzungen", q, len(rows))
+		}
+		for _, r := range rows {
+			if r["attack"] == nil || r["profile"] == nil {
+				t.Fatalf("%s: Sitzung %v ohne Angriff", q, r["session"])
+			}
+		}
+	}
+}
+
+// Angreifer-Seite: Ports aus allen Ereignissen, „Befehle“ wie auf den Angriffskarten (Live-Check 0.9.6).
+func TestAttackerPortsAndCommands(t *testing.T) {
+	h := testHive(t)
+	w, wait := testWriter(t, h.st)
+	now := time.Now().Add(-10 * time.Minute)
+	ev := func(d time.Duration, typ, svc string, port int, sess string, data map[string]any) {
+		e := evAt(now.Add(d), typ, svc, "203.0.113.159", port, data)
+		e.Session = sess
+		w.Submit(e)
+	}
+	ev(0, "connect", "telnet", 23, "t1", nil)
+	ev(time.Second, "login", "telnet", 23, "t1", map[string]any{"success": true})
+	ev(2*time.Second, "command", "telnet", 23, "t1", map[string]any{"input": "uname -a"})
+	ev(3*time.Second, "command", "telnet", 23, "t1", map[string]any{"input": ""}) // nur Enter
+	ev(4*time.Second, "login", "ssh", 22, "s1", map[string]any{"success": false}) // SSH ohne connect-Ereignis
+	wait()
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/api/attackers/203.0.113.159", nil)
+	req.SetPathValue("ip", "203.0.113.159")
+	h.attacker(rec, req)
+	var d struct {
+		Info  map[string]any   `json:"info"`
+		Ports []map[string]any `json:"ports"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &d); err != nil {
+		t.Fatal(err, rec.Body.String())
+	}
+	if len(d.Ports) != 2 {
+		t.Errorf("Ports: %v", d.Ports)
+	}
+	if d.Info["commands"] != float64(1) || d.Info["commands_all"] != float64(2) {
+		t.Errorf("Befehle: %v (alle %v)", d.Info["commands"], d.Info["commands_all"])
+	}
+}

@@ -203,6 +203,32 @@ Regeln für die UI:
 - Eine Ansicht ist `async function viewX(el, ctx, ...parameter)`. `ctx.live(fn)` abonniert Live-Ereignisse, `ctx.every(ms, fn)` setzt einen Timer; beides räumt der Router beim Verlassen ab.
 - `app.js` und `extra.js` importieren sich gegenseitig. Das funktioniert, weil `extra.js` die Namen aus `app.js` nur innerhalb von Funktionen benutzt. Auf oberster Ebene von `extra.js` nichts aus `app.js` verwenden.
 
+### Themes
+
+Ein Theme ändert Aussehen und Anordnung, nicht die Funktion. Gewählt wird es unter Einstellungen → Darstellung, gemerkt nur im Browser (`store("skin")`). Ein neues Theme braucht **keine Änderung an `app.js`**.
+
+| Datei | Inhalt |
+|---|---|
+| `themes.js` | Liste `THEMES`, Laden und Wechseln (`applyTheme`, `setTheme`, `activeSkin`, `skinReady`, `onSkinChange`), Farbmodus; Anleitung im Dateikopf |
+| `skins/<id>.css` | Stilvorlage des Themes, nur geladen, solange es aktiv ist. Jede Regel beginnt mit `html[data-skin="<id>"]`; überschreibt Variablen (`--page`, `--surface`, `--accent`, `--sev0..4` …) und Anordnung |
+| `skins/<id>.js` | optionales ES-Modul mit Einhängepunkten (siehe unten); darf aus `../app.js`, `../dom.js`, `../charts.js`, `../attacks.js` importieren, aber nur innerhalb von Funktionen benutzen |
+
+Eintrag in `THEMES`: `{ id, name, beschreibung, css: true, modul: true, farbmodus: "dark" }` (alles außer `id`, `name`, `beschreibung` freiwillig; `farbmodus` erzwingt einen Farbmodus). Die `id` (nur `a-z0-9-`) bestimmt die Pfade; Pfade aus `localStorage` oder der Adresse gibt es nicht.
+
+Einhängepunkte des Moduls (jeder fehlende fällt auf den Standard zurück):
+
+- `shell(app, teile)` baut den Rahmen in `#app` und gibt `{ main, top }` zurück (`main`: Behälter der Seiten, `top`: Kopfzeile jeder Seite mit Titel und Zeitraum aus `header()`). `teile` enthält die fertigen Bausteine des Standards: `user`, `nav` (`[href, label]`), `brand`, `live` (Live-Anzeige, behält `id="live"`), `userMenu`, `credit`, `logout`. Navigationslinks tragen `data-navlink`, dann setzt der Router `class="on"` und `aria-current`.
+- `onRoute({ hash, navHash })` nach jedem (nicht stillen) Seitenwechsel.
+- `dashboard(el, ctx, daten)` ersetzt die Darstellung der Übersicht. `daten` liefert `loadDashboard()` aus `app.js` (dieselben Abfragen wie der Standard: `ser`, `tl`, `mp`, `countries`, `ports`, `ips`, `asns`, `creds`, `cmds`, `sys`, `home`, `actP` als Promise für „Gerade aktiv“, `range`). Für eigene Aktualisierungen `loadDashboard(range)` erneut aufrufen.
+- `cleanup()` beim Wechsel auf ein anderes Theme (Tasten, Timer, Vollbild).
+- `einstellungen()` liefert eigene Bedienelemente des Themes; Einstellungen → Darstellung zeigt sie in der Karte „Theme“ unter der Liste (`skinOptions()` in `themes.js`), nur solange das Theme aktiv ist.
+
+Ablauf: `applyTheme()` lädt CSS und Modul und schaltet erst um, wenn beides da ist (`data-skin`, Klasse `skin-<id>` am `<html>`); `boot()` wartet darauf (`skinReady()`). Ein Wechsel in den Einstellungen räumt die Ansicht und das alte Theme ab, baut den Rahmen neu und lädt die Seite neu, ohne Neuladen des Browsers. Fehlt eine Datei oder wirft ein Einhängepunkt, gilt der Standard; der Fehler steht nur in der Konsole. Alle Seiten außer der Übersicht bleiben die des Standards und werden nur über die CSS-Datei angepasst. CSP: keine `<style>`-Blöcke, kein `style="…"`, kein `innerHTML` (auch nicht für Symbole: SVG mit `s()` bauen).
+
+Die Weltkarte (`worldMap`) kennt die Option `arcs: "spur"`: jede neue Verbindung zieht einen Bogen zum Honeypot, der vier Minuten hell bleibt und dann ruhig weiterläuft; Angreifer der letzten 15 Minuten bleiben als ruhige Bögen stehen, höchstens 60. `arcColor(ip)` färbt (z. B. nach Stufe), `recolor(ip)` färbt nach. Im Standard schaltbar unter Einstellungen → Darstellung („Karte im Dashboard“, aus), im Theme Leitstand immer an.
+
+Vorhanden: `standard`, `leitstand` (Icon-Leiste, Übersicht als Raster ohne Scrollen mit Live-Ticker, Lage in der Kopfzeile, Kiosk-Modus mit Taste K, Tasten 1–8), `kacheln` (schwebende Pillen-Leiste, Übersicht als Bento-Raster mit Anordnen-Modus – Ziehen per Pointer-Events, Pfeiltasten, Größe, Ablage; gemerkt in `store("kcLayout")` –, Akzentfarbe in `store("kcAkzent")`, Übergang von der Kachel zur vollen Seite), `terminal` (Textkonsole: Titelzeile, Befehlszeile mit `/ip`, `/land`, `/stufe`, `/dienst`, `/fund`, `/zeit`, `/seite`, `/farbe`, `/crt`, `/hilfe` auf die echten Routen und die Suchsprache der Seite Angriffe, Fußzeile mit Tasten 1–0 bzw. F1–F10 ohne F5, Übersicht mit Textdiagrammen und Live-Log, Phosphor-Grün oder Bernstein in `store("termFarbe")`, CRT-Effekt in `store("termCrt")`, beides auch über `einstellungen()`), `taschenformat` (mobil zuerst: Tab-Leiste unten, ab 900 px oben, Blatt „Mehr“, Ampel der letzten 60 Minuten, Übersicht als Kartenstapel mit „Seit deinem letzten Besuch“ in `store("tfSeen")`/`store("tfVisit")`, Karte als Vollbild-Blatt, übrige Seiten per CSS handytauglich).
+
 ## 6. Konfiguration
 
 ### Hive (Umgebungsvariablen)
