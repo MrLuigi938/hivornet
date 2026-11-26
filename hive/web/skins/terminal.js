@@ -9,6 +9,7 @@ import { h, mount, api, fmtNum, fmtTime, flag, store, ACTIVE_MS } from "../dom.j
 import { worldMap, svcName, countryName } from "../charts.js";
 import { STUFE, STUFE_KURZ, liveAttacks } from "../attacks.js";
 import { state, loadDashboard, describe, TYPE_NAME, warningsBox, route } from "../app.js";
+import { ziel, zielTitel, ip as ipZiel, land, dienst, stufe as stufeZiel, fund as fundZiel } from "../ziele.js";
 
 // ---------- Zeichen ----------
 const SHADE = ["·", "░", "▒", "▓", "█"]; // Stufe 0–4 als Schraffur (auch ohne Farbsehen lesbar)
@@ -96,8 +97,11 @@ function say(t, kind = "") {
 }
 function renderLage() {
   if (!R) return;
-  R.lage.textContent = lage.stufe >= 0 ? `LAGE ${SHADE[lage.stufe]} STUFE ${lage.stufe} ${STUFE_KURZ[lage.stufe].toUpperCase()}` : lage.t ? "LAGE: ruhig" : "";
-  R.lage.title = lage.stufe >= 0 ? `Höchste Stufe der letzten 15 Minuten: ${STUFE[lage.stufe]}` : "Keine Angriffe in den letzten 15 Minuten";
+  const text = lage.stufe >= 0 ? `LAGE ${SHADE[lage.stufe]} STUFE ${lage.stufe} ${STUFE_KURZ[lage.stufe].toUpperCase()}` : lage.t ? "LAGE: ruhig" : "";
+  const title = (lage.stufe >= 0 ? `Höchste Stufe der letzten 15 Minuten: ${STUFE[lage.stufe]}` : "Keine Angriffe in den letzten 15 Minuten") + ". " + zielTitel("active");
+  // Klick: die gerade aktiven Angriffe (wie "Aktiv (15 Min)" im Standard)
+  mount(R.lage, text ? h("a", { class: "t-lagelink", href: ziel("active"), title }, text) : null);
+  R.lage.title = "";
 }
 function setLage(attacks) {
   const now = Date.now();
@@ -113,8 +117,8 @@ async function pollLage() {
 
 // ---------- Befehlszeile ----------
 const CMDS = ["/ip", "/land", "/stufe", "/dienst", "/fund", "/zeit", "/seite", "/farbe", "/crt", "/hilfe", "/suche", "/clear"];
-const SEITEN = [["uebersicht", "#/"], ["dashboard", "#/"], ["angriffe", "#/attacks"], ["analyse", "#/analysis"], ["erkenntnisse", "#/insights"],
-  ["funde", "#/funde"], ["zugangsdaten", "#/creds"], ["tarpit", "#/tarpit"], ["system", "#/system"], ["einstellungen", "#/settings"],
+const SEITEN = [["uebersicht", "#/"], ["dashboard", "#/"], ["angriffe", "#/attacks"], ["analyse", ziel("analysis")], ["erkenntnisse", ziel("insights")],
+  ["funde", ziel("funde")], ["zugangsdaten", ziel("creds")], ["tarpit", ziel("tarpit")], ["system", "#/system"], ["einstellungen", "#/settings"],
   ["darstellung", "#/settings/darstellung"], ["protokolle", "#/logs"], ["ereignisse", "#/feed"], ["feed", "#/feed"], ["sitzungen", "#/sessions"]];
 const RANGE_MAX = { h: 9999, d: 1095, w: 156, m: 36 };
 
@@ -165,7 +169,7 @@ function zeit(arg) {
 }
 
 async function fund(arg) {
-  if (!arg) { go("#/funde"); return say("Funde: Was Angreifer nachladen wollten", "ok"); }
+  if (!arg) { go(ziel("funde")); return say("Funde: Was Angreifer nachladen wollten", "ok"); }
   const q = arg.toLowerCase();
   say(`Suche Fund „${arg}“ …`);
   const d = await api("funde?range=30d").catch(() => null);
@@ -174,7 +178,7 @@ async function fund(arg) {
   const f = files.find((x) => (x.sha256 || "").startsWith(q)) ||
     files.find((x) => [x.name, x.type, x.arch, (x.patterns || []).join(" "), (x.sources || []).join(" ")].join(" ").toLowerCase().includes(q));
   if (!f) return say(`Kein Fund der letzten 30 Tage passt zu „${arg}“. /fund ohne Text öffnet die Funde.`, "err");
-  go("#/funde?f=" + encodeURIComponent(f.sha256));
+  go(fundZiel(f.sha256));
   say(`Fallakte ${f.name || f.sha256.slice(0, 16)}`, "ok");
 }
 
@@ -188,7 +192,7 @@ function run(line) {
       const ip = arg.replace(/\*$/, "");
       if (!ip || !/^[0-9a-f.:]+$/i.test(ip)) return say("Aufruf: /ip 1.2.3.4 öffnet das Profil, ein Anfang wie /ip 203.0. filtert die Angriffe", "err");
       const voll = /^(\d{1,3}\.){3}\d{1,3}$/.test(ip) || (ip.includes(":") && (ip.includes("::") || ip.split(":").length === 8));
-      if (voll && !arg.endsWith("*")) { go("#/attacker/" + encodeURIComponent(ip)); return say(`Profil von ${ip}`, "ok"); }
+      if (voll && !arg.endsWith("*")) { go(ipZiel(ip)); return say(`Profil von ${ip}`, "ok"); }
       go(attHash("ip", `ip:${ip}*`));
       return say(`Angriffe von Adressen, die mit ${ip} beginnen`, "ok");
     }
@@ -431,7 +435,7 @@ const fmtAx = (ms, span) => {
 const stepText = (ms) => (ms >= 86400e3 ? `${Math.round(ms / 86400e3)} Tag${ms >= 2 * 86400e3 ? "e" : ""}` : ms >= 3600e3 ? `${Math.round(ms / 3600e3)} Std` : `${Math.round(ms / 60e3)} Min`);
 
 // Gestapelter Verlauf als Text: Schraffur je Stufe (· ░ ▒ ▓ █), höchste Stufe oben
-function stackLines(ov, cols) {
+function stackLines(ov, cols, r = "24h") {
   let d = ov.hist.map((c) => [0, 1, 2, 3, 4].map((k) => Number(c[k] || 0)));
   const avail = Math.max(10, cols - 8);
   const merge = Math.max(1, Math.ceil(d.length / avail));
@@ -462,7 +466,8 @@ function stackLines(ov, cols) {
     for (let j = 0; j < t.length && 8 + i * cw + j < lab.length; j++) lab[8 + i * cw + j] = t[j];
   }
   out.push(ln(dim(lab.join("").trimEnd())));
-  out.push(ln(...STUFE_KURZ.flatMap((st, i) => [h("span", { class: "tc" + i }, SHADE[i]), dim(" " + st + "  ")])));
+  out.push(ln(...STUFE_KURZ.flatMap((st, i) => [h("a", { class: "t-lnk", href: stufeZiel(i, r), title: STUFE[i] + ": Klick zeigt die Angriffe dieser Stufe" }, h("span", { class: "tc" + i }, SHADE[i]), dim(" " + st)), dim("  ")])));
+  out.push(h("a", { class: "ln t-row", href: ziel("attacks", r), title: zielTitel("attacks") }, "→ Alle Angriffe"));
   return { lines: out, step: ov.step * merge };
 }
 
@@ -489,7 +494,7 @@ export async function dashboard(el, ctx, d0) {
   const lgLine = (e, fresh) => {
     const st = stufeOf.get(e.src_ip) ?? 0;
     const text = `${fmtTime(e.ts)} ${SHADE[st]}${st} ${pad(svcName(e.service || "").toUpperCase(), 6)} ${pad(e.src_ip, 15)} ${pad(e.country || "--", 2)} ${pad(String(TYPE_NAME[e.type] || e.type).toLowerCase(), 10)} ${plain(describe(e))}`;
-    return h("a", { class: "lg ts" + st + (fresh ? " new" : ""), href: "#/attacker/" + encodeURIComponent(e.src_ip), title: `${STUFE[st]} · Klick öffnet das Profil von ${e.src_ip}` }, text);
+    return h("a", { class: "lg ts" + st + (fresh ? " new" : ""), href: ipZiel(e.src_ip), title: `${STUFE[st]} · Klick öffnet das Profil von ${e.src_ip}` }, text);
   };
   const toBottom = () => { logEl.scrollTop = logEl.scrollHeight; };
   const fillLog = () => {
@@ -523,28 +528,29 @@ export async function dashboard(el, ctx, d0) {
   const live = { connect: null };
   function fillKpis() {
     const { ser } = d;
-    const kp = (key, label, href, sub) => {
+    const kp = (key, label, sub) => {
       const v = Number(ser.totals[key] || 0), p = Number(ser.prev[key] || 0), delta = p ? Math.round(((v - p) / p) * 100) : null;
       const big = h("div", { class: "bg num" }, fmtNum(v));
       if (key === "connect") live.connect = { el: big, n: v };
-      return h("a", { class: "t-kp", href, title: (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + "Klick zeigt die Liste dazu." },
+      return h("a", { class: "t-kp", href: ziel(key, r), title: (p ? `Zeitraum davor: ${fmtNum(p)}. ` : "") + zielTitel(key) + "." },
         h("div", { class: "lb" }, label), big,
         h("div", { class: "sk", "aria-hidden": "true" }, spark(ser.series[key], 16)),
         h("div", { class: "sb" }, sub || "", delta ? `${sub ? " " : ""}${delta > 0 ? "▲" : "▼"}${Math.abs(delta)} %` : ""));
     };
     mount(kpis,
-      kp("connect", "Verbindungen", `#/attacks?range=${r}`),
-      kp("ips", "Angreifer-IPs", `#/attacks?range=${r}`, `${fmtNum(d.countries.length)} Länder`),
-      kp("login", "Login-Versuche", "#/feed?type=login"),
-      kp("success", "Login angenommen", `#/attacks?range=${r}&success=1`),
-      kp("fetch", "Nachladeversuche", `#/attacks?range=${r}&q=nachladen:ja`));
+      kp("connect", "Verbindungen"),
+      kp("ips", "Angreifer-IPs", `${fmtNum(d.countries.length)} Länder`),
+      kp("login", "Login-Versuche"),
+      kp("request", "Web-Anfragen"),
+      kp("success", "Logins angenommen"),
+      kp("fetch", "Nachladeversuche"));
   }
   // alles, was von der Kastenbreite abhängt
   function layout() {
     if (!el.isConnected) return;
     // Verlauf
     if (ov && ov.hist && ov.hist.length && ov.hist.some((c) => c.some(Number))) {
-      const { lines, step } = stackLines(ov, colsOf(chartEl));
+      const { lines, step } = stackLines(ov, colsOf(chartEl), r);
       mount(chartEl, lines);
       chartRight.textContent = "Angriffe je " + stepText(step);
       chartEl.setAttribute("aria-label", "Verlauf der Angriffe nach Stufe. Im Zeitraum: " + STUFE.map((s, i) => `${s} ${fmtNum((ov.stufen || [])[i] || 0)}`).join(", "));
@@ -554,26 +560,26 @@ export async function dashboard(el, ctx, d0) {
     for (const p of d.ports) bySvc.set(p.label || "other", (bySvc.get(p.label || "other") || 0) + Number(p.n || 0));
     const sv = [...bySvc].sort((a, b) => b[1] - a[1]).slice(0, 8), tot = Math.max(1, sv.reduce((t, [, n]) => t + n, 0)), mx = sv.length ? sv[0][1] : 1;
     const bwS = Math.max(4, colsOf(svcEl) - 11 - 16);
-    mount(svcEl, sv.length ? sv.map(([k, n]) => h("a", { class: "ln t-row", href: attHrefFresh("service:" + k), title: `Angriffe auf ${svcName(k)}` },
+    mount(svcEl, sv.length ? sv.map(([k, n]) => h("a", { class: "ln t-row", href: dienst(k, r), title: `Angriffe auf ${svcName(k)}` },
       pad(svcName(k), 10) + " ", bar(n, mx, bwS), dim(` ${padL(Math.round((n / tot) * 100), 3)} % ${padL(fmtNum(n), 8)}`))) : ln(dim("Noch keine Verbindungen.")));
     // Herkunft nach Land
     const tc = d.countries.slice(0, 8), tm = tc.length ? Number(tc[0].n) : 1;
     const bwL = Math.max(4, colsOf(landEl) - 3 - 3 - 16 - 10);
-    mount(landEl, tc.length ? tc.map((c) => h("a", { class: "ln t-row", href: attHrefFresh("country:" + c.key), title: `Angriffe aus ${c.label || countryName(c.key)}` },
+    mount(landEl, tc.length ? tc.map((c) => h("a", { class: "ln t-row", href: land(c.key, r), title: `Angriffe aus ${c.label || countryName(c.key)}` },
       flag(c.key) || " ", " ", pad(c.key, 3), pad(c.label || countryName(c.key), 15) + " ", bar(Number(c.n), tm, bwL), dim(" " + padL(fmtNum(c.n), 8)))) : ln(dim("Keine Herkunft im Zeitraum.")));
     // Funde: Trichter
     const f = fu && fu.funnel;
     if (!f) mount(funEl, ln(dim(fu === null ? "Lade …" : "Funde gerade nicht abrufbar.")));
     else {
       const mxn = Math.max(1, f.seen || 0), bwF = Math.max(4, colsOf(funEl) - 16 - 10);
-      const st = (l, n) => ln(pad(l, 15) + " ", bar(n, mxn, bwF), h("span", { class: "num" }, " " + padL(fmtNum(n), 8)));
+      const st = (l, n) => h("a", { class: "ln t-row", href: ziel("funde"), title: zielTitel("funde") }, pad(l, 15) + " ", bar(n, mxn, bwF), h("span", { class: "num" }, " " + padL(fmtNum(n), 8)));
       mount(funEl, st("Adressen", f.seen || 0), st("geholt", f.fetched || 0), st("Schadsoftware", f.malware || 0),
-        st("gemeldet", (f.urlhaus_ok || 0) + (f.urlhaus_error || 0)), h("a", { class: "ln t-row", href: "#/funde" }, "→ Funde und Fallakten"));
+        st("gemeldet", (f.urlhaus_ok || 0) + (f.urlhaus_error || 0)), h("a", { class: "ln t-row", href: ziel("funde"), title: zielTitel("funde") }, "→ Funde und Fallakten"));
     }
   }
   // Top-Angreifer (Stufe nur für gerade aktive bekannt)
   function fillTop() {
-    mount(topEl, d.ips.length ? d.ips.slice(0, 8).map((x, i) => h("a", { class: "t-top-row", href: "#/attacker/" + encodeURIComponent(x.key), title: `Profil von ${x.key}` },
+    mount(topEl, d.ips.length ? d.ips.slice(0, 8).map((x, i) => h("a", { class: "t-top-row", href: ipZiel(x.key), title: `Profil von ${x.key}` },
       dim(padL(i + 1, 2)), h("span", null, flag(x.label) || pad(x.label || "", 2)), h("span", { class: "ip" }, x.key), h("span", { class: "num" }, padL(fmtNum(x.n), 7)),
       stTag(stufeOf.has(x.key) ? stufeOf.get(x.key) : -1))) : ln(dim("Keine Angreifer im Zeitraum.")));
   }

@@ -223,11 +223,11 @@ html[data-skin="taschenformat"] .tf-lv > a, html[data-skin="taschenformat"] .tf-
   min-height: 44px; padding: 2px 0; color: var(--text); text-decoration: none; border-bottom: 1px solid var(--border); }
 html[data-skin="taschenformat"] .tf-lv > :last-child { border-bottom: 0; }
 html[data-skin="taschenformat"] .tf-lv > a:hover { color: var(--accent); }
-html[data-skin="taschenformat"] .tf-lv > div .tr { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
-html[data-skin="taschenformat"] .tf-lv > div .tr i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
-html[data-skin="taschenformat"] .tf-lv > div.crit b { color: var(--critical); }
-html[data-skin="taschenformat"] .tf-lv > div.crit .tr i { background: var(--sev4); }
-html[data-skin="taschenformat"] .tf-lv > div { padding: 6px 0; }
+html[data-skin="taschenformat"] .tf-lv > div .tr, html[data-skin="taschenformat"] .tf-lv > a .tr { grid-column: 1 / -1; height: 6px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+html[data-skin="taschenformat"] .tf-lv > div .tr i, html[data-skin="taschenformat"] .tf-lv > a .tr i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+html[data-skin="taschenformat"] .tf-lv > div.crit b, html[data-skin="taschenformat"] .tf-lv > a.crit b { color: var(--critical); }
+html[data-skin="taschenformat"] .tf-lv > div.crit .tr i, html[data-skin="taschenformat"] .tf-lv > a.crit .tr i { background: var(--sev4); }
+html[data-skin="taschenformat"] .tf-lv > div, html[data-skin="taschenformat"] .tf-lv > a { padding: 6px 0; }
 html[data-skin="taschenformat"] .tf-rowbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 12px; padding: 8px 0; min-height: 48px; color: var(--text); text-decoration: none; }
 html[data-skin="taschenformat"] .tf-rowbar:hover { text-decoration: none; color: var(--accent); }
 html[data-skin="taschenformat"] .tf-rowbar .nm { font-weight: 600; display: flex; gap: 8px; align-items: center; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; min-width: 0; }
@@ -324,3 +324,9 @@ html[data-skin="taschenformat"] .tablewrap { -webkit-overflow-scrolling: touch; 
   html[data-skin="taschenformat"] *, html[data-skin="taschenformat"] *::before, html[data-skin="taschenformat"] *::after {
     animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition: none !important; scroll-behavior: auto !important; }
 }
+
+/* Klickwege (ziele.js): Zahlen und Legende sind Links */
+html[data-skin="taschenformat"] a.tf-big, html[data-skin="taschenformat"] a.tf-livenum { color: inherit; text-decoration: none; }
+html[data-skin="taschenformat"] a.tf-livenum { min-height: 44px; }
+html[data-skin="taschenformat"] .tf-legend a { color: inherit; text-decoration: none; display: inline-flex; align-items: center; min-height: 32px; }
+html[data-skin="taschenformat"] .tf-lv > a { color: inherit; text-decoration: none; }

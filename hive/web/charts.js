@@ -38,9 +38,10 @@ export const REGIONS = {
 //                      und langsam zu einem ruhigen Bogen verblasst; Angreifer der letzten
 //                      15 Minuten bleiben als ruhige Bögen stehen. Höchstens 60 Bögen.
 //   arcColor:  (ip) => Farbe eines Bogens (z. B. nach Stufe), sonst var(--attack); recolor(ip) färbt nach
+//   onCountry: (cc) => … bei Klick auf ein Land (nicht nach dem Verschieben); ohne bleibt die Karte wie bisher
 // Zoom mit dem Mausrad, Verschieben durch Ziehen, Doppelklick zeigt die ganze Welt.
 // Punkte behalten beim Zoomen ihre Größe auf dem Bildschirm.
-export function worldMap(points, { home = null, large = false, countries = null, mode = "beides", controls = true, arcs = "aktiv", arcColor = null } = {}) {
+export function worldMap(points, { home = null, large = false, countries = null, mode = "beides", controls = true, arcs = "aktiv", arcColor = null, onCountry = null } = {}) {
   const spur = arcs === "spur";
   let vb = [...REGIONS.Welt];
   let counts = new Map(), pts = [], max = 1, pmax = 1;
@@ -62,6 +63,7 @@ export function worldMap(points, { home = null, large = false, countries = null,
     const p = s("path", { class: "country", d: c.d });
     if (c.c) {
       hoverTip(p, () => [[flag(c.c), " ", countryName(c.c)], countryRows(c.c)]);
+      if (onCountry) p.addEventListener("click", () => { if (!wasDrag) onCountry(c.c); }); // nicht nach dem Verschieben
       paths.set(c.c, [...(paths.get(c.c) || []), p]);
     }
     land.append(p);
@@ -141,7 +143,7 @@ export function worldMap(points, { home = null, large = false, countries = null,
     const [mx, my] = toMap(ev), w = Math.min(360, Math.max(12, vb[2] * (ev.deltaY > 0 ? 1.25 : 0.8))), q = w / vb[2];
     setView([mx - (mx - vb[0]) * q, my - (my - vb[1]) * q, w]);
   }, { passive: false });
-  let drag = null;
+  let drag = null, wasDrag = false;
   svg.addEventListener("pointerdown", (ev) => { if (ev.button !== 0) return; drag = { x: ev.clientX, y: ev.clientY, vb: [...vb], sc: toMap(ev)[2], moved: false }; });
   svg.addEventListener("pointermove", (ev) => {
     if (!drag) return;
@@ -150,7 +152,7 @@ export function worldMap(points, { home = null, large = false, countries = null,
     if (!drag.moved) { drag.moved = true; svg.setPointerCapture(ev.pointerId); svg.classList.add("dragging"); hideTip(); }
     setView([drag.vb[0] - dx * drag.sc, drag.vb[1] - dy * drag.sc, drag.vb[2]]);
   });
-  const endDrag = () => { drag = null; svg.classList.remove("dragging"); };
+  const endDrag = () => { wasDrag = !!drag?.moved; drag = null; svg.classList.remove("dragging"); };
   svg.addEventListener("pointerup", endDrag);
   svg.addEventListener("pointercancel", endDrag);
   svg.addEventListener("dblclick", () => setView(REGIONS.Welt, true));

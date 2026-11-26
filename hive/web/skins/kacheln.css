@@ -190,7 +190,7 @@ html[data-skin="kacheln"] .kc-delta .up { color: var(--sev3); font-weight: 650; 
 
 /* Verlauf */
 html[data-skin="kacheln"] .kc-legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12.5px; color: var(--text-2); margin-bottom: 8px; flex: none; }
-html[data-skin="kacheln"] .kc-legend span::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 6px; }
+html[data-skin="kacheln"] .kc-legend a::before { content: ""; display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--c); margin-right: 6px; }
 html[data-skin="kacheln"] .kc-chartbox { flex: 1; min-height: 60px; position: relative; }
 html[data-skin="kacheln"] .kc-chart { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 html[data-skin="kacheln"] .kc-chart text { fill: var(--muted); font-size: 10.5px; }
@@ -210,7 +210,7 @@ html[data-skin="kacheln"] .kc-empty { color: var(--muted); padding: 10px 2px; ma
 
 /* Stufen-Trichter */
 html[data-skin="kacheln"] .kc-fun { display: flex; flex-direction: column; gap: 9px; }
-html[data-skin="kacheln"] .kc-fun > div { display: grid; grid-template-columns: 5.6em 1fr 3.4em; gap: 10px; align-items: center; font-size: 13px; color: var(--text-2); }
+html[data-skin="kacheln"] .kc-fun > div, html[data-skin="kacheln"] .kc-fun > a { display: grid; grid-template-columns: 5.6em 1fr 3.4em; gap: 10px; align-items: center; font-size: 13px; color: var(--text-2); }
 html[data-skin="kacheln"] .kc-fun .trk { height: 14px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
 html[data-skin="kacheln"] .kc-fun .trk i { display: block; height: 100%; border-radius: 99px; background: var(--c); min-width: 6px; transition: width .5s; }
 html[data-skin="kacheln"] .kc-fun b { text-align: right; color: var(--text); font-variant-numeric: tabular-nums; }
@@ -236,7 +236,7 @@ html[data-skin="kacheln"] .kc-donut li b { margin-left: auto; font-variant-numer
 
 /* Zugangsdaten */
 html[data-skin="kacheln"] .kc-cred { display: flex; flex-wrap: wrap; gap: 7px; overflow: hidden; align-content: flex-start; }
-html[data-skin="kacheln"] .kc-cred > span { background: var(--surface-2); border-radius: 12px; padding: 6px 11px; font-size: 12.5px; max-width: 100%; display: inline-flex; min-width: 0; }
+html[data-skin="kacheln"] .kc-cred > span, html[data-skin="kacheln"] .kc-cred > a { background: var(--surface-2); border-radius: 12px; padding: 6px 11px; font-size: 12.5px; max-width: 100%; display: inline-flex; min-width: 0; }
 html[data-skin="kacheln"] .kc-cred .mono { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 html[data-skin="kacheln"] .kc-cred em { font-style: normal; color: var(--kc-accent-text); font-weight: 700; margin-left: 7px; white-space: nowrap; }
 
@@ -323,3 +323,14 @@ html[data-skin="kacheln"] .is-dash .kc-main { padding-bottom: 120px; }
   html[data-skin="kacheln"] .kc-tray .kc-sp { display: none; }
   html[data-skin="kacheln"] .kc-zoom button { padding: 4px 9px; }
 }
+
+/* Klickwege (ziele.js): Zeilen, Chips und Zahlen sind echte Links; Fokus kommt von :focus-visible oben */
+html[data-skin="kacheln"] a.kc-chip { text-decoration: none; }
+html[data-skin="kacheln"] a.kc-big, html[data-skin="kacheln"] .kc-legend a, html[data-skin="kacheln"] a.kc-hbar,
+html[data-skin="kacheln"] .kc-fun > a, html[data-skin="kacheln"] .kc-donut a.kc-lnk, html[data-skin="kacheln"] .kc-cred > a { color: inherit; text-decoration: none; }
+html[data-skin="kacheln"] a.kc-chip:hover, html[data-skin="kacheln"] .kc-legend a:hover, html[data-skin="kacheln"] .kc-donut a.kc-lnk:hover { text-decoration: underline; }
+html[data-skin="kacheln"] a.kc-big:hover { text-decoration: underline; text-decoration-thickness: 2px; }
+html[data-skin="kacheln"] a.kc-hbar:hover, html[data-skin="kacheln"] .kc-fun > a:hover { background: var(--surface-2); border-radius: 10px; }
+html[data-skin="kacheln"] .kc-cred > a:hover { background: var(--surface-3); }
+html[data-skin="kacheln"] .kc-donut a.kc-lnk { display: flex; gap: 8px; align-items: center; flex: 1; min-width: 0; }
+html[data-skin="kacheln"] .kc-edit a { pointer-events: none; }

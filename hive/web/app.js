@@ -12,6 +12,8 @@ import { reportCard, chainCard, ttyCard, intelCard, homeLocation } from "./extra
 import { viewSettings } from "./settings.js";
 import { applyTheme, activeSkin, skinReady, onSkinChange } from "./themes.js";
 import { viewFunde } from "./funde.js";
+// Gemeinsame Klickziele der Übersicht (alle Themes)
+import { ziel, zielTitel, ip as ipZiel, land, dienst } from "./ziele.js";
 // Hardware-Monitor im Reiter System
 import { hardwareCard } from "./hardware.js";
 
@@ -529,14 +531,15 @@ async function viewDashboard(el, ctx) {
   // ---- Kennzahlen mit Verlauf und Vergleich zum Zeitraum davor ----
   const tiles = {};
   // Jede Kennzahl führt zur passenden Liste (Zeitraum wie im Dashboard)
+  // Ziele aus ziele.js: dieselben Wege in allen Themes
   const KPIS = [
-    ["connect", "Verbindungen", false, `#/attacks?range=${r}`],
-    ["ips", "Angreifer-IPs", false, `#/attacks?range=${r}`],
-    ["login", "Login-Versuche", false, `#/feed?type=login`,
+    ["connect", "Verbindungen", false, ziel("connect", r)],
+    ["ips", "Angreifer-IPs", false, ziel("ips", r)],
+    ["login", "Login-Versuche", false, ziel("login", r),
       ser.totals.login_brute ? `Davon ${fmtNum(ser.totals.login_brute)} verdichtete Versuche erkannter Dauer-Brute-Forcer.` : ""],
-    ["request", "Web-Anfragen", false, `#/feed?type=request`],
-    ["success", "Logins angenommen", true, `#/attacks?range=${r}&success=1`],
-    ["fetch", "Nachladeversuche", true, `#/attacks?range=${r}&q=nachladen:ja`,
+    ["request", "Web-Anfragen", false, ziel("request", r)],
+    ["success", "Logins angenommen", true, ziel("success", r)],
+    ["fetch", "Nachladeversuche", true, ziel("fetch", r),
       "Befehle mit Download-Adresse (wget, curl, tftp …) über alle Dienste. Heruntergeladen wird dabei nichts; echte Downloads gibt es nur über Cowrie mit Internetfreigabe (Stufe „Datei nachgeladen“)."],
   ];
   const kpi = ([key, label, alarm, href, help]) => {
@@ -605,14 +608,14 @@ async function viewDashboard(el, ctx) {
         h("span", null, h("i", { class: "swatch", style: { background: "var(--attack)" } }), "gerade aktiver Angreifer (Linie zum Honeypot)"),
         h("span", null, h("i", { class: "swatch", style: { background: "var(--good)", borderRadius: "50%" } }), home.label || "Honeypot"))),
     h("aside", { class: "card act" }, h("div", { class: "head" }, h("h2", { title: ACTIVE_TITLE }, "Aktiv (15 Min)"), h("div", { class: "grow" }), actCount), actList,
-      h("a", { href: "#/attacks", style: { marginTop: "10px", fontSize: "13px" } }, "Alle Angriffe")),
+      h("a", { href: ziel("attacks", r), title: zielTitel("attacks"), style: { marginTop: "10px", fontSize: "13px" } }, "Alle Angriffe")),
     h("div", { class: "low" },
       card("Verbindungen nach Dienst", timeline(tl)),
-      card("Länder", toplist(countries.slice(0, 7), { key: (x) => x.label || x.key, extra: (x) => cc(x.key) })),
-      card("Zugangsdaten", toplist(creds.slice(0, 7)), bruteStatsNote(() => route({ quiet: true })))),
+      card("Länder", toplist(countries.slice(0, 7), { key: (x) => x.label || x.key, link: (x) => land(x.key, r), extra: (x) => cc(x.key) })),
+      card("Zugangsdaten", toplist(creds.slice(0, 7), { link: () => ziel("creds") }), bruteStatsNote(() => route({ quiet: true })))),
     h("div", { class: "more grid" },
-      card("Ports", toplist(ports, { key: (x) => `${x.key} · ${svcName(x.label)}` })),
-      card("Angreifer-IPs", toplist(ips, { link: (x) => "#/attacker/" + encodeURIComponent(x.key), extra: (x) => cc(x.label) })),
+      card("Ports", toplist(ports, { key: (x) => `${x.key} · ${svcName(x.label)}`, link: (x) => dienst(x.label, r) })),
+      card("Angreifer-IPs", toplist(ips, { link: (x) => ipZiel(x.key), extra: (x) => cc(x.label) })),
       card("Netzbetreiber", toplist(asns, { key: (x) => `AS${x.key} ${x.label}` }), bruteStatsNote(() => route({ quiet: true }))),
       card("Befehle", toplist(cmds), bruteStatsNote(() => route({ quiet: true }))))));
   el.querySelector(".low .toplist")?.classList.add("heat");

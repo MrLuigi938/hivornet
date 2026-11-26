@@ -6,6 +6,7 @@ import { h, s, mount, api, fmtNum, fmtTime, flag, store, hoverTip, ACTIVE_MS } f
 import { worldMap, sparkline, svcName, countryName } from "../charts.js";
 import { STUFE, STUFE_KURZ, sevColor, liveAttacks } from "../attacks.js";
 import { state, loadDashboard, describe, TYPE_NAME, warningsBox } from "../app.js";
+import { ziel, zielTitel, ip as ipZiel, land, dienst } from "../ziele.js";
 
 // ---------- Symbole (Linien, 24er Raster) ----------
 const ICON = {
@@ -28,9 +29,11 @@ const lage = { stufe: -1, t: 0 }; // höchste Stufe der Angriffe der letzten 15 
 
 function renderLage() {
   if (!R) return;
+  // Klick: die gerade aktiven Angriffe (wie "Aktiv (15 Min)" im Standard)
+  const link = (kids) => h("a", { class: "ls-lagelink", href: ziel("active"), title: zielTitel("active") }, kids);
   mount(R.lage, lage.stufe >= 0
-    ? [h("span", { class: "muted" }, "Lage (15 Min)"), h("b", { style: { "--c": sevColor(lage.stufe) }, title: STUFE[lage.stufe] }, `STUFE ${lage.stufe} · ${STUFE[lage.stufe]}`)]
-    : lage.t ? [h("span", { class: "muted" }, "Lage (15 Min)"), h("b", { class: "ruhig" }, "RUHIG")] : null);
+    ? link([h("span", { class: "muted" }, "Aktiv (15 Min)"), h("b", { style: { "--c": sevColor(lage.stufe) }, title: STUFE[lage.stufe] }, `STUFE ${lage.stufe} · ${STUFE[lage.stufe]}`)])
+    : lage.t ? link([h("span", { class: "muted" }, "Aktiv (15 Min)"), h("b", { class: "ruhig" }, "RUHIG")]) : null);
 }
 function setLage(attacks) {
   const now = Date.now();
@@ -195,7 +198,7 @@ export async function dashboard(el, ctx, d) {
     return h("li", { class: "ls-tk", style: { "--c": sevColor(st) } },
       h("time", { class: "num" }, fmtTime(e.ts)),
       h("div", { class: "tk-m" },
-        h("div", { class: "tk-1" }, h("a", { class: "mono ip", href: "#/attacker/" + encodeURIComponent(e.src_ip) }, e.src_ip), " ", flag(e.country), " ", e.city || countryName(e.country)),
+        h("div", { class: "tk-1" }, h("a", { class: "mono ip", href: ipZiel(e.src_ip), title: "Klick zeigt den Angreifer" }, e.src_ip), " ", flag(e.country), " ", e.city || countryName(e.country)),
         h("div", { class: "tk-2" }, h("b", null, svcName(e.service)), " ", TYPE_NAME[e.type] || e.type, " ", h("span", { class: "muted" }, describe(e)))),
       h("span", { class: "ls-sv" }, STUFE_KURZ[st]));
   };
@@ -224,24 +227,25 @@ export async function dashboard(el, ctx, d) {
   function fill(d) {
     const { ser } = d;
     mount(warn, warningsBox(d.sys && d.sys.warnings, true));
-    const kp = (key, label, href, cls, sub) => {
+    const kp = (key, label, cls, sub) => {
       const v = Number(ser.totals[key] || 0), p = Number(ser.prev[key] || 0);
       const delta = p ? Math.round(((v - p) / p) * 100) : null;
       const big = h("div", { class: "big num" }, fmtNum(v));
       if (key === "connect") live.connect = { el: big, n: v };
-      return h("a", { class: "ls-kp" + (cls && v ? " " + cls : ""), href, title: p ? `Zeitraum davor: ${fmtNum(p)}. Klick zeigt die Liste dazu.` : "Klick zeigt die Liste dazu." },
+      return h("a", { class: "ls-kp" + (cls && v ? " " + cls : ""), href: ziel(key, r), title: p ? `Zeitraum davor: ${fmtNum(p)}. ${zielTitel(key)}.` : zielTitel(key) + "." },
         h("span", { class: "lbl" }, label), big,
         h("span", { class: "sub" }, sub || "", delta !== null && delta !== 0 ? h("span", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : null),
         sparkline(ser.series[key] || [], { w: 160, hh: 22 }));
     };
     mount(kpiBox,
-      kp("connect", "Verbindungen", `#/attacks?range=${r}`),
-      kp("ips", "Angreifer-IPs", `#/attacks?range=${r}`, "", `${fmtNum(d.countries.length)} Länder`),
-      kp("login", "Login-Versuche", "#/feed?type=login"),
-      kp("success", "Login angenommen", `#/attacks?range=${r}&success=1`, "warn"),
-      kp("fetch", "Nachladeversuche", `#/attacks?range=${r}&q=nachladen:ja`, "crit"));
+      kp("connect", "Verbindungen"),
+      kp("ips", "Angreifer-IPs", "", `${fmtNum(d.countries.length)} Länder`),
+      kp("login", "Login-Versuche"),
+      kp("request", "Web-Anfragen"),
+      kp("success", "Logins angenommen", "warn"),
+      kp("fetch", "Nachladeversuche", "crit"));
     // Top-Angreifer
-    mount(topUl, d.ips.length ? d.ips.slice(0, 8).map((x, i) => h("li", null, h("a", { class: "ls-top", href: "#/attacker/" + encodeURIComponent(x.key) },
+    mount(topUl, d.ips.length ? d.ips.slice(0, 8).map((x, i) => h("li", null, h("a", { class: "ls-top", href: ipZiel(x.key), title: "Klick zeigt den Angreifer " + x.key },
       h("span", { class: "rk" }, i + 1), flag(x.label) || h("span"), h("span", { class: "mono nm" }, x.key),
       h("span", { class: "num muted" }, fmtNum(x.n)),
       h("span", { class: "pip", style: { "--c": stufeOf.has(x.key) ? sevColor(stufeOf.get(x.key)) : "transparent" }, title: stufeOf.has(x.key) ? STUFE[stufeOf.get(x.key)] + " (gerade aktiv)" : "" }))))
@@ -250,12 +254,12 @@ export async function dashboard(el, ctx, d) {
     const bySvc = new Map();
     for (const p of d.ports) bySvc.set(p.label || "other", (bySvc.get(p.label || "other") || 0) + Number(p.n || 0));
     const sv = [...bySvc].sort((a, b) => b[1] - a[1]).slice(0, 8), tot = Math.max(1, sv.reduce((t, [, n]) => t + n, 0)), mx = sv.length ? sv[0][1] : 1;
-    mount(svcUl, sv.length ? sv.map(([k, n]) => h("li", { class: "ls-svc" }, h("span", null, svcName(k)), h("span", { class: "meter" }, h("i", { style: { width: (n / mx) * 100 + "%" } })),
-      h("span", { class: "num muted" }, Math.round((n / tot) * 100) + " %"))) : h("li", { class: "empty" }, "Noch keine Verbindungen."));
+    mount(svcUl, sv.length ? sv.map(([k, n]) => h("li", null, h("a", { class: "ls-svc", href: dienst(k, r), title: "Klick zeigt die Angriffe auf " + svcName(k) }, h("span", null, svcName(k)), h("span", { class: "meter" }, h("i", { style: { width: (n / mx) * 100 + "%" } })),
+      h("span", { class: "num muted" }, Math.round((n / tot) * 100) + " %")))) : h("li", { class: "empty" }, "Noch keine Verbindungen."));
     // Karte und Herkunft
     map.setData(d.mp, d.countries);
     const tc = d.countries.slice(0, 4), tm = tc.length ? Number(tc[0].n) : 1;
-    mount(origin, tc.map((c) => h("div", null, flag(c.key) || h("span"), h("span", null, c.label || countryName(c.key)), h("span", { class: "num" }, fmtNum(c.n)),
+    mount(origin, tc.map((c) => h("a", { href: land(c.key, r), title: "Klick zeigt die Angriffe aus " + (c.label || countryName(c.key)) }, flag(c.key) || h("span"), h("span", null, c.label || countryName(c.key)), h("span", { class: "num" }, fmtNum(c.n)),
       h("i", { class: "bar", style: { width: (Number(c.n) / tm) * 100 + "%" } }))));
   }
   async function fillExtra() {
@@ -269,9 +273,9 @@ export async function dashboard(el, ctx, d) {
     if (!f) { mount(funBody, h("p", { class: "muted" }, "Funde gerade nicht abrufbar.")); return; }
     const steps = [["geholt", f.fetched || 0], ["Schadsoftware", f.malware || 0], ["an URLhaus gemeldet", (f.urlhaus_ok || 0) + (f.urlhaus_error || 0)]];
     const mxn = Math.max(1, f.seen || 0);
-    mount(funBody, h("div", { class: "big num" + (f.malware ? " crit" : ""), title: "Nachlade-Adressen in Befehlen und Downloads" }, fmtNum(f.seen || 0)),
-      h("div", { class: "fl" }, steps.map(([l, n]) => h("div", { class: "st" }, h("span", null, l), h("b", { class: "num" }, fmtNum(n)), h("span", { class: "meter" }, h("i", { style: { width: (n / mxn) * 100 + "%" } })))),
-        h("a", { href: "#/funde" }, "Zu den Funden und Fallakten →")));
+    mount(funBody, h("a", { class: "big num" + (f.malware ? " crit" : ""), href: ziel("funde"), title: "Nachlade-Adressen in Befehlen und Downloads. " + zielTitel("funde") + "." }, fmtNum(f.seen || 0)),
+      h("div", { class: "fl" }, steps.map(([l, n]) => h("a", { class: "st", href: ziel("funde"), title: zielTitel("funde") }, h("span", null, l), h("b", { class: "num" }, fmtNum(n)), h("span", { class: "meter" }, h("i", { style: { width: (n / mxn) * 100 + "%" } })))),
+        h("a", { href: ziel("funde"), title: zielTitel("funde") }, "Zu den Funden und Fallakten →")));
   }
 
   mount(el, h("div", { class: "ls-dash" },
@@ -280,7 +284,7 @@ export async function dashboard(el, ctx, d) {
     panel("a-map", "Herkunft der Angriffe", map.el, map.controls),
     panel("a-ver", "Verlauf nach Stufe", chartBox, legend()),
     h("section", { class: "ls-pn a-tick" },
-      h("div", { class: "ls-ph" }, h("h2", null, "Live-Ticker"), h("span", { class: "sp" }), pauseBtn),
+      h("div", { class: "ls-ph" }, h("h2", null, "Live-Ticker"), h("span", { class: "sp" }), h("a", { class: "ls-all", href: ziel("attacks", r), title: zielTitel("attacks") }, "Alle Angriffe"), pauseBtn),
       h("div", { class: "ls-ph sub" }, tkSeg),
       h("div", { class: "ls-pb" }, tick)),
     panel("a-top", "Top-Angreifer", topUl, h("span", { class: "hint" }, "Verbindungen")),

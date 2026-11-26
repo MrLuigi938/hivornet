@@ -39,6 +39,8 @@ export const THEMES = [
     beschreibung: "Mobil zuerst: Ampel oben, Tableiste unten in Daumen-Reichweite, Übersicht als Kartenstapel mit „Seit deinem letzten Besuch“ und Weltkarte im Vollbild-Blatt, große Touch-Flächen. Am Desktop eine ruhige, zentrierte Zweispaltenansicht. Hell und dunkel." },
   { id: "terminal", name: "Terminal", css: true, modul: true, farbmodus: "dark",
     beschreibung: "Retro-Konsole wie htop oder Midnight Commander: nur Monospace, Rahmen aus Box-Zeichen, Balken und Sparklines aus Blockzeichen, Live-Feed als Log. Befehlszeile oben (/ip, /land, /stufe, /hilfe …), Fußzeile mit Tasten 1–0. Phosphor-Grün oder Bernstein, CRT-Effekt abschaltbar. Immer dunkel." },
+  { id: "weltlage", name: "Weltlage", css: true, modul: true,
+    beschreibung: "Die Weltkarte ist die Seite: Übersicht als Vollbild-Karte mit Angriffsbögen, darüber schwebende Glas-Bereiche (Kennzahlen, Live-Ticker, Stufenverlauf, Top-Länder, Top-Angreifer, Funde) zum Einklappen, Andocken links, rechts oder oben und Ausblenden. Navigation als schwebende Leiste unten, Befehlspalette mit Strg+K. Dunkel oder hell, auf dem Handy als Blatt von unten." },
 ];
 
 export const COLOR_MODES = [

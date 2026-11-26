@@ -8,6 +8,7 @@ import { worldMap, sparkline, svcName, countryName, REGIONS } from "../charts.js
 import { STUFE, STUFE_KURZ, sevColor, liveAttacks, summary } from "../attacks.js";
 import { state, loadDashboard, warningsBox } from "../app.js";
 import { colorMode, setColorMode } from "../themes.js";
+import { ziel, zielTitel, ip as ipZiel, land, dienst, stufe as stufeZiel, fund } from "../ziele.js";
 
 // ---------- Symbole (Linien, 24er Raster) ----------
 const IC = {
@@ -113,7 +114,7 @@ function rangeText(r) {
   return n === 1 ? t[0] : `in den letzten ${fmtNum(n)} ${t[1]}`;
 }
 const greet = () => { const hr = new Date().getHours(); return hr < 11 ? "Guten Morgen" : hr < 18 ? "Guten Tag" : "Guten Abend"; };
-const chip = (text, c) => h("span", { class: "kc-chip", style: c ? { "--c": c } : null }, text);
+const chip = (text, c, href, key, extra) => h("a", { class: "kc-chip", href, title: zielTitel(key), style: c ? { "--c": c } : null, ...extra }, text);
 const empty = (t) => h("p", { class: "kc-empty" }, t);
 
 // Verlauf nach Stufe (gestapelt), zeichnet sich in Kachelgröße neu
@@ -162,21 +163,23 @@ function stufenChart(box) {
 // ---------- Kachel-Katalog ----------
 // sizes: erlaubte Größen "BreitexHöhe" (Spalten von 12, Zeilen); die erste ist die Vorgabe.
 // to(r): volle Seite des Hive zur Kachel (r = Zeitraum der Übersicht).
+// z: Schlüssel in ziele.js (gleiche Wege wie im Standard); to(r) wird daraus abgeleitet.
 const TILES = {
-  hero: { title: "Lage", sizes: ["6x4", "12x4"], to: (r) => `#/attacks?range=${r}`, cls: "kc-hero" },
-  adr: { title: "Angreifer-Adressen", sizes: ["3x2", "6x2"], to: (r) => `#/attacks?range=${r}`, kpi: "ips", color: "var(--sev1)" },
-  login: { title: "Login-Versuche", sizes: ["3x2", "6x2"], to: () => "#/feed?type=login", kpi: "login", color: "var(--sev1)" },
-  ok: { title: "Logins angenommen", sizes: ["3x2", "6x2"], to: (r) => `#/attacks?range=${r}&success=1`, kpi: "success", color: "var(--sev2)", alarm: true },
-  fetch: { title: "Nachladeversuche", sizes: ["3x2", "6x2"], to: (r) => `#/attacks?range=${r}&q=nachladen:ja`, kpi: "fetch", color: "var(--sev4)", alarm: true },
-  verlauf: { title: "Verlauf nach Stufe", sizes: ["8x4", "12x4", "6x4"], to: (r) => `#/attacks?range=${r}` },
-  aktiv: { title: "Gerade aktiv", sizes: ["4x4", "4x5", "6x4"], to: () => "#/attacks" },
-  karte: { title: "Herkunft der Angriffe", sizes: ["8x6", "12x6", "6x4"], to: () => "#/analysis" },
-  trichter: { title: "Wie weit kamen sie?", sizes: ["4x3", "6x3", "4x4"], to: (r) => `#/attacks?range=${r}` },
-  laender: { title: "Top-Herkunftsländer", sizes: ["4x3", "4x4", "6x3"], to: () => "#/analysis" },
-  dienste: { title: "Angegriffene Dienste", sizes: ["4x3", "4x4"], to: () => "#/analysis" },
-  zugang: { title: "Häufigste Zugangsdaten", sizes: ["4x3", "6x3"], to: () => "#/creds" },
-  funde: { title: "Neueste Funde", sizes: ["4x3", "4x4", "6x4", "12x3"], to: () => "#/funde" },
+  hero: { title: "Lage", sizes: ["6x4", "12x4"], z: "attacks", cls: "kc-hero" },
+  adr: { title: "Angreifer-IPs", sizes: ["3x2", "6x2"], z: "ips", kpi: "ips", color: "var(--sev1)" },
+  login: { title: "Login-Versuche", sizes: ["3x2", "6x2"], z: "login", kpi: "login", color: "var(--sev1)" },
+  ok: { title: "Logins angenommen", sizes: ["3x2", "6x2"], z: "success", kpi: "success", color: "var(--sev2)", alarm: true },
+  fetch: { title: "Nachladeversuche", sizes: ["3x2", "6x2"], z: "fetch", kpi: "fetch", color: "var(--sev4)", alarm: true },
+  verlauf: { title: "Verlauf nach Stufe", sizes: ["8x4", "12x4", "6x4"], z: "attacks" },
+  aktiv: { title: "Aktiv (15 Min)", sizes: ["4x4", "4x5", "6x4"], z: "active" },
+  karte: { title: "Herkunft der Angriffe", sizes: ["8x6", "12x6", "6x4"], z: "countries" },
+  trichter: { title: "Wie weit kamen sie?", sizes: ["4x3", "6x3", "4x4"], z: "attacks" },
+  laender: { title: "Länder", sizes: ["4x3", "4x4", "6x3"], z: "countries" },
+  dienste: { title: "Angegriffene Dienste", sizes: ["4x3", "4x4"], z: "services" },
+  zugang: { title: "Zugangsdaten", sizes: ["4x3", "6x3"], z: "creds" },
+  funde: { title: "Funde", sizes: ["4x3", "4x4", "6x4", "12x3"], z: "funde" },
 };
+for (const t of Object.values(TILES)) t.to = (r) => ziel(t.z, r);
 const DEFAULT_ORDER = Object.keys(TILES);
 
 // Anordnung aus dem Browser; nur bekannte Kacheln und erlaubte Größen
@@ -227,23 +230,24 @@ export async function dashboard(el, ctx, d) {
       const act = active(), lage = act.reduce((m, a) => Math.max(m, a.stufe), -1);
       conn = Number(D.ser.totals.connect || 0);
       mount(b,
-        h("div", { class: "kc-big num" }, total === null ? "…" : fmtNum(total)),
+        h("a", { class: "kc-big num", href: ziel("attacks", r), title: zielTitel("attacks") }, total === null ? "…" : fmtNum(total)),
         h("p", { class: "kc-lede" }, `Angriffe ${rangeText(r)}, `, total === null ? "…" : zug ? `davon ${fmtNum(zug)} mit angenommenem Login.` : "keiner mit angenommenem Login."),
         h("div", { class: "kc-chips" },
-          chip(lage >= 0 ? `Lage: ${STUFE[lage]}` : "Lage: ruhig", lage >= 0 ? sevColor(lage) : "var(--good)"),
-          chip(`${fmtNum(D.ser.totals.ips || 0)} Adressen`),
-          chip(`${fmtNum(act.length)} aktiv`),
-          h("span", { class: "kc-chip", "data-conn": "" }, `${fmtNum(conn)} Verbindungen`)),
+          chip(lage >= 0 ? `Lage: ${STUFE[lage]}` : "Lage: ruhig", lage >= 0 ? sevColor(lage) : "var(--good)", ziel("active"), "active"),
+          chip(`${fmtNum(D.ser.totals.ips || 0)} Angreifer-IPs`, null, ziel("ips", r), "ips"),
+          chip(`${fmtNum(act.length)} aktiv (15 Min)`, null, ziel("active"), "active"),
+          chip(`${fmtNum(conn)} Verbindungen`, null, ziel("connect", r), "connect", { "data-conn": "" }),
+          chip(`${fmtNum(D.ser.totals.request || 0)} Web-Anfragen`, null, ziel("request", r), "request")),
         sparkline(D.ser.series.connect || [], { w: 160, hh: 40 }));
     },
     verlauf(b) {
-      if (!b.firstChild) mount(b, h("div", { class: "kc-legend" }, STUFE_KURZ.map((x, i) => h("span", { style: { "--c": sevColor(i) }, title: STUFE[i] }, x))), chartBox);
+      if (!b.firstChild) mount(b, h("div", { class: "kc-legend" }, STUFE_KURZ.map((x, i) => h("a", { href: stufeZiel(i, r), style: { "--c": sevColor(i) }, title: STUFE[i] + ": Klick zeigt die Angriffe dieser Stufe" }, x))), chartBox);
       chart.set(OV);
     },
     aktiv(b) {
       const act = active();
       if (!act.length) return mount(b, empty("Gerade ist niemand aktiv. Neue Angriffe erscheinen hier sofort."));
-      mount(b, h("div", { class: "kc-rows" }, act.slice(0, 10).map((a) => h("a", { class: "kc-row", href: "#/attacker/" + encodeURIComponent(a.ip) },
+      mount(b, h("div", { class: "kc-rows" }, act.slice(0, 10).map((a) => h("a", { class: "kc-row", href: ipZiel(a.ip), title: "Klick zeigt den Angreifer " + a.ip },
         flag(a.country) || h("span", { class: "flag" }), h("span", { class: "mid" }, h("span", { class: "mono" }, a.ip), h("small", null, summary(a))),
         h("span", { class: "kc-dot", style: { "--c": sevColor(a.stufe) }, title: STUFE[a.stufe] }),
         h("span", { class: "r" }, relTime(a.last).replace(/^vor /, ""))))));
@@ -257,13 +261,13 @@ export async function dashboard(el, ctx, d) {
     trichter(b) {
       if (!OV) return mount(b, empty("Lade …"));
       const fun = [0, 1, 2, 3, 4].map((i) => OV.stufen.slice(i).reduce((p, q) => p + q, 0)), mx = Math.max(1, fun[0]);
-      mount(b, h("div", { class: "kc-fun" }, STUFE_KURZ.map((x, i) => h("div", { style: { "--c": sevColor(i) }, title: `${STUFE[i]} oder weiter: ${fmtNum(fun[i])} Angriffe` },
+      mount(b, h("div", { class: "kc-fun" }, STUFE_KURZ.map((x, i) => h("a", { href: i ? stufeZiel([0, 1, 2, 3, 4].filter((n) => n >= i).join(","), r) : ziel("attacks", r), style: { "--c": sevColor(i) }, title: `${STUFE[i]} oder weiter: ${fmtNum(fun[i])} Angriffe. Klick zeigt sie.` },
         h("span", null, x), h("span", { class: "trk" }, h("i", { style: { width: (fun[i] / mx) * 100 + "%" } })), h("b", null, fmtNum(fun[i]))))));
     },
     laender(b) {
       const rows = D.countries.slice(0, 7), mx = rows.length ? Number(rows[0].n) : 1;
       if (!rows.length) return mount(b, empty("Noch keine Herkunft im Zeitraum."));
-      mount(b, h("div", { class: "kc-hbars" }, rows.map((c) => h("div", { class: "kc-hbar" }, flag(c.key) || h("span", { class: "flag" }),
+      mount(b, h("div", { class: "kc-hbars" }, rows.map((c) => h("a", { class: "kc-hbar", href: land(c.key, r), title: "Klick zeigt die Angriffe aus " + (c.label || countryName(c.key)) }, flag(c.key) || h("span", { class: "flag" }),
         h("span", { class: "nm" }, c.label || countryName(c.key)), h("b", null, fmtNum(c.n)), h("span", { class: "trk" }, h("i", { style: { width: (Number(c.n) / mx) * 100 + "%" } }))))));
     },
     dienste(b) {
@@ -272,7 +276,7 @@ export async function dashboard(el, ctx, d) {
       const rows = [...by].sort((a, c) => c[1] - a[1]), tot = rows.reduce((t, [, n]) => t + n, 0);
       if (!tot) return mount(b, empty("Noch keine Verbindungen im Zeitraum."));
       const top5 = rows.slice(0, 5), rest = tot - top5.reduce((t, [, n]) => t + n, 0);
-      const items = [...top5.map(([k, n], i) => [svcName(k), n, `var(--s${i + 1})`]), ...(rest > 0 ? [["Übrige", rest, "var(--other)"]] : [])];
+      const items = [...top5.map(([k, n], i) => [svcName(k), n, `var(--s${i + 1})`, dienst(k, r)]), ...(rest > 0 ? [["Übrige", rest, "var(--other)", ziel("services", r)]] : [])];
       let off = 0;
       const svg = s("svg", { viewBox: "0 0 36 36", "aria-hidden": "true" }, s("circle", { class: "track", cx: 18, cy: 18, r: 15.9155 }),
         items.map(([, n, col]) => {
@@ -281,12 +285,12 @@ export async function dashboard(el, ctx, d) {
           off += p;
           return c;
         }));
-      mount(b, h("div", { class: "kc-donut" }, svg, h("ul", null, items.map(([n, v, col]) => h("li", { style: { "--c": col } }, h("span", null, n), h("b", null, Math.round((v / tot) * 100) + " %"))))));
+      mount(b, h("div", { class: "kc-donut" }, svg, h("ul", null, items.map(([n, v, col, to]) => h("li", { style: { "--c": col } }, h("a", { class: "kc-lnk", href: to, title: "Klick zeigt " + (to.includes("service=") ? "die Angriffe auf " + n : "die Analyse") }, h("span", null, n), h("b", null, Math.round((v / tot) * 100) + " %")))))));
     },
     zugang(b) {
       const rows = (D.creds || []).slice(0, 10);
       if (!rows.length) return mount(b, empty("Noch keine Zugangsdaten im Zeitraum."));
-      mount(b, h("div", { class: "kc-cred" }, rows.map((c) => h("span", null, h("span", { class: "mono" }, credText(c.key)), h("em", null, "×" + fmtNum(c.n))))));
+      mount(b, h("div", { class: "kc-cred" }, rows.map((c) => h("a", { href: ziel("creds"), title: zielTitel("creds") }, h("span", { class: "mono" }, credText(c.key)), h("em", null, "×" + fmtNum(c.n))))));
     },
     funde(b) {
       if (!FU) return mount(b, empty(FU === false ? "Funde gerade nicht abrufbar." : "Lade …"));
@@ -295,7 +299,7 @@ export async function dashboard(el, ctx, d) {
       const why = (u) => (u.malware ? ["Schadsoftware", 4] : u.fetch === "ok" ? ["geholt", 3] : u.fetch === "error" ? ["nicht abrufbar", 2] : u.why ? ["nicht geholt", 1] : ["offen", 0]);
       mount(b, h("div", { class: "kc-rows" }, urls.map((u) => {
         const [st, sv] = why(u);
-        return h("a", { class: "kc-row", href: "#/funde" },
+        return h("a", { class: "kc-row", href: u.sha256 ? fund(u.sha256) : ziel("funde"), title: u.sha256 ? "Klick öffnet die Fallakte der Datei" : zielTitel("funde") },
           h("span", { class: "mid" }, h("span", { class: "mono" }, u.host || u.url), h("small", null, `${st} · ${u.n_ips === 1 ? "1 Adresse" : `${fmtNum(u.n_ips || 0)} Adressen`}`)),
           h("span", { class: "kc-dot", style: { "--c": sevColor(sv) }, title: st }),
           h("span", { class: "r" }, relTime(u.last).replace(/^vor /, "")));
@@ -307,7 +311,7 @@ export async function dashboard(el, ctx, d) {
     const v = Number(D.ser.totals[t.kpi] || 0), p = Number(D.ser.prev[t.kpi] || 0);
     const delta = p >= 20 ? Math.round(((v - p) / p) * 100) : null;
     b.closest(".kc-tile").classList.toggle("is-alarm", Boolean(t.alarm && v));
-    mount(b, h("div", { class: "kc-big num" }, fmtNum(v)),
+    mount(b, h("a", { class: "kc-big num", href: t.to(r), title: zielTitel(t.z) }, fmtNum(v)),
       h("div", { class: "kc-delta" }, delta !== null && delta !== 0 ? h("span", { class: delta > 0 ? "up" : "down" }, `${delta > 0 ? "▲" : "▼"} ${Math.abs(delta)} %`) : null,
         p ? ` Zeitraum davor: ${fmtNum(p)}` : ""),
       sparkline(D.ser.series[t.kpi] || [], { w: 160, hh: 30 }));
@@ -322,19 +326,28 @@ export async function dashboard(el, ctx, d) {
     const href = t.to(r);
     const ctlBtn = (ic, label, fn) => h("button", { type: "button", "aria-label": `${t.title}: ${label}`, title: label, onclick: (e) => { e.stopPropagation(); fn(e); } }, svgi(ic));
     const tile = h("section", { class: "kc-tile" + (t.cls ? " " + t.cls : "") + (t.kpi ? " kc-kpi" : ""), "data-id": id, tabindex: "0", "aria-label": t.title,
-      onclick: (e) => { if (edit || e.target.closest("a, button, input, select, .kc-mapbox")) return; openTile(tile, href); },
+      onclick: (e) => {
+        if (edit) return;
+        const a = e.target.closest("a");
+        // Links in der Kachel: normal folgen, der Übergang startet trotzdem an der Kachel
+        if (a && R) { R.from = tile.getBoundingClientRect(); R.scrollMem = window.scrollY; }
+        if (a || e.target.closest("button, input, select, .kc-mapbox")) return;
+        openTile(tile, href);
+      },
       onkeydown: (e) => onTileKey(e, id, tile, href),
       onpointerdown: (e) => dragStart(e, id, tile) },
     h("header", { class: "kc-th" },
       t.kpi ? h("span", { class: "kc-ico", style: { "--c": t.color } }, h("i")) : null,
       h("h2", null, t.title),
-      h("a", { class: "kc-open", href, "aria-label": `${t.title}: volle Seite öffnen`, title: "Volle Seite öffnen", onclick: (e) => { e.preventDefault(); e.stopPropagation(); openTile(tile, href); } }, svgi("open")),
+      h("a", { class: "kc-open", href, "aria-label": `${t.title}: volle Seite öffnen`, title: zielTitel(t.z), onclick: (e) => { e.preventDefault(); e.stopPropagation(); openTile(tile, href); } }, svgi("open")),
       h("span", { class: "kc-ctl" },
         ctlBtn("left", "Eine Position früher", () => move(id, -1)),
         ctlBtn("right", "Eine Position später", () => move(id, 1)),
         ctlBtn("size", "Größe wechseln", () => resize(id)),
         ctlBtn("hide", "Ausblenden", () => hide(id)))),
     body);
+    // Anordnen-Modus: Links in der Kachel navigieren nicht (auch nicht nach dem Ziehen)
+    tile.addEventListener("click", (e) => { if (edit && e.target.closest("a")) e.preventDefault(); }, true);
     tiles.set(id, { el: tile, body });
     return tile;
   }

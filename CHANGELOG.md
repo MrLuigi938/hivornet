@@ -2,19 +2,23 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
-## [Unveröffentlicht]
+## [0.9.7-beta] – 2026-11-26
+
+**Update:** Raspberry Pi per Knopf; der Updater schaltet den Timer der Cowrie-Installation ab, wenn Cowrie fertig ist. Docker: `./update.sh`.
 
 ### Neu
 - **Themes.** Unter Einstellungen → Darstellung lässt sich je Browser ein Theme wählen, das nicht nur die Farben, sondern auch Navigation und Übersicht ändert. Alle anderen Seiten bleiben funktionsgleich und passen sich an.
+  - **Weltlage:** Die Weltkarte füllt die Übersicht, darüber schweben Bereiche mit Kennzahlen, Live-Ticker, Stufenverlauf, Top-Ländern, Top-Angreifern und Funden – andocken, einklappen, ausblenden. Navigation als Leiste unten, Suche mit Strg+K; die übrigen Seiten erscheinen als Panel über einer ruhigen Karte. Klick auf ein Land in der Karte zeigt dessen Angriffe.
   - **Leitstand:** dunkles Lagezentrum für den Wandmonitor – Icon-Leiste links, Übersicht als Raster ohne Scrollen mit Live-Ticker, Lagestufe in der Kopfzeile, Kiosk-Modus (Taste K).
   - **Terminal:** Textkonsole in Phosphor-Grün oder Bernstein – Befehlszeile (`/ip`, `/land`, `/stufe`, `/dienst`, `/fund`, `/zeit` …) auf die echten Seiten und Filter, Tasten wie bei htop, Textdiagramme und Live-Log, CRT-Effekt abschaltbar.
   - **Kacheln:** Übersicht aus Kacheln, die man ziehen, vergrößern und ausblenden kann; ein Klick öffnet die volle Seite; fünf Akzentfarben.
   - **Taschenformat:** fürs Handy – Tab-Leiste unten, Ampel der letzten 60 Minuten, „Seit deinem letzten Besuch“ als erste Karte, Karte als Vollbild mit Zoom; die übrigen Seiten werden handytauglich.
-- **Bögen auf der Weltkarte:** Neue Angriffe zeichnen einen Bogen von der Herkunft zum eigenen Standort, der einige Minuten hell bleibt und dann verblasst. In Leitstand, Terminal, Kacheln und Taschenformat immer an, im Standard unter Einstellungen → Darstellung → „Karte im Dashboard“.
+- **Bögen auf der Weltkarte:** Neue Angriffe zeichnen einen Bogen von der Herkunft zum eigenen Standort, der einige Minuten hell bleibt und dann verblasst. In Weltlage, Leitstand, Terminal, Kacheln und Taschenformat immer an, im Standard unter Einstellungen → Darstellung → „Karte im Dashboard“.
 - **Einstellungen → Darstellung:** Farbmodus, Ansicht der Seite Angriffe und Theme stehen jetzt hier statt im Benutzermenü. Auch Konten mit Leserecht können den Bereich öffnen.
 - **Programme in der Fallakte lesbar:** Für ELF-Dateien (auch MIPS, ARM, x86) zeigt der Reiter „Inhalt“ eine Übersicht (Prozessor, statisch/dynamisch, Segmente, Packer), lesbare Zeichenketten nach Art (Adressen, Befehle, Pfade, HTTP, Botnetz-Merkmale), mit XOR versteckte Mirai-Texte samt Schlüssel und eine Hex-Ansicht. „Mit KI erklären“ geht auch für Programme; an das Modell gehen nur Übersicht und Zeichenketten, nie die Datei. Rein statisch, die Datei wird nie ausgeführt.
 
 ### Geändert
+- **Gleiche Klickwege in allen Themes:** Jede Kennzahl, Zeile und Kachel der Übersicht führt zum selben Tab wie im Standard (Verbindungen und Angreifer-IPs → Angriffe, Logins und Nachladen → Angriffe mit Filter, Login-Versuche und Web-Anfragen → Einzelne Ereignisse, Funde → Funde bzw. Fallakte, IP → Angreiferseite, Land und Dienst → Angriffe mit Filter). Im Standard sind jetzt auch Länder, Ports und Zugangsdaten der Übersicht anklickbar.
 - **MalwareBazaar:** Die Antwort steht im Prüfprotokoll (gekürzt, ohne Schlüssel), Fehler sind verständlich benannt, hochgeladen wird mit sinnvollem Dateinamen (z. B. `s2.sh`). Nach einem Fehler gibt es bis zu drei Versuche (nach 1 und 4 Stunden); vorher schlägt der Hive nach, ob die Datei schon bekannt ist.
 - **„Aktiv“ einheitlich:** „● läuft gerade“ heißt unter 60 Sekunden, „● aktiv“ unter 15 Minuten; Kopfzeile und Seite Angriffe zeigen dieselbe Zahl.
 - **Analyse → Bekannte Lücken** zählt wie die Tabelle „Exploits nach Produkt“ Angriffe und nennt Probe oder Ausnutzung.

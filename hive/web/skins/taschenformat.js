@@ -8,6 +8,7 @@ import { worldMap, sparkline, svcName, svcColor, countryName } from "../charts.j
 import { STUFE, STUFE_KURZ, sevColor, liveAttacks } from "../attacks.js";
 import { state, loadDashboard, warningsBox } from "../app.js";
 import { COLOR_MODES, colorMode, setColorMode } from "../themes.js";
+import { ziel, zielTitel, ip as ipZiel, land, dienst, stufe as stufeZiel } from "../ziele.js";
 
 // ---------- Symbole (Linien, 24er Raster; Ampel im 36er Raster) ----------
 const ICON = {
@@ -134,7 +135,7 @@ function openAmpel() {
     row("bad"), row("warn"), row("ok"),
     h("section", { class: "tf-card" }, h("h3", { class: "tf-h" }, h("span", null, `Letzte ${AMPEL_MIN} Minuten`), h("em", null, a.t ? "Stand " + fmtTime(a.t) : "")),
       h("div", { class: "tf-lv" }, STUFE.map((x, i) => h("div", null, h("span", null, h("i", { class: "tf-dotc", style: { "--c": sevColor(i) } }), x), h("b", { class: "num" }, a.stufen ? fmtNum(st[i]) : "–"))))),
-    h("a", { class: "tf-btn brand", href: `#/attacks?range=1h${q}` }, a.st === "ok" ? "Angriffe der letzten Stunde" : "Diese Angriffe ansehen", icon("next")),
+    h("a", { class: "tf-btn brand", href: ziel("attacks", "1h") + q, title: zielTitel("attacks") }, a.st === "ok" ? "Angriffe der letzten Stunde" : "Diese Angriffe ansehen", icon("next")),
     h("p", { class: "muted tf-small" }, "Die Ampel wird jede Minute neu geprüft, solange die Seite offen ist.")));
 }
 
@@ -230,9 +231,9 @@ const card = (cls, title, em, ...body) => h("section", { class: "tf-card " + cls
   h("h2", { class: "tf-h" }, h("span", null, title), em ? h("em", null, em) : null), ...body);
 const rangeName = (r) => ({ "24h": "24 Std", "7d": "7 Tage", "30d": "30 Tage", "1h": "1 Std" }[r] || r);
 
-function rowBars(box, list, { label, color, href }) {
+function rowBars(box, list, { label, color, href, title }) {
   const mx = Math.max(1, ...list.map((x) => x[1]));
-  mount(box, list.length ? list.map(([k, v]) => h(href ? "a" : "div", { class: "tf-rowbar", href: href ? href(k) : null, style: { "--c": color(k) } },
+  mount(box, list.length ? list.map(([k, v]) => h(href ? "a" : "div", { class: "tf-rowbar", href: href ? href(k) : null, title: href && title ? title(k) : null, style: { "--c": color(k) } },
     h("span", { class: "nm" }, label(k)), h("b", { class: "num" }, fmtNum(v)), h("span", { class: "tr" }, h("i", { style: { width: (v / mx) * 100 + "%" } }))))
     : h("p", { class: "tf-empty" }, "Noch nichts im Zeitraum."));
 }
@@ -321,7 +322,7 @@ export async function dashboard(el, ctx, d) {
     const head = h("h2", { class: "tf-h", id: "tf-hero-h" }, h("span", null, "Seit deinem letzten Besuch"),
       h("em", null, from ? `${dayClock(start)} · ${relTime(start)}` : "noch keiner gemerkt · letzte 24 Std"));
     const seen = h("button", { type: "button", class: "tf-btn solid", onclick: () => { store("tfVisit", String(Date.now())); seen.textContent = "Als gesehen markiert ✓"; fillHero(); } }, "Alles gesehen");
-    const actions = h("div", { class: "tf-actions" }, seen, h("a", { class: "tf-btn line", href: `#/attacks?range=${rr}` }, "Alle ansehen"));
+    const actions = h("div", { class: "tf-actions" }, seen, h("a", { class: "tf-btn line", href: ziel("attacks", rr), title: zielTitel("attacks") }, "Alle ansehen"));
     if (!hero.firstChild) mount(hero, head, h("p", { class: "tf-hero-p" }, "Lade …"), actions);
     const x = await api(`attacks?range=${rr}&from=${start}&limit=40&overview=1`).catch(() => null);
     if (!ctx.current()) return;
@@ -333,13 +334,13 @@ export async function dashboard(el, ctx, d) {
     const n = x.matched || 0;
     const notable = (x.attacks || []).slice().sort((a, b) => b.stufe - a.stufe || b.last - a.last).filter((a) => a.stufe >= 2).slice(0, 3);
     mount(hero, head,
-      h("div", { class: "tf-big num" }, fmtNum(n)),
+      h("a", { class: "tf-big num", href: ziel("attacks", rr), title: zielTitel("attacks") }, fmtNum(n)),
       h("p", { class: "tf-hero-p" }, n ? `${n === 1 ? "Angriff" : "Angriffe"} aus ${fmtNum(nCC)} ${nCC === 1 ? "Land" : "Ländern"}` : "Nichts Neues. Ruhige Zeit."),
       h("div", { class: "tf-mini" },
-        h("a", { href: `#/attacks?range=${rr}&stufe=2,3,4` }, h("b", { class: "num" }, fmtNum(st[2] + st[3] + st[4])), h("span", null, "Login ok")),
-        h("a", { href: `#/attacks?range=${rr}&stufe=3,4` }, h("b", { class: "num" }, fmtNum(st[3] + st[4])), h("span", null, "mit Befehlen")),
-        h("a", { href: "#/funde" }, h("b", { class: "num" }, fmtNum(nHost)), h("span", null, "Nachlade-Ziele"))),
-      notable.length ? h("div", { class: "tf-nlist" }, notable.map((a) => h("a", { class: "tf-item", href: "#/attacker/" + encodeURIComponent(a.ip), style: { "--c": sevColor(a.stufe) } },
+        h("a", { href: stufeZiel("2,3,4", rr), title: "Klick zeigt die Angriffe mit angenommenem Login" }, h("b", { class: "num" }, fmtNum(st[2] + st[3] + st[4])), h("span", null, "Login ok")),
+        h("a", { href: stufeZiel("3,4", rr), title: "Klick zeigt die Angriffe mit Befehlen" }, h("b", { class: "num" }, fmtNum(st[3] + st[4])), h("span", null, "mit Befehlen")),
+        h("a", { href: ziel("funde"), title: zielTitel("funde") }, h("b", { class: "num" }, fmtNum(nHost)), h("span", null, "Nachlade-Ziele"))),
+      notable.length ? h("div", { class: "tf-nlist" }, notable.map((a) => h("a", { class: "tf-item", href: ipZiel(a.ip), title: "Klick zeigt den Angreifer " + a.ip, style: { "--c": sevColor(a.stufe) } },
         h("span", { class: "flag tf-flag" }, flag(a.country) || ""),
         h("span", { class: "tf-it" }, h("b", null, `${a.country_name || countryName(a.country)} · ${STUFE[a.stufe]}`), h("span", { class: "muted mono" }, a.ip)),
         h("span", { class: "muted" }, relTime(a.last))))) : null,
@@ -359,8 +360,8 @@ export async function dashboard(el, ctx, d) {
     const a = act ? act.attacks.filter((x) => !x.own) : null;
     const v = Number(ser.totals.connect || 0) + live.n;
     mount(jetztBody,
-      h("div", { class: "tf-livenum" }, h("b", { class: "num" }, a ? fmtNum(a.length) : "–"), h("span", { class: "muted" }, "aktive Angreifer (letzte 15 Min)")),
-      h("a", { class: "tf-sub", href: `#/attacks?range=${r}` }, h("b", { class: "num tf-conn" }, fmtNum(v)), ` Verbindungen in ${rangeName(r)}`),
+      h("a", { class: "tf-livenum", href: ziel("active"), title: zielTitel("active") }, h("b", { class: "num" }, a ? fmtNum(a.length) : "–"), h("span", { class: "muted" }, "Aktiv (15 Min)")),
+      h("a", { class: "tf-sub", href: ziel("connect", r), title: zielTitel("connect") }, h("b", { class: "num tf-conn" }, fmtNum(v)), ` Verbindungen in ${rangeName(r)}`),
       sparkline(ser.series.connect || [], { w: 300, hh: 48 }));
   }
 
@@ -387,7 +388,7 @@ export async function dashboard(el, ctx, d) {
         h("button", { type: "button", "aria-label": "Herauszoomen", onclick: () => zoomMap(m, 1) }, "−"),
         ["Welt", "Europa", "Asien"].map((z) => h("button", { type: "button", class: "txt", onclick: () => m.zoom(z) }, z))),
       h("section", { class: "tf-card" }, h("h3", { class: "tf-h" }, h("span", null, "Länder"), h("em", null, "antippen = Angriffe aus diesem Land")),
-        h("div", { class: "tf-clist" }, list.length ? list.map((c) => h("a", { class: "tf-rowbar", href: `#/attacks?range=${r}&q=${encodeURIComponent("country:" + c.key)}`, style: { "--c": "var(--accent)" } },
+        h("div", { class: "tf-clist" }, list.length ? list.map((c) => h("a", { class: "tf-rowbar", href: land(c.key, r), title: "Klick zeigt die Angriffe aus " + (c.label || countryName(c.key)), style: { "--c": "var(--accent)" } },
           h("span", { class: "nm" }, h("span", { class: "flag" }, flag(c.key) || ""), c.label || countryName(c.key)), h("b", { class: "num" }, fmtNum(c.n)),
           h("span", { class: "tr" }, h("i", { style: { width: (Number(c.n) / mx) * 100 + "%" } })))) : h("p", { class: "tf-empty" }, "Noch keine Herkunft bekannt.")))),
     { wide: true, onClose: () => { big = null; } });
@@ -411,12 +412,12 @@ export async function dashboard(el, ctx, d) {
     nLand.textContent = `${fmtNum(nc)} Länder · ${rangeName(r)}`;
     rowBars(woherBox, dd.countries.filter((c) => c.key && c.key !== "LAN").slice(0, 5).map((c) => [c.key, Number(c.n), c.label]), {
       label: (k) => [h("span", { class: "flag" }, flag(k) || ""), countryName(k)], color: () => "var(--accent)",
-      href: (k) => `#/attacks?range=${r}&q=${encodeURIComponent("country:" + k)}` });
+      href: (k) => land(k, r), title: (k) => "Klick zeigt die Angriffe aus " + countryName(k) });
     const bySvc = new Map();
     for (const p of dd.ports) bySvc.set(p.label || "other", (bySvc.get(p.label || "other") || 0) + Number(p.n || 0));
     rowBars(svcBox, [...bySvc].sort((a, b) => b[1] - a[1]).slice(0, 5), {
       label: (k) => [h("i", { class: "tf-dotc", style: { "--c": svcColor(k) } }), svcName(k)], color: (k) => svcColor(k),
-      href: (k) => `#/attacks?range=${r}&service=${encodeURIComponent(k)}` });
+      href: (k) => dienst(k, r), title: (k) => "Klick zeigt die Angriffe auf " + svcName(k) });
   }
   async function fillExtra() {
     const [ov, fu] = await Promise.all([
@@ -430,18 +431,18 @@ export async function dashboard(el, ctx, d) {
     mount(stufenBody,
       h("div", { class: "tf-stackbar", role: "img", "aria-label": "Verteilung der Stufen: " + STUFE.map((x, i) => `${x} ${st[i]}`).join(", ") },
         tot ? st.map((v, i) => (v ? h("i", { style: { "--c": sevColor(i), flex: String(v) } }) : null)) : h("i", { class: "none" })),
-      h("div", { class: "tf-lv" }, STUFE.map((x, i) => h("a", { href: `#/attacks?range=${r}&stufe=${i}` },
+      h("div", { class: "tf-lv" }, STUFE.map((x, i) => h("a", { href: stufeZiel(i, r), title: "Klick zeigt die Angriffe dieser Stufe" },
         h("span", null, h("i", { class: "tf-dotc", style: { "--c": sevColor(i) } }), x), h("b", { class: "num" }, fmtNum(st[i]))))));
     const f = fu && fu.funnel;
     if (!f) { mount(funBody, h("p", { class: "muted" }, "Funde gerade nicht abrufbar.")); return; }
     const steps = [["Nachlade-Adressen", f.seen || 0], ["geholt", f.fetched || 0], ["Schadsoftware", f.malware || 0], ["an URLhaus gemeldet", (f.urlhaus_ok || 0) + (f.urlhaus_error || 0)]];
     const mxn = Math.max(1, f.seen || 0);
-    mount(funBody, h("div", { class: "tf-lv" }, steps.map(([l, n], i) => h("div", { class: i === 2 && n ? "crit" : null },
+    mount(funBody, h("div", { class: "tf-lv" }, steps.map(([l, n], i) => h("a", { class: i === 2 && n ? "crit" : null, href: ziel("funde"), title: zielTitel("funde") },
       h("span", null, l), h("b", { class: "num" }, fmtNum(n)), h("span", { class: "tr" }, h("i", { style: { width: (n / mxn) * 100 + "%" } }))))),
-      h("a", { class: "tf-more", href: "#/funde" }, "Alle Funde", icon("next")));
+      h("a", { class: "tf-more", href: ziel("funde"), title: zielTitel("funde") }, "Alle Funde", icon("next")));
   }
 
-  const legend = h("div", { class: "tf-legend" }, STUFE_KURZ.map((x, i) => h("span", null, h("i", { class: "tf-dotc", style: { "--c": sevColor(i) } }), x)));
+  const legend = h("div", { class: "tf-legend" }, STUFE_KURZ.map((x, i) => h("a", { href: stufeZiel(i, r), title: STUFE[i] + ": Klick zeigt die Angriffe dieser Stufe" }, h("i", { class: "tf-dotc", style: { "--c": sevColor(i) } }), x)));
   mount(el, h("div", { class: "tf-dash" },
     warn,
     h("div", { class: "tf-layout" },

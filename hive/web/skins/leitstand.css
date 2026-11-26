@@ -100,7 +100,7 @@ html[data-skin="leitstand"] .ls-ph .mapctl { flex-wrap: nowrap; min-width: 0; ov
 html[data-skin="leitstand"] .ls-pb { flex: 1; min-height: 0; position: relative; overflow: auto; }
 
 /* Kennziffern */
-html[data-skin="leitstand"] .ls-kpis { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); }
+html[data-skin="leitstand"] .ls-kpis { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); }
 html[data-skin="leitstand"] .ls-kp { display: block; padding: 9px 14px 7px; border-left: 1px solid var(--border); min-width: 0; color: var(--text); text-decoration: none; }
 html[data-skin="leitstand"] .ls-kp:first-child { border-left: 0; }
 html[data-skin="leitstand"] .ls-kp:hover { background: var(--surface-2); text-decoration: none; }
@@ -121,9 +121,9 @@ html[data-skin="leitstand"] .map .country:hover { stroke-width: .3px; }
 html[data-skin="leitstand"] .ls-origin { position: absolute; left: 10px; bottom: 10px; background: color-mix(in srgb, var(--page) 82%, transparent); border: 1px solid var(--border);
   border-radius: 4px; padding: 6px 9px; font-size: 11.5px; display: grid; gap: 2px; pointer-events: none; }
 html[data-skin="leitstand"] .ls-origin:empty { display: none; }
-html[data-skin="leitstand"] .ls-origin div { display: grid; grid-template-columns: 20px 160px 44px; gap: 6px; align-items: center; white-space: nowrap; }
-html[data-skin="leitstand"] .ls-origin div span:nth-of-type(2) { overflow: hidden; text-overflow: ellipsis; }
-html[data-skin="leitstand"] .ls-origin div span:last-of-type { text-align: right; color: var(--muted); }
+html[data-skin="leitstand"] .ls-origin a { display: grid; grid-template-columns: 20px 160px 44px; gap: 6px; align-items: center; white-space: nowrap; }
+html[data-skin="leitstand"] .ls-origin a span:nth-of-type(2) { overflow: hidden; text-overflow: ellipsis; }
+html[data-skin="leitstand"] .ls-origin a span:last-of-type { text-align: right; color: var(--muted); }
 html[data-skin="leitstand"] .ls-origin i.bar { grid-column: 1 / -1; height: 3px; background: var(--heat); display: block; border-radius: 1px; }
 
 /* Verlauf nach Stufe */
@@ -223,3 +223,13 @@ html[data-skin="leitstand"] .lage { gap: 10px; }
   html[data-skin="leitstand"] .ls-tk { animation: none; }
   html[data-skin="leitstand"] .ls-rail [data-l]::after, html[data-skin="leitstand"] .ls-kioskbar { transition: none; }
 }
+
+/* Klickwege (ziele.js): Zeilen sind Links, Fokus ist sichtbar */
+html[data-skin="leitstand"] .ls-lagelink { display: flex; align-items: center; gap: 8px; color: inherit; text-decoration: none; }
+html[data-skin="leitstand"] .ls-origin a { color: inherit; text-decoration: none; }
+html[data-skin="leitstand"] .ls-origin a:hover { background: var(--surface-2); }
+html[data-skin="leitstand"] a.ls-svc { color: var(--text); text-decoration: none; }
+html[data-skin="leitstand"] a.ls-svc:hover { background: var(--surface-2); }
+html[data-skin="leitstand"] .ls-fun a.big, html[data-skin="leitstand"] .ls-fun a.st { color: inherit; text-decoration: none; }
+html[data-skin="leitstand"] .ls-fun a.st:hover { color: var(--text); background: var(--surface-2); }
+html[data-skin="leitstand"] .ls-all { font-size: 12px; margin-right: 8px; }
