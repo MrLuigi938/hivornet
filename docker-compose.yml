@@ -146,7 +146,7 @@ services:
   # SSH/Telnet-Honeypot mit gefälschter Shell (Version per Digest festgelegt).
   cowrie:
     <<: *hardening
-    image: cowrie/cowrie:3.1.6@sha256:99dc2531f317b0d1a44feccd1cdd2a5ec8fc456b31cb0ed59e7bed1a35dbd345
+    image: cowrie/cowrie:3.1.7@sha256:e7c4b4fe5fbb874e682c6c0c7a1daf1c3183c622d5cc2d281f453c1c4d9f97ac
     profiles: [cowrie]
     read_only: true
     environment:
