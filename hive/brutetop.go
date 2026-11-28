@@ -21,6 +21,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"sync"
@@ -122,8 +123,25 @@ func (h *Hive) bruteTopSub(ctx context.Context, hour int64) (map[string]map[stri
 		return sub, nil
 	}
 	c.mu.Unlock()
+	if !h.snapReady() { // nicht mit belegtem Platz in topSem lange auf den vollen Aufbau warten
+		wctx, cancel := context.WithTimeout(ctx, snapReadyWait)
+		err := h.snapWait(wctx) // der Aufbau läuft im Hintergrund weiter
+		cancel()
+		if err != nil || !h.snapReady() {
+			return nil, errSnapPending
+		}
+	}
 	return h.bruteTopRefresh(ctx, hour)
 }
+
+// errSnapPending: Der Schnappschuss der Angriffe wird noch aufgebaut; die markierten IPs sind
+// noch nicht bekannt. Live-Check 0.9.7-beta.1: Vorher warteten die Listen "ohne Dauer-Brute-Force"
+// mit belegtem Platz in topSem auf den vollen Aufbau; zwei davon blockierten alle Top-Listen.
+var errSnapPending = errors.New("Schnappschuss der Angriffe wird noch aufgebaut")
+
+// snapReadyWait: so lange wartet eine Liste ohne Brute-Force auf einen fehlenden Schnappschuss
+// (kleine Installationen: fertig in Millisekunden, also gleich genau).
+var snapReadyWait = 2 * time.Second
 
 // bruteTopRefresh rechnet das Ergebnis für hour neu und legt es ab. Liegt für dieselbe Stunde
 // schon eines vor und sind seine IPs alle noch markiert, kommen nur die seither gespeicherten
@@ -251,7 +269,9 @@ func bruteTopScan(rs *sql.Rows, sub map[string]map[string]int64, only map[string
 // topNoBrute: Top-Liste eines Feldes ohne Dauer-Brute-Force.
 func (h *Hive) topNoBrute(ctx context.Context, field string, hour int64, limit int) ([]map[string]any, error) {
 	sub, err := h.bruteTopSub(ctx, hour)
-	if err != nil {
+	if errors.Is(err, errSnapPending) {
+		sub = nil // vorläufig nur die verdichteten Versuche abziehen; erneuert wird nach topResTTL
+	} else if err != nil {
 		return nil, err
 	}
 	// Verdichtete Versuche wie bisher abziehen; mehr Zeilen holen, weil nach dem Abziehen der

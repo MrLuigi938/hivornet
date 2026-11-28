@@ -51,6 +51,29 @@ type attackSnap struct {
 	dirty     bool      // Einstellungen geändert: beim nächsten Mal voll neu aufbauen
 	gen       int64     // analysisGen beim vollen Aufbau (geänderte Regeln: neu aufbauen)
 	run       *snapRun  // Aufbau für Anfragen im Hintergrund (snapWait)
+
+	// Zustand für die Systemseite (snapStatus)
+	fullStart time.Time     // voller Aufbau läuft seit (null: keiner)
+	fullDur   time.Duration // Dauer des letzten fertigen vollen Aufbaus
+	fullErr   string        // Fehler des letzten vollen Aufbaus
+	fullFails int           // abgebrochene volle Aufbauten seit dem Start
+}
+
+// snapStatus: Zustand des Schnappschusses für /api/system.
+func (s *attackSnap) status() map[string]any {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := map[string]any{"ready": s.list != nil, "attacks": len(s.list), "full_ms": s.fullDur.Milliseconds(), "fails": s.fullFails}
+	if !s.fullAt.IsZero() {
+		m["full_at"] = s.fullAt
+	}
+	if !s.fullStart.IsZero() {
+		m["building_since"] = s.fullStart
+	}
+	if s.fullErr != "" {
+		m["error"] = s.fullErr
+	}
+	return m
 }
 
 // snapRun: ein Aufbau im Hintergrund; done wird geschlossen, wenn err feststeht.
@@ -59,8 +82,13 @@ type snapRun struct {
 	err  error
 }
 
-// snapBuild: Frist eines Aufbaus im Hintergrund (wie in warmSnap).
-var snapBuild = 5 * time.Minute
+// snapBuild: Frist eines Aufbaus im Hintergrund. Live-Check 0.9.7-beta.1: Auf einem Pi 3 mit
+// rund 40.000 Ereignissen am Tag brauchte der volle Aufbau über sieben Tage länger als die
+// früheren 5 Minuten (jedes Ereignis wird gegen alle Regeln geprüft, analysiscache.go). Er wurde
+// abgebrochen, verworfen und neu begonnen, belegte dabei dauerhaft einen Platz in heavySem und
+// einen CPU-Kern, und die Seite Angriffe bekam nie eine Antwort. Ist er einmal fertig, geht es
+// inkrementell weiter (Millisekunden).
+var snapBuild = 30 * time.Minute
 
 // invalidate: beim nächsten Zugriff voll neu aufbauen (geänderte eigene Netze, Brute-Force …).
 func (s *attackSnap) invalidate() {
@@ -145,6 +173,13 @@ func (h *Hive) snapWait(ctx context.Context) error {
 	}
 }
 
+// snapReady: Der Schnappschuss ist aufgebaut (vielleicht nicht ganz aktuell).
+func (h *Hive) snapReady() bool {
+	h.snap.mu.Lock()
+	defer h.snap.mu.Unlock()
+	return h.snap.list != nil && !h.snap.dirty
+}
+
 func (h *Hive) refreshSnap(ctx context.Context) error {
 	s := &h.snap
 	s.mu.Lock()
@@ -189,11 +224,21 @@ func (h *Hive) refreshSnap(ctx context.Context) error {
 		full = len(ips) > snapMaxIPs
 	}
 	if full {
+		now, gen := time.Now(), analysisGen.Load()
 		s.mu.Lock()
 		s.list = nil // alte Fassung freigeben, bevor die neue entsteht
+		s.fullStart = now
 		s.mu.Unlock()
-		now, gen := time.Now(), analysisGen.Load()
 		list, truncated, err := h.loadAttacks(ctx, now.Add(-snapWindow), nil)
+		s.mu.Lock()
+		s.fullStart = time.Time{}
+		if err != nil {
+			s.fullErr = err.Error()
+			s.fullFails++
+		} else {
+			s.fullErr, s.fullDur = "", time.Since(now)
+		}
+		s.mu.Unlock()
 		if err != nil {
 			return err
 		}
@@ -262,9 +307,16 @@ func (h *Hive) warmSnap(stop <-chan struct{}) {
 			s.list = nil
 		}
 		s.mu.Unlock()
-		if !idle {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-			h.refreshSnap(ctx)
+		if !idle { // gemeinsamer Aufbau mit den Anfragen (snapWait), ohne eigene kürzere Frist
+			ctx, cancel := context.WithCancel(context.Background())
+			go func() {
+				select {
+				case <-stop:
+					cancel()
+				case <-ctx.Done():
+				}
+			}()
+			h.snapWait(ctx)
 			cancel()
 		}
 		select {

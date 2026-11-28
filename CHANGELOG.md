@@ -2,6 +2,17 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.9.7-beta.2] – 2026-11-28
+
+**Update:** Raspberry Pi per Knopf (Kanal Vorabversionen). Docker: `./update.sh`.
+
+### Behoben
+- **Seite Angriffe und Top-Listen blieben auf dem Pi dauerhaft bei „zu viele aufwendige Abfragen“** (0.9.7-beta.1 reichte nicht): Der Schnappschuss aller Angriffe der letzten sieben Tage prüft beim Aufbau jedes Ereignis gegen alle Regeln. Bei rund 40.000 Ereignissen am Tag brauchte das auf einem Pi 3 länger als die bisherige Frist von 5 Minuten. Der Aufbau wurde abgebrochen und neu begonnen, belegte dabei dauerhaft einen CPU-Kern und einen der beiden Plätze für aufwendige Abfragen. Er darf jetzt bis zu 30 Minuten laufen und wird danach wie bisher nur noch schrittweise ergänzt.
+- **Top-Listen ohne Dauer-Brute-Force** warteten mit belegtem Rechenplatz auf diesen Schnappschuss; zwei davon blockierten alle Top-Listen des Dashboards. Fehlt er, warten sie jetzt höchstens 2 Sekunden und ziehen bis zu seiner Fertigstellung nur die verdichteten Versuche ab.
+
+### Neu
+- **System → Hive → „Angriffe (7 Tage)“** zeigt, ob der Schnappschuss fertig ist, wie lange sein Aufbau dauerte, seit wann er gerade aufgebaut wird und wie oft er abgebrochen wurde.
+
 ## [0.9.7-beta.1] – 2026-11-28
 
 **Update:** Raspberry Pi per Knopf (Kanal Vorabversionen). Docker: `./update.sh`.

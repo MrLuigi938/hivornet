@@ -960,6 +960,18 @@ function updateCard(u) {
     h("p", { class: "muted" }, "Vorabversionen bringen neue Funktionen früher, können aber Fehler enthalten. Automatisch geprüft wird zweimal täglich."));
 }
 
+// Zustand des Schnappschusses der Angriffe (attacksnap.go) für die Karte „Hive“.
+function snapshotText(s) {
+  const secs = (ms) => (ms / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 }) + " s";
+  const fails = s.fails ? h("span", { class: "badge warn", title: s.error || "" }, `${fmtNum(s.fails)}× abgebrochen`) : null;
+  const since = s.building_since ? new Date(s.building_since).getTime() : 0;
+  if (since > 0) {
+    return h("span", null, `wird aufgebaut seit ${fmtDur(Math.max(0, Date.now() - since))} `, fails);
+  }
+  if (!s.ready) return h("span", null, s.error ? h("span", { class: "warn-text" }, s.error) : "noch nicht aufgebaut", " ", fails);
+  return h("span", null, `${fmtNum(s.attacks)} im Speicher` + (s.full_ms ? `, Aufbau ${secs(s.full_ms)}` : "") + " ", fails);
+}
+
 // Zeilen zur Größengrenze der Datenbank (dblimit.go) für die Karte „Hive“.
 function dbLimitRows(d) {
   if (!d) return [];
@@ -998,6 +1010,7 @@ async function viewSystem(el, ctx) {
         ["Nicht gespeichert", hv.dropped ? h("span", { class: "badge err" }, fmtNum(hv.dropped)) : "0"],
         ["Warteschlange", fmtNum(hv.queue)], ["Aufbewahrung", hv.retention_days + " Tage"],
         ["Letztes Aufräumen", hv.retention && validDate(hv.retention.last_run) ? relTime(hv.retention.last_run) : "noch nicht"],
+        hv.snapshot ? ["Angriffe (7 Tage)", snapshotText(hv.snapshot)] : null,
         ["Benachrichtigungen", d.notify ? `${fmtNum(d.notify.sent)} gesendet, ${fmtNum(d.notify.suppressed)} unterdrückt` : "–"],
         d.notify && d.notify.last_error ? ["Letzter Sendefehler", h("span", { class: "warn-text" }, d.notify.last_error)] : null])),
       card("GeoIP", kv([["Status", d.geoip.status], ["Stand", validDate(d.geoip.updated) ? fmtDateTime(d.geoip.updated) : "–"],

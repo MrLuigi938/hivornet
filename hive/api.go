@@ -1119,7 +1119,7 @@ func (h *Hive) system(w http.ResponseWriter, r *http.Request) {
 			"goroutines": runtime.NumGoroutine(), "db_bytes": file, "db_used_bytes": used, "disk_free": diskFree(h.dbPath),
 			"events_stored": evStored, "attackers": attackers, "queue": h.writer.QueueLen(), "retention_days": h.retentionDays(),
 			"max_db_bytes": dl.Limit, "db_limit": dl, "written": h.writer.written.Load(), "dropped": h.writer.dropped.Load(),
-			"duplicates": h.writer.dupes.Load(), "retention": h.retention(),
+			"duplicates": h.writer.dupes.Load(), "retention": h.retention(), "snapshot": h.snap.status(),
 		},
 		"geoip":   map[string]any{"status": geoStatus, "updated": geoUpdated},
 		"notify":  h.notifier.Status(),

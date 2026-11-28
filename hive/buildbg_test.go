@@ -58,6 +58,28 @@ func TestTopResBuildError(t *testing.T) {
 	}
 }
 
+// Live-Check 0.9.7-beta.1: Fehlt der Schnappschuss und braucht sein Aufbau länger, wartet die
+// Liste ohne Brute-Force nicht mit belegtem Platz in topSem, sondern zieht vorläufig nur die
+// verdichteten Versuche ab.
+func TestTopNoBruteWithoutSnapshot(t *testing.T) {
+	h := testHive(t)
+	old := snapReadyWait
+	snapReadyWait = 0
+	defer func() { snapReadyWait = old }()
+	hr := time.Now().Add(-2*time.Hour).UnixMilli() / 3600000
+	h.st.db.Exec(`INSERT INTO top_hourly(hour, field, key, label, n) VALUES(?,?,?,?,?)`, hr, "cred", "root / 123456", "", 7)
+	rows, err := h.topNoBrute(t.Context(), "cred", hr-24, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || toInt64(rows[0]["n"]) != 7 {
+		t.Fatalf("vorläufige Liste: %v", rows)
+	}
+	if st := h.snap.status(); st["fails"] != 0 {
+		t.Fatalf("Zustand: %v", st)
+	}
+}
+
 // Schnappschuss: Gibt die Anfrage auf, läuft der Aufbau im Hintergrund zu Ende.
 func TestSnapWaitBuildsInBackground(t *testing.T) {
 	h := testHive(t)
