@@ -2,6 +2,13 @@
 
 Format nach [Keep a Changelog](https://keepachangelog.com/de/1.1.0/), Versionen nach [Semantic Versioning](https://semver.org/lang/de/).
 
+## [0.9.7-beta.1] – 2026-11-28
+
+**Update:** Raspberry Pi per Knopf (Kanal Vorabversionen). Docker: `./update.sh`.
+
+### Behoben
+- **Nach Neustarts nur noch „zu viele aufwendige Abfragen gleichzeitig“:** Auf einem Pi 3 mit langer Aufbewahrung brauchten Top-Listen und der Schnappschuss der Angriffe nach einem Neustart länger als die 20 Sekunden einer Anfrage. Sie wurden abgebrochen und verworfen, jede weitere Anfrage begann von vorn, und das Dashboard kam nicht mehr heraus. Die Seite Angriffe hing dabei minutenlang ohne Antwort. Beides wird jetzt im Hintergrund fertig gerechnet und abgelegt, auch wenn die Anfrage schon aufgegeben hat. Wartende Anfragen bekommen nach höchstens 20 Sekunden eine Antwort.
+
 ## [0.9.7-beta] – 2026-11-26
 
 **Update:** Raspberry Pi per Knopf; der Updater schaltet den Timer der Cowrie-Installation ab, wenn Cowrie fertig ist. Docker: `./update.sh`.

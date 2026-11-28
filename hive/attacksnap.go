@@ -50,7 +50,17 @@ type attackSnap struct {
 	ver       int64     // zählt jede neue Fassung der Liste (related.go)
 	dirty     bool      // Einstellungen geändert: beim nächsten Mal voll neu aufbauen
 	gen       int64     // analysisGen beim vollen Aufbau (geänderte Regeln: neu aufbauen)
+	run       *snapRun  // Aufbau für Anfragen im Hintergrund (snapWait)
 }
+
+// snapRun: ein Aufbau im Hintergrund; done wird geschlossen, wenn err feststeht.
+type snapRun struct {
+	done chan struct{}
+	err  error
+}
+
+// snapBuild: Frist eines Aufbaus im Hintergrund (wie in warmSnap).
+var snapBuild = 5 * time.Minute
 
 // invalidate: beim nächsten Zugriff voll neu aufbauen (geänderte eigene Netze, Brute-Force …).
 func (s *attackSnap) invalidate() {
@@ -80,7 +90,7 @@ func (h *Hive) attacksSince(ctx context.Context, since time.Time) ([]*Attack, bo
 	// Zweiter Versuch, falls zwischen Prüfung und Lesen ein voller Neuaufbau begann (die alte
 	// Fassung ist dann schon freigegeben); refreshSnap wartet auf dessen Ende.
 	for try := 0; try < 2 && list == nil; try++ {
-		if err := h.refreshSnap(ctx); err != nil {
+		if err := h.snapWait(ctx); err != nil {
 			return nil, false, err
 		}
 		list, from, truncated = h.snap.get()
@@ -94,6 +104,45 @@ func (h *Hive) attacksSince(ctx context.Context, since time.Time) ([]*Attack, bo
 	}
 	// War der volle Aufbau gekürzt (sehr viele Ereignisse), fehlen die ältesten Angriffe.
 	return out, truncated && from.After(since), nil
+}
+
+// snapWait bringt den Schnappschuss für eine Anfrage auf Stand, wartet aber höchstens bis ctx
+// abläuft (dann errBusy). Live-Check 0.9.7: Vorher baute die Anfrage selbst auf, mit ihrer
+// 20-Sekunden-Frist; dauerte der volle Aufbau auf dem Pi länger, war die alte Fassung schon
+// freigegeben, die neue wurde verworfen und die nächste Anfrage begann von vorn. Weitere Anfragen
+// warteten ohne Frist an der Sperre und hingen minutenlang. Jetzt läuft der Aufbau im
+// Hintergrund zu Ende, auch wenn die Anfrage aufgibt.
+func (h *Hive) snapWait(ctx context.Context) error {
+	s := &h.snap
+	s.mu.Lock()
+	if s.list != nil && !s.dirty && time.Since(s.checkAt) < snapCheckEvery {
+		s.mu.Unlock()
+		return nil
+	}
+	run := s.run
+	if run == nil {
+		run = &snapRun{done: make(chan struct{})}
+		s.run = run
+		go func() {
+			bctx, cancel := context.WithTimeout(context.Background(), snapBuild)
+			err := h.refreshSnap(bctx)
+			cancel()
+			s.mu.Lock()
+			run.err = err
+			if s.run == run {
+				s.run = nil
+			}
+			s.mu.Unlock()
+			close(run.done)
+		}()
+	}
+	s.mu.Unlock()
+	select {
+	case <-run.done:
+		return run.err
+	case <-ctx.Done():
+		return errBusy
+	}
 }
 
 func (h *Hive) refreshSnap(ctx context.Context) error {

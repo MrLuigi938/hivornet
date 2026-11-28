@@ -305,10 +305,24 @@ type topResEntry struct {
 type topResCache struct {
 	mu      sync.Mutex
 	m       map[topResKey]*topResEntry
-	pending map[topResKey]chan struct{} // gerade synchron in Arbeit: weitere Anfragen warten darauf
+	pending map[topResKey]*topResRun // gerade in Arbeit: weitere Anfragen warten darauf
+}
+
+// topResRun: eine laufende erste Berechnung; done wird geschlossen, wenn b oder err feststehen.
+type topResRun struct {
+	done chan struct{}
+	b    []byte
+	err  error
 }
 
 const topResMaxAge = 30 * time.Minute // älteres wird nicht mehr ausgeliefert, sondern neu gerechnet
+
+// topResBuild: Frist einer Berechnung im Hintergrund. Live-Check 0.9.7 (Pi 3 nach mehreren
+// Neustarts, 365 Tage Aufbewahrung): Mit der 20-Sekunden-Frist der Anfrage wurde eine Liste, die
+// länger brauchte, abgebrochen und verworfen; jede weitere Anfrage begann von vorn und das
+// Dashboard zeigte nur noch "zu viele aufwendige Abfragen". Jetzt rechnet die erste Berechnung
+// im Hintergrund zu Ende und legt das Ergebnis ab, auch wenn die Anfrage schon aufgegeben hat.
+var topResBuild = 2 * time.Minute
 
 var topSem = make(chan struct{}, 2)
 
@@ -321,44 +335,51 @@ func topResTTL(hour int64) time.Duration {
 }
 
 func (c *topResCache) get(ctx context.Context, k topResKey, load func(context.Context) ([]byte, error)) ([]byte, error) {
-	for {
-		c.mu.Lock()
-		if c.m == nil {
-			c.m, c.pending = map[topResKey]*topResEntry{}, map[topResKey]chan struct{}{}
+	c.mu.Lock()
+	if c.m == nil {
+		c.m = map[topResKey]*topResEntry{}
+	}
+	if c.pending == nil {
+		c.pending = map[topResKey]*topResRun{}
+	}
+	e := c.m[k]
+	if e == nil { // längere Zeiträume rücken jede Stunde vor: die Liste der Vorstunde taugt bis zum Neurechnen
+		prev := k
+		prev.hour--
+		e = c.m[prev]
+	}
+	if e != nil && time.Since(e.at) < topResMaxAge {
+		if time.Since(e.at) > topResTTL(k.hour) && !e.busy {
+			e.busy = true
+			go c.refresh(k, e, load)
 		}
-		e := c.m[k]
-		if e == nil { // längere Zeiträume rücken jede Stunde vor: die Liste der Vorstunde taugt bis zum Neurechnen
-			prev := k
-			prev.hour--
-			e = c.m[prev]
-		}
-		if e != nil && time.Since(e.at) < topResMaxAge {
-			if time.Since(e.at) > topResTTL(k.hour) && !e.busy {
-				e.busy = true
-				go c.refresh(k, e, load)
-			}
-			b := e.b
-			c.mu.Unlock()
-			return b, nil
-		}
-		if ch := c.pending[k]; ch != nil { // dieselbe Liste wird schon gerechnet
-			c.mu.Unlock()
-			select {
-			case <-ch:
-				continue
-			case <-ctx.Done():
-				return nil, errBusy
-			}
-		}
-		ch := make(chan struct{})
-		c.pending[k] = ch
+		b := e.b
 		c.mu.Unlock()
-		b, err := c.compute(ctx, k, load)
-		c.mu.Lock()
-		delete(c.pending, k)
-		close(ch)
-		c.mu.Unlock()
-		return b, err
+		return b, nil
+	}
+	run := c.pending[k] // dieselbe Liste wird schon gerechnet: darauf warten
+	if run == nil {
+		run = &topResRun{done: make(chan struct{})}
+		c.pending[k] = run
+		go func() {
+			bctx, cancel := context.WithTimeout(context.Background(), topResBuild)
+			b, err := c.compute(bctx, k, load)
+			cancel()
+			c.mu.Lock()
+			run.b, run.err = b, err
+			if c.pending[k] == run {
+				delete(c.pending, k)
+			}
+			c.mu.Unlock()
+			close(run.done)
+		}()
+	}
+	c.mu.Unlock()
+	select {
+	case <-run.done:
+		return run.b, run.err
+	case <-ctx.Done(): // die Berechnung läuft weiter; die nächste Anfrage findet sie im Speicher
+		return nil, errBusy
 	}
 }
 
@@ -375,6 +396,9 @@ func (c *topResCache) compute(ctx context.Context, k topResKey, load func(contex
 		return nil, err
 	}
 	c.mu.Lock()
+	if c.m == nil {
+		c.m = map[topResKey]*topResEntry{}
+	}
 	c.m[k] = &topResEntry{at: time.Now(), b: b}
 	for x, old := range c.m { // vorgerückte Startstunden und lange nicht Gefragtes vergessen
 		if time.Since(old.at) > topResMaxAge && !old.busy {

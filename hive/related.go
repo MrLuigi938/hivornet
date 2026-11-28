@@ -265,7 +265,7 @@ var relatedCache struct {
 
 // relatedNow: Gruppen aus dem aktuellen Schnappschuss (nil, wenn er nicht aufgebaut werden kann).
 func (h *Hive) relatedNow(ctx context.Context) *relatedResult {
-	if h.refreshSnap(ctx) != nil {
+	if h.snapWait(ctx) != nil {
 		return nil
 	}
 	s := &h.snap
